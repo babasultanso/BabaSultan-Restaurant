@@ -1,0 +1,672 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Global helper functions
+    function isSignedIn() {
+      return request.auth != null && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+
+    function hasUserData() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function getUserData() {
+      return hasUserData() ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data : {};
+    }
+
+    function isRole(roles) {
+      return isSignedIn() && (getUserData().get('role', '') in roles);
+    }
+
+    function isHQOrOwner() {
+      return isSignedIn() && (
+        getUserData().get('role', '') in ['Owner', 'owner'] ||
+        getUserData().get('isOwner', false) == true ||
+        (getUserData().get('role', '') in ['Admin', 'admin'] && getUserData().get('isHQ', false) == true)
+      );
+    }
+
+    function isHQOrAdmin() {
+      return isSignedIn() && (
+        getUserData().get('role', '') in ['Owner', 'owner'] ||
+        getUserData().get('isOwner', false) == true ||
+        getUserData().get('role', '') in ['Admin', 'admin']
+      );
+    }
+
+    function isUserBranch(branchVal) {
+      return isSignedIn() && hasUserData() && branchVal != null && branchVal != '' && branchVal != 'null' && branchVal != 'all' && (
+        isHQOrOwner() ||
+        branchVal == getUserData().get('branchId', '') ||
+        branchVal == getUserData().get('branch', '')
+      );
+    }
+
+    function isManagementOrAccountant() {
+      return isRole(['Owner', 'owner', 'Admin', 'admin', 'Manager', 'manager', 'Accountant', 'accountant']);
+    }
+
+    function isManagement() {
+      return isRole(['Owner', 'owner', 'Admin', 'admin', 'Manager', 'manager']);
+    }
+
+    function isOwnerRole() {
+      return isSignedIn() && hasUserData() && (
+        getUserData().get('role', '') in ['Owner', 'owner'] ||
+        getUserData().get('isOwner', false) == true
+      );
+    }
+
+    function isAdminRole() {
+      return isOwnerRole() || (
+        isSignedIn() && hasUserData() && (
+          getUserData().get('role', '') in ['Admin', 'admin'] ||
+          getUserData().get('isAdmin', false) == true
+        )
+      );
+    }
+
+    function isPOSStaff() {
+      return isSignedIn() && hasUserData() && (
+        getUserData().get('role', '') in ['Owner', 'owner', 'Admin', 'admin', 'Manager', 'manager', 'Accountant', 'accountant', 'Cashier', 'cashier', 'Waiter', 'waiter', 'Staff', 'staff', 'Chef', 'chef', 'Kitchen', 'kitchen', 'Driver', 'driver'] ||
+        getUserData().get('isOwner', false) == true ||
+        getUserData().get('isAdmin', false) == true
+      );
+    }
+
+    // Enterprise Users collection
+    match /users/{userId} {
+      allow read: if isSignedIn() && (request.auth.uid == userId || (isManagementOrAccountant() && (isHQOrOwner() || isUserBranch(resource.data.get('branchId', '')))));
+      allow create: if isSignedIn() && (
+        isOwnerRole() || 
+        (isAdminRole() && 
+         !(request.resource.data.get('role', '') in ['Owner', 'owner', 'Admin', 'admin']) &&
+         request.resource.data.get('isOwner', false) == false &&
+         request.resource.data.get('isAdmin', false) == false &&
+         request.resource.data.get('isHQ', false) == false &&
+         (!('permissions' in request.resource.data) || request.resource.data.permissions.size() == 0) &&
+         isUserBranch(request.resource.data.get('branchId', ''))
+        ) ||
+        (
+          (request.auth.uid == userId || isRole(['Manager', 'manager'])) &&
+          request.resource.data.get('role', 'Cashier') in ['Cashier', 'Staff', 'Kitchen', 'Waiter', 'cashier', 'staff'] &&
+          request.resource.data.get('isAdmin', false) == false &&
+          request.resource.data.get('isOwner', false) == false &&
+          request.resource.data.get('isHQ', false) == false &&
+          request.resource.data.get('status', 'pending') == 'pending' &&
+          request.resource.data.get('branchId', '') == '' &&
+          request.resource.data.get('branch', '') == '' &&
+          (!('permissions' in request.resource.data) || request.resource.data.permissions.size() == 0)
+        )
+      );
+      allow update: if isSignedIn() && (
+        // 1. Owner can update any user record according to existing business rules
+        isOwnerRole() ||
+        // 2. Admin can update non-Owner users, but CANNOT grant Admin/Owner/isHQ privileges, CANNOT grant arbitrary permissions, and CANNOT move users across branches
+        (isAdminRole() && 
+         isUserBranch(resource.data.get('branchId', '')) &&
+         !(resource.data.get('role', '') in ['Owner', 'owner']) &&
+         resource.data.get('isOwner', false) == false &&
+         !(request.resource.data.get('role', '') in ['Owner', 'owner', 'Admin', 'admin']) &&
+         request.resource.data.get('isOwner', false) == false &&
+         request.resource.data.get('isAdmin', false) == false &&
+         request.resource.data.get('isHQ', false) == false &&
+         !request.resource.data.diff(resource.data).affectedKeys().hasAny(['permissions', 'branchId', 'branch', 'isHQ'])
+        ) ||
+        // 3. Manager or Self-User can update profile info, BUT CANNOT touch security-critical fields
+        (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'permissions', 'status', 'isAdmin', 'isOwner', 'isHQ', 'branchId', 'branch']) &&
+         (request.auth.uid == userId || (isManagement() && isUserBranch(resource.data.get('branchId', '')) && isUserBranch(request.resource.data.get('branchId', '')))))
+      );
+      allow delete: if isOwnerRole() || (isAdminRole() && isUserBranch(resource.data.get('branchId', '')) && !(resource.data.get('role', '') in ['Owner', 'owner']) && resource.data.get('isOwner', false) == false);
+    }
+
+    // Activity & Audit Logs collection (Server-authoritative only via /api/audit/activity and trusted backend)
+    match /activity_logs/{logId} {
+      allow read: if isManagementOrAccountant() && isUserBranch(resource.data.get('branchId', ''));
+      allow write: if false;
+    }
+
+    // Financial & Payroll Collections (Restricted to Management / Accountant)
+    match /employees/{employeeId} {
+      allow read: if isSignedIn() && isUserBranch(resource.data.get('branchId', ''));
+      allow create: if isManagementOrAccountant() && isUserBranch(request.resource.data.get('branchId', ''));
+      allow update: if isManagementOrAccountant() && isUserBranch(resource.data.get('branchId', '')) && isUserBranch(request.resource.data.get('branchId', '')) && (
+        isHQOrAdmin() || !request.resource.data.diff(resource.data).affectedKeys().hasAny(['salary', 'role', 'branchId', 'employeeId', 'permissions'])
+      );
+      allow delete: if isManagementOrAccountant() && isUserBranch(resource.data.get('branchId', ''));
+    }
+
+    match /salaries/{salaryId} {
+      allow read: if isManagementOrAccountant() && isUserBranch(resource.data.get('branchId', ''));
+      allow write: if false; // Server-authoritative only via trusted financial backend
+    }
+
+    match /expenses/{expenseId} {
+      allow read: if isManagementOrAccountant() && isUserBranch(resource.data.get('branchId', ''));
+      allow write: if false; // Server-authoritative only via trusted financial backend
+    }
+
+    match /purchases/{purchaseId} {
+      allow read: if isManagementOrAccountant() && isUserBranch(resource.data.get('branchId', ''));
+      allow write: if false; // Server-authoritative only via trusted financial backend
+    }
+
+    match /bank_transactions/{transactionId} {
+      allow read: if isManagementOrAccountant() && isUserBranch(resource.data.get('branchId', ''));
+      allow write: if false; // Server-authoritative only via /api/bank-transactions
+    }
+
+    match /accounts/{accountId} {
+      allow read: if isManagementOrAccountant() && (resource.data.get('branchId', '') == '' || isHQOrOwner() || isUserBranch(resource.data.get('branchId', '')));
+      allow write: if false; // Server-authoritative only via trusted financial backend
+    }
+
+    match /revenues/{revenueId} {
+      allow read: if isManagementOrAccountant() && isUserBranch(resource.data.get('branchId', ''));
+      allow write: if false; // Server-authoritative only via trusted financial backend
+    }
+
+    match /suppliers/{supplierId} {
+      allow read: if isSignedIn() && (resource.data.get('branchId', '') == '' || isHQOrOwner() || isUserBranch(resource.data.get('branchId', '')));
+      allow write: if isManagementOrAccountant() && (request.resource.data.get('branchId', '') == '' ? isHQOrAdmin() : isUserBranch(request.resource.data.get('branchId', '')));
+    }
+
+    // Operational Collections
+    match /orders/{orderId} {
+      allow read: if isSignedIn() && isUserBranch(resource.data.get('branchId', ''));
+      allow write: if false; // Server-authoritative only via /api/pos/complete, /api/orders/:id/update, /api/orders/:id/cancel, /api/orders/:id/refund
+    }
+
+    match /products/{productId} {
+      allow read: if isSignedIn() && isUserBranch(resource.data.get('branchId', ''));
+      allow create: if isManagement() && isUserBranch(request.resource.data.get('branchId', '')) &&
+        (!request.resource.data.keys().hasAny(['stock', 'currentStock', 'quantityOnHand', 'reservedStock', 'salesCount']) || request.resource.data.get('stock', 0) == 0);
+      allow delete: if isManagement() && isUserBranch(resource.data.get('branchId', ''));
+      allow update: if isManagement() && isUserBranch(resource.data.get('branchId', '')) && isUserBranch(request.resource.data.get('branchId', '')) &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['stock', 'currentStock', 'quantityOnHand', 'reservedStock', 'salesCount', 'branchId']);
+    }
+
+    match /ingredients/{ingredientId} {
+      allow read: if isSignedIn() && isUserBranch(resource.data.get('branchId', ''));
+      allow create: if isManagement() && isUserBranch(request.resource.data.get('branchId', '')) &&
+        (!request.resource.data.keys().hasAny(['stock', 'currentQuantity', 'quantityOnHand', 'reservedStock', 'currentStock', 'currentStockUsageUnit']) || request.resource.data.get('stock', 0) == 0);
+      allow delete: if isManagement() && isUserBranch(resource.data.get('branchId', ''));
+      allow update: if isManagement() && isUserBranch(resource.data.get('branchId', '')) && isUserBranch(request.resource.data.get('branchId', '')) &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['stock', 'currentQuantity', 'quantityOnHand', 'reservedStock', 'currentStock', 'currentStockUsageUnit', 'branchId']);
+    }
+
+    match /hold_orders/{holdId} {
+      allow read: if isSignedIn() && isUserBranch(resource.data.get('branchId', ''));
+      allow create: if isPOSStaff() && isUserBranch(request.resource.data.get('branchId', ''));
+      allow update, delete: if isPOSStaff() && isUserBranch(resource.data.get('branchId', '')) && isUserBranch(request.resource.data.get('branchId', ''));
+    }
+
+    match /payments/{paymentId} {
+      allow read: if isSignedIn() && isUserBranch(resource.data.get('branchId', ''));
+      allow write: if false; // Server-authoritative only via /api/pos/complete, /api/orders/:id/refund
+    }
+
+    match /inventory_movements/{movementId} {
+      allow read: if isSignedIn() && isUserBranch(resource.data.get('branchId', ''));
+      allow write: if false; // Server-authoritative only via /api/inventory/adjust
+    }
+
+    match /refunds/{refundId} {
+      allow read: if isSignedIn() && isUserBranch(resource.data.get('branchId', ''));
+      allow write: if false; // Server-authoritative only via /api/orders/:id/refund, /api/crm/wallet/refund
+    }
+
+    match /categories/{categoryId} {
+      allow read: if isSignedIn() && isUserBranch(resource.data.get('branchId', ''));
+      allow create: if isManagement() && isUserBranch(request.resource.data.get('branchId', ''));
+      allow update, delete: if isManagement() && isUserBranch(resource.data.get('branchId', '')) && isUserBranch(request.resource.data.get('branchId', ''));
+    }
+
+    // Customer CRM Collection (Global across restaurant brand)
+    match /customers/{customerId} {
+      allow read: if isSignedIn() && (
+        isPOSStaff() ||
+        isManagementOrAccountant() ||
+        request.auth.uid == customerId ||
+        resource.data.get('userId', '') == request.auth.uid ||
+        resource.data.get('authUid', '') == request.auth.uid
+      );
+      allow create: if isPOSStaff() && (
+        !request.resource.data.keys().hasAny(['totalSpending', 'totalSpent', 'totalOrders', 'averageOrderValue', 'cancelledOrders', 'refundHistoryCount', 'membershipLevel']) ||
+        (request.resource.data.get('totalSpending', 0) == 0 && request.resource.data.get('totalOrders', 0) == 0)
+      );
+      allow update: if (
+        isManagement() || (
+          isPOSStaff() &&
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+            'totalSpending', 'totalSpent', 'totalOrders', 'averageOrderValue', 'cancelledOrders', 'refundHistoryCount', 'membershipLevel'
+          ])
+        )
+      );
+      allow delete: if isManagement();
+    }
+
+    match /branches/{branchId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isHQOrOwner();
+    }
+
+    match /branch_transfers/{transferId} {
+      allow read: if isSignedIn() && (
+        isOwnerRole() ||
+        request.auth.token.get('branchId', '') in ['all', 'HQ', 'hq'] ||
+        isUserBranch(resource.data.get('sourceBranchId', '')) ||
+        isUserBranch(resource.data.get('destinationBranchId', '')) ||
+        isUserBranch(resource.data.get('branchId', ''))
+      );
+      allow create: if isManagement() && isUserBranch(request.resource.data.get('sourceBranchId', ''));
+      allow update: if isManagement() && (isUserBranch(resource.data.get('sourceBranchId', '')) || isUserBranch(resource.data.get('destinationBranchId', ''))) && (isHQOrOwner() || !request.resource.data.diff(resource.data).affectedKeys().hasAny(['sourceBranchId', 'destinationBranchId']));
+      allow delete: if isManagement() && (isUserBranch(resource.data.get('sourceBranchId', '')) || isUserBranch(resource.data.get('destinationBranchId', '')));
+    }
+
+    match /recipes/{recipeId} {
+      allow read: if isSignedIn() && isUserBranch(resource.data.get('branchId', ''));
+      allow create: if isManagement() && isUserBranch(request.resource.data.get('branchId', ''));
+      allow update, delete: if isManagement() && isUserBranch(resource.data.get('branchId', '')) && isUserBranch(request.resource.data.get('branchId', ''));
+    }
+
+    match /ai_settings/{settingId} {
+      allow read: if isSignedIn();
+      allow write: if isHQOrOwner();
+    }
+
+    match /permissions/{permissionId} {
+      allow read: if isManagementOrAccountant();
+      allow write: if isHQOrOwner();
+    }
+
+    // Operations Manager Collections
+    match /delivery_drivers/{driverId} {
+      allow read: if isSignedIn() && (isUserBranch(resource.data.get('branchId', '')) || resource.data.get('userId', '') == request.auth.uid || resource.data.get('driverId', '') == request.auth.uid);
+      allow create, update, delete: if isManagement() && isUserBranch(request.resource.data.get('branchId', ''));
+    }
+
+    match /kitchen_stations/{stationId} {
+      allow read: if isSignedIn() && isUserBranch(resource.data.get('branchId', ''));
+      allow create, update, delete: if isManagement() && isUserBranch(request.resource.data.get('branchId', ''));
+    }
+
+    match /employee_attendance/{attendanceId} {
+      allow read: if isSignedIn() && isUserBranch(resource.data.get('branchId', ''));
+      allow create: if isSignedIn() && (
+        (
+          (request.resource.data.employeeId == request.auth.uid || request.resource.data.get('employeeId', '') == getUserData().get('employeeId', '')) &&
+          isUserBranch(request.resource.data.get('branchId', ''))
+        ) || (
+          isManagement() && isUserBranch(request.resource.data.get('branchId', ''))
+        )
+      );
+      allow update: if isSignedIn() && (
+        (isManagement() && isUserBranch(resource.data.get('branchId', '')) && isUserBranch(request.resource.data.get('branchId', ''))) ||
+        (
+          (resource.data.employeeId == request.auth.uid || getUserData().get('employeeId', '') == resource.data.employeeId) &&
+          isUserBranch(resource.data.get('branchId', '')) &&
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['employeeId', 'branchId', 'checkInTime', 'hourlyRate', 'overtimeRate', 'createdBy'])
+        )
+      );
+      allow delete: if isManagement() && isUserBranch(resource.data.get('branchId', ''));
+    }
+
+    match /reservations/{reservationId} {
+      allow read: if isSignedIn() && isUserBranch(resource.data.get('branchId', ''));
+      allow create, update: if isPOSStaff() && isUserBranch(request.resource.data.get('branchId', ''));
+      allow delete: if isManagement() && isUserBranch(resource.data.get('branchId', ''));
+    }
+
+    match /dining_tables/{tableId} {
+      allow read: if isSignedIn() && isUserBranch(resource.data.get('branchId', ''));
+      allow create, update: if isPOSStaff() && isUserBranch(request.resource.data.get('branchId', ''));
+      allow delete: if isManagement() && isUserBranch(resource.data.get('branchId', ''));
+    }
+
+    match /drivers/{driverId} {
+      allow read: if isSignedIn() && (isUserBranch(resource.data.get('branchId', '')) || resource.data.get('userId', '') == request.auth.uid || resource.data.get('driverId', '') == request.auth.uid);
+      allow create: if isManagement() && isUserBranch(request.resource.data.get('branchId', ''));
+      allow delete: if isManagement() && isUserBranch(resource.data.get('branchId', ''));
+      allow update: if (isManagement() && isUserBranch(resource.data.get('branchId', '')) && isUserBranch(request.resource.data.get('branchId', '')))
+        || (
+          isPOSStaff() &&
+          isUserBranch(resource.data.get('branchId', '')) &&
+          isUserBranch(request.resource.data.get('branchId', '')) &&
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+            'branchId', 'userId', 'employeeId', 'salary', 'commission', 'licenseNumber', 'securityCredentials', 'permissions', 'role', 'ownership'
+          ])
+        );
+    }
+
+    match /deliveries/{deliveryId} {
+      allow read: if isSignedIn() && isUserBranch(resource.data.get('branchId', ''));
+      allow write: if false; // Server-authoritative only via /api/deliveries/*
+    }
+
+    match /delivery_tracking/{trackingId} {
+      allow read: if isSignedIn() && isUserBranch(resource.data.get('branchId', ''));
+      allow write: if false; // Server-authoritative only via /api/deliveries/:id/tracking
+    }
+
+    match /delivery_zones/{zoneId} {
+      allow read: if isSignedIn() && isUserBranch(resource.data.get('branchId', ''));
+      allow create: if isManagement() && isUserBranch(request.resource.data.get('branchId', ''));
+      allow update, delete: if isManagement() && isUserBranch(resource.data.get('branchId', '')) && isUserBranch(request.resource.data.get('branchId', ''));
+    }
+
+    match /delivery_notifications/{notificationId} {
+      allow read: if (isManagement() && isUserBranch(resource.data.get('branchId', ''))) || (isSignedIn() && resource.data.get('driverId', '') == request.auth.uid);
+      allow write: if false; // Server-authoritative only via /api/deliveries/notifications
+    }
+
+    match /notifications/{notificationId} {
+      allow read: if isSignedIn() && (
+        resource.data.recipientId == request.auth.uid ||
+        (isManagement() && isUserBranch(resource.data.get('branchId', '')))
+      );
+      // PREVENT client creation of arbitrary notifications:
+      allow create: if false; // Server-authoritative via Trusted Backend
+      // Allow recipient to mark their own notification as read ONLY:
+      allow update: if isSignedIn() && resource.data.recipientId == request.auth.uid &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read', 'isRead', 'readAt', 'status']);
+      // Allow management to delete:
+      allow delete: if isManagement() && isUserBranch(resource.data.get('branchId', ''));
+    }
+
+    match /notification_tokens/{tokenId} {
+      allow read: if isSignedIn() && (
+        resource.data.userId == request.auth.uid ||
+        (isManagement() && (isHQOrOwner() || isUserBranch(resource.data.get('branchId', ''))))
+      );
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update: if isSignedIn() && resource.data.userId == request.auth.uid && request.resource.data.userId == request.auth.uid;
+      allow delete: if isSignedIn() && (
+        resource.data.userId == request.auth.uid ||
+        (isManagement() && (isHQOrOwner() || isUserBranch(resource.data.get('branchId', ''))))
+      );
+    }
+
+    match /delivery_reports/{reportId} {
+      allow read: if isManagementOrAccountant() && (isHQOrOwner() || isUserBranch(resource.data.get('branchId', '')));
+      allow write: if false; // Server-authoritative only via trusted financial backend
+    }
+
+    match /branch_settings/{settingId} {
+      allow read: if isSignedIn() && isUserBranch(resource.data.get('branchId', ''));
+      allow create: if isManagement() && isUserBranch(request.resource.data.get('branchId', ''));
+      allow update, delete: if isManagement() && isUserBranch(resource.data.get('branchId', '')) && isUserBranch(request.resource.data.get('branchId', ''));
+    }
+
+    match /kitchen_orders/{orderId} {
+      allow read: if isSignedIn() && isUserBranch(resource.data.get('branchId', ''));
+      allow write: if false; // Server-authoritative only via /api/pos/complete and /api/kitchen/*
+    }
+
+    match /kitchen_waste/{wasteId} {
+      allow read: if isSignedIn() && isUserBranch(resource.data.get('branchId', ''));
+      allow create: if isPOSStaff() && isUserBranch(request.resource.data.get('branchId', ''));
+      allow update: if isPOSStaff() && isUserBranch(resource.data.get('branchId', '')) && isUserBranch(request.resource.data.get('branchId', ''));
+      allow delete: if isManagement() && isUserBranch(resource.data.get('branchId', ''));
+    }
+
+    // CRM Collections
+    match /customer_wallets/{id} {
+      allow read: if isSignedIn() && (
+        resource.data.get('customerId', '') == request.auth.uid ||
+        ((isPOSStaff() || isManagementOrAccountant()) && isUserBranch(resource.data.get('branchId', '')))
+      );
+      allow write: if false; // Server-authoritative only via /api/crm/wallet/*
+    }
+
+    match /wallet_transactions/{id} {
+      allow read: if isSignedIn() && (
+        resource.data.get('customerId', '') == request.auth.uid ||
+        ((isPOSStaff() || isManagementOrAccountant()) && isUserBranch(resource.data.get('branchId', '')))
+      );
+      allow write: if false; // Server-authoritative only via /api/crm/wallet/*
+    }
+
+    match /customer_points/{id} {
+      allow read: if isSignedIn() && (
+        resource.data.get('customerId', '') == request.auth.uid ||
+        ((isPOSStaff() || isManagement()) && isUserBranch(resource.data.get('branchId', '')))
+      );
+      allow write: if false; // Server-authoritative only
+    }
+
+    match /customer_rewards/{id} {
+      allow read: if isSignedIn() && (
+        resource.data.get('branchId', '') == '' ||
+        resource.data.get('branchId', '') == 'all' ||
+        resource.data.get('branchId', '') == 'HQ' ||
+        isHQOrOwner() ||
+        isUserBranch(resource.data.get('branchId', ''))
+      );
+      allow write: if false; // Server-authoritative only via /api/crm/rewards
+    }
+
+    match /customer_coupons/{id} {
+      allow read: if isPOSStaff() || isManagement() || (
+        isSignedIn() && (
+          !('targetCustomerId' in resource.data) ||
+          resource.data.targetCustomerId == '' ||
+          resource.data.targetCustomerId == null ||
+          resource.data.targetCustomerId == request.auth.uid
+        )
+      );
+      allow write: if false; // Server-authoritative only via /api/crm/coupons
+    }
+
+    match /customer_notifications/{id} {
+      allow read: if isSignedIn() && (
+        resource.data.get('customerId', '') == request.auth.uid ||
+        resource.data.get('recipientId', '') == request.auth.uid ||
+        (isManagement() && isUserBranch(resource.data.get('branchId', '')))
+      );
+      allow create: if (isPOSStaff() || isManagement()) && isUserBranch(request.resource.data.get('branchId', ''));
+      allow update, delete: if isManagement() && isUserBranch(resource.data.get('branchId', ''));
+    }
+
+    match /claimed_rewards/{id} {
+      allow read: if isSignedIn() && (
+        resource.data.get('customerId', '') == request.auth.uid ||
+        ((isPOSStaff() || isManagement()) && isUserBranch(resource.data.get('branchId', '')))
+      );
+      allow write: if false; // Server-authoritative only
+    }
+
+    // Accounting & Financial Collections
+    match /journal_entries/{id} {
+      allow read: if isManagementOrAccountant() && isUserBranch(resource.data.get('branchId', ''));
+      allow write: if false; // Server-authoritative only via /api/accounting/journal-entries
+    }
+    match /journal_lines/{id} {
+      allow read: if isManagementOrAccountant() && isUserBranch(resource.data.get('branchId', ''));
+      allow write: if false; // Server-authoritative only
+    }
+    match /ledger/{id} {
+      allow read: if isManagementOrAccountant() && isUserBranch(resource.data.get('branchId', ''));
+      allow write: if false; // Server-authoritative only
+    }
+    match /cash_registers/{id} {
+      allow read: if isSignedIn() && isUserBranch(resource.data.get('branchId', ''));
+      allow write: if false; // Server-authoritative only via /api/accounting/cash-registers/*
+    }
+    match /bank_accounts/{id} {
+      allow read: if isManagementOrAccountant() && isUserBranch(resource.data.get('branchId', ''));
+      allow write: if false; // Server-authoritative only via /api/bank-accounts / trusted financial backend
+    }
+    match /receivables/{id} {
+      allow read: if isManagementOrAccountant() && isUserBranch(resource.data.get('branchId', ''));
+      allow write: if false; // Server-authoritative only via trusted financial backend
+    }
+    match /payables/{id} {
+      allow read: if isManagementOrAccountant() && isUserBranch(resource.data.get('branchId', ''));
+      allow write: if false; // Server-authoritative only via trusted financial backend
+    }
+    match /taxes/{id} {
+      allow read: if isSignedIn() && (
+        resource.data.get('branchId', '') == '' || 
+        isHQOrOwner() ||
+        isUserBranch(resource.data.get('branchId', ''))
+      );
+      allow create: if (
+        (request.resource.data.get('branchId', '') == '') 
+          ? isHQOrOwner() 
+          : (isManagement() && isUserBranch(request.resource.data.get('branchId', '')) && request.resource.data.get('branchId', '').size() > 0)
+      );
+      allow update, delete: if (
+        (resource.data.get('branchId', '') == '') 
+          ? isHQOrOwner() 
+          : (isManagement() && isUserBranch(resource.data.get('branchId', '')) && (request.resource.data.get('branchId', '') == resource.data.get('branchId', '')))
+      );
+    }
+    match /financial_reports/{id} {
+      allow read: if isManagementOrAccountant() && isUserBranch(resource.data.get('branchId', ''));
+      allow write: if false; // Server-authoritative only via trusted backend
+    }
+
+    // Inventory Phase Collections
+    match /inventory/{id} {
+      allow read: if isSignedIn() && isUserBranch(resource.data.get('branchId', ''));
+      allow create: if isManagement() && isUserBranch(request.resource.data.get('branchId', '')) &&
+        (!request.resource.data.keys().hasAny(['currentStock', 'currentQuantity', 'stock', 'quantityOnHand', 'availableQuantity', 'reservedStock', 'inventoryQty', 'stockLevel']) || (request.resource.data.get('currentStock', 0) == 0 && request.resource.data.get('currentQuantity', 0) == 0));
+      allow delete: if isManagement() && isUserBranch(resource.data.get('branchId', ''));
+      allow update: if isManagement() && isUserBranch(resource.data.get('branchId', '')) && isUserBranch(request.resource.data.get('branchId', '')) &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['currentStock', 'currentQuantity', 'stock', 'quantityOnHand', 'availableQuantity', 'reservedStock', 'inventoryQty', 'stockLevel', 'branchId']);
+    }
+    match /purchase_orders/{id} {
+      allow read: if isManagementOrAccountant() && isUserBranch(resource.data.get('branchId', ''));
+      allow create: if isManagementOrAccountant() && isUserBranch(request.resource.data.get('branchId', ''));
+      allow update, delete: if isManagementOrAccountant() && isUserBranch(resource.data.get('branchId', '')) && isUserBranch(request.resource.data.get('branchId', ''));
+    }
+    match /purchase_items/{id} {
+      allow read: if isManagementOrAccountant() && isUserBranch(resource.data.get('branchId', ''));
+      allow create: if isManagementOrAccountant() && isUserBranch(request.resource.data.get('branchId', ''));
+      allow update, delete: if isManagementOrAccountant() && isUserBranch(resource.data.get('branchId', '')) && isUserBranch(request.resource.data.get('branchId', ''));
+    }
+    match /supplier_payments/{id} {
+      allow read: if isManagementOrAccountant() && isUserBranch(resource.data.get('branchId', ''));
+      allow write: if false; // Server-authoritative only via trusted financial backend
+    }
+
+    // HRM Collections
+    match /attendance/{id} {
+      allow read: if isSignedIn() && isUserBranch(resource.data.get('branchId', ''));
+      allow create: if isPOSStaff() && isUserBranch(request.resource.data.get('branchId', '')) && (
+        isManagement() ||
+        request.resource.data.get('employeeId', '') == request.auth.uid ||
+        request.resource.data.get('employeeId', '') == getUserData().get('employeeId', '')
+      );
+      allow update: if isUserBranch(resource.data.get('branchId', '')) && isUserBranch(request.resource.data.get('branchId', '')) && (
+        isManagement() || (
+          isPOSStaff() &&
+          (resource.data.get('employeeId', '') == request.auth.uid || getUserData().get('employeeId', '') == resource.data.get('employeeId', '')) &&
+          request.resource.data.get('employeeId', '') == resource.data.get('employeeId', '')
+        )
+      );
+      allow delete: if isManagement() && isUserBranch(resource.data.get('branchId', ''));
+    }
+    match /shifts/{id} {
+      allow read: if isSignedIn() && isUserBranch(resource.data.get('branchId', ''));
+      allow create: if isManagement() && isUserBranch(request.resource.data.get('branchId', ''));
+      allow update, delete: if isManagement() && isUserBranch(resource.data.get('branchId', '')) && isUserBranch(request.resource.data.get('branchId', ''));
+    }
+    match /payroll/{id} {
+      allow read: if isManagementOrAccountant() && isUserBranch(resource.data.get('branchId', ''));
+      allow write: if false; // Server-authoritative only via trusted financial backend (/api/payroll/process, /api/payroll/disburse)
+    }
+    match /leave_requests/{id} {
+      allow read: if isSignedIn() && (
+        resource.data.employeeId == request.auth.uid ||
+        getUserData().get('employeeId', '') == resource.data.employeeId ||
+        (isManagement() && isUserBranch(resource.data.get('branchId', '')))
+      );
+      allow create: if isSignedIn() && (
+        (
+          (request.resource.data.employeeId == request.auth.uid || request.resource.data.get('employeeId', '') == getUserData().get('employeeId', '')) &&
+          isUserBranch(request.resource.data.get('branchId', ''))
+        ) ||
+        (isManagement() && isUserBranch(request.resource.data.get('branchId', '')))
+      ) && request.resource.data.get('status', 'pending') == 'pending' && request.resource.data.get('approvalStatus', 'pending') == 'pending';
+      allow update: if isSignedIn() &&
+        request.resource.data.employeeId == resource.data.employeeId &&
+        request.resource.data.get('branchId', '') == resource.data.get('branchId', '') && (
+          (
+            isManagement() && isUserBranch(resource.data.get('branchId', '')) &&
+            (
+              !(request.resource.data.get('status', '') == 'approved' || request.resource.data.get('approvalStatus', '') == 'approved') ||
+              (request.auth.uid != resource.data.employeeId && getUserData().get('employeeId', '') != resource.data.employeeId)
+            )
+          ) || (
+            (resource.data.employeeId == request.auth.uid || getUserData().get('employeeId', '') == resource.data.employeeId) &&
+            resource.data.status == 'pending' &&
+            !request.resource.data.diff(resource.data).affectedKeys().hasAny(['status', 'approvalStatus', 'approvedBy', 'approvedAt', 'rejectedReason'])
+          )
+        );
+      allow delete: if (isManagement() && isUserBranch(resource.data.get('branchId', ''))) || (
+        (resource.data.employeeId == request.auth.uid || getUserData().get('employeeId', '') == resource.data.employeeId) &&
+        resource.data.status == 'pending'
+      );
+    }
+    match /employee_documents/{id} {
+      allow read: if isManagement() && isUserBranch(resource.data.get('branchId', ''));
+      allow create: if isManagement() && isUserBranch(request.resource.data.get('branchId', ''));
+      allow update, delete: if isManagement() && isUserBranch(resource.data.get('branchId', '')) && isUserBranch(request.resource.data.get('branchId', ''));
+    }
+    match /performance/{id} {
+      allow read: if isManagement() && isUserBranch(resource.data.get('branchId', ''));
+      allow create: if isManagement() && isUserBranch(request.resource.data.get('branchId', ''));
+      allow update, delete: if isManagement() && isUserBranch(resource.data.get('branchId', '')) && isUserBranch(request.resource.data.get('branchId', ''));
+    }
+    match /employee_notifications/{id} {
+      allow read: if isSignedIn() && (
+        resource.data.get('recipientId', '') == request.auth.uid ||
+        resource.data.get('employeeId', '') == request.auth.uid ||
+        (isManagement() && isUserBranch(resource.data.get('branchId', '')))
+      );
+      allow create: if isManagement() && isUserBranch(request.resource.data.get('branchId', ''));
+      allow update, delete: if isManagement() && isUserBranch(resource.data.get('branchId', ''));
+    }
+
+    // Multi-Branch Operations
+    match /customer_feedbacks/{id} {
+      allow read: if isSignedIn() && (
+        resource.data.get('customerId', '') == request.auth.uid ||
+        (isManagement() && isUserBranch(resource.data.get('branchId', '')))
+      );
+      allow create: if isSignedIn() && isUserBranch(request.resource.data.get('branchId', ''));
+      allow update, delete: if isManagement() && isUserBranch(resource.data.get('branchId', ''));
+    }
+    match /equipment_items/{id} {
+      allow read: if isSignedIn() && isUserBranch(resource.data.get('branchId', ''));
+      allow create: if isManagement() && isUserBranch(request.resource.data.get('branchId', ''));
+      allow update, delete: if isManagement() && isUserBranch(resource.data.get('branchId', '')) && isUserBranch(request.resource.data.get('branchId', ''));
+    }
+    match /branch_inventory/{id} {
+      allow read: if isSignedIn() && isUserBranch(resource.data.get('branchId', ''));
+      allow write: if false; // Server-authoritative only
+    }
+    match /branch_reports/{id} {
+      allow read: if isManagementOrAccountant() && isUserBranch(resource.data.get('branchId', ''));
+      allow write: if false; // Server-authoritative only via trusted financial backend
+    }
+    match /employee_transfers/{id} {
+      allow read: if isSignedIn() && (isUserBranch(resource.data.get('fromBranchId', '')) || isUserBranch(resource.data.get('toBranchId', '')));
+      allow create: if isManagement() && (isUserBranch(request.resource.data.get('fromBranchId', '')) || isUserBranch(request.resource.data.get('toBranchId', '')));
+      allow update, delete: if isManagement() && (isUserBranch(resource.data.get('fromBranchId', '')) || isUserBranch(resource.data.get('toBranchId', '')));
+    }
+    match /cash_transfers/{id} {
+      allow read: if isManagementOrAccountant() && isUserBranch(resource.data.get('branchId', ''));
+      allow create: if isManagementOrAccountant() && isUserBranch(request.resource.data.get('branchId', ''));
+      allow update, delete: if false; // Immutable after creation & double-entry posting
+    }
+
+    // Explicit deny for any unknown collections
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

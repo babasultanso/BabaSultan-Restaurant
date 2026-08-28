@@ -1,0 +1,395 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "Enterprise staff or admin profile with RBAC permissions",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "role": { "type": "string", "enum": ["Owner", "Admin", "Manager", "Accountant", "Cashier", "Kitchen", "Waiter", "Delivery Driver"] },
+        "branch": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "suspended", "pending"] },
+        "emailVerified": { "type": "boolean" },
+        "createdAt": { "type": "string" },
+        "lastLoginAt": { "type": "string" }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "ActivityLog": {
+      "title": "Activity & Audit Log",
+      "description": "System activity, authentication events, and audit logs",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "userName": { "type": "string" },
+        "userRole": { "type": "string" },
+        "action": { "type": "string" },
+        "details": { "type": "string" },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["id", "userId", "action", "timestamp"]
+    },
+    "Order": {
+      "title": "Restaurant Order",
+      "description": "Sales or dine-in/takeaway order record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "orderNumber": { "type": "string" },
+        "customerName": { "type": "string" },
+        "totalAmount": { "type": "number" },
+        "status": { "type": "string" },
+        "employeeId": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "orderNumber", "totalAmount", "status"]
+    },
+    "Product": {
+      "title": "Restaurant Product Dish",
+      "description": "Multi-lingual menu item with pricing, SKU, barcode, options, and recipe ingredients",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "nameEn": { "type": "string" },
+        "nameAr": { "type": "string" },
+        "nameSo": { "type": "string" },
+        "category": { "type": "string" },
+        "price": { "type": "number" },
+        "cost": { "type": "number" },
+        "stock": { "type": "number" },
+        "availabilityStatus": { "type": "string", "enum": ["enabled", "disabled", "out_of_stock"] },
+        "sku": { "type": "string" }
+      },
+      "required": ["id", "name", "price"]
+    },
+    "Category": {
+      "title": "Menu Category",
+      "description": "Multi-lingual menu category group with sorting order",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "nameEn": { "type": "string" },
+        "nameAr": { "type": "string" },
+        "nameSo": { "type": "string" },
+        "order": { "type": "number" },
+        "isActive": { "type": "boolean" }
+      },
+      "required": ["id", "name"]
+    },
+    "Customer": {
+      "title": "Restaurant Customer",
+      "description": "Customer contact record, order history, and stats",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string" },
+        "totalOrders": { "type": "number" },
+        "totalSpent": { "type": "number" }
+      },
+      "required": ["id", "name", "phone"]
+    },
+    "DiningTable": {
+      "title": "Dining Room Table",
+      "description": "Restaurant table status, capacity, and current active order",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "tableNumber": { "type": "string" },
+        "section": { "type": "string" },
+        "capacity": { "type": "number" },
+        "status": { "type": "string", "enum": ["available", "occupied", "reserved"] }
+      },
+      "required": ["id", "tableNumber", "status"]
+    },
+    "Payment": {
+      "title": "Order Payment Transaction",
+      "description": "Ledger payment record for POS checkout and billing",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "orderId": { "type": "string" },
+        "orderNumber": { "type": "string" },
+        "amount": { "type": "number" },
+        "method": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "orderId", "amount", "method", "status"]
+    },
+    "HoldOrder": {
+      "title": "Held / Parked Order",
+      "description": "Temporarily parked order waiting to be resumed or checked out",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "holdName": { "type": "string" },
+        "totalAmount": { "type": "number" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "holdName"]
+    },
+    "KitchenOrder": {
+      "title": "Kitchen Display Ticket",
+      "description": "Real-time kitchen display ticket tracking preparation workflow across stations",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "orderId": { "type": "string" },
+        "orderNumber": { "type": "string" },
+        "orderTime": { "type": "string" },
+        "orderType": { "type": "string" },
+        "tableNumber": { "type": "string" },
+        "customerName": { "type": "string" },
+        "prepStatus": { "type": "string", "enum": ["new", "accepted", "cooking", "ready_for_pickup", "completed", "cancelled"] },
+        "priority": { "type": "string", "enum": ["normal", "priority", "urgent"] },
+        "estimatedPrepTimeMinutes": { "type": "number" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "orderId", "orderNumber", "prepStatus"]
+    },
+    "KitchenStation": {
+      "title": "Kitchen Workstation",
+      "description": "Specific kitchen workstation like Grill, Pizza, Drinks, Dessert, Packing",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "stationType": { "type": "string", "enum": ["grill", "pizza", "drinks", "dessert", "packing"] },
+        "assignedChef": { "type": "string" },
+        "activeOrdersCount": { "type": "number" },
+        "status": { "type": "string", "enum": ["normal", "busy", "overloaded"] }
+      },
+      "required": ["id", "name", "stationType", "status"]
+    },
+    "InventoryItem": {
+      "title": "Inventory Raw Material or Finished Item",
+      "description": "Enterprise inventory item with stock limits, costs, reorder levels, location, supplier, expiration, batch number",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "itemName": { "type": "string" },
+        "itemCode": { "type": "string" },
+        "barcode": { "type": "string" },
+        "category": { "type": "string" },
+        "unit": { "type": "string" },
+        "purchaseCost": { "type": "number" },
+        "sellingCost": { "type": "number" },
+        "currentQuantity": { "type": "number" },
+        "minimumQuantity": { "type": "number" },
+        "maximumQuantity": { "type": "number" },
+        "reorderLevel": { "type": "number" },
+        "storageLocation": { "type": "string" },
+        "supplierId": { "type": "string" },
+        "supplierName": { "type": "string" },
+        "expirationDate": { "type": "string" },
+        "batchNumber": { "type": "string" },
+        "status": { "type": "string", "enum": ["in_stock", "low_stock", "out_of_stock", "expired", "overstock"] }
+      },
+      "required": ["id", "itemName", "itemCode", "category", "unit", "currentQuantity"]
+    },
+    "InventoryMovement": {
+      "title": "Inventory Movement Log",
+      "description": "Stock movement audit trail for stock in, stock out, adjustment, transfer, waste, expired, count",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "type": "string" },
+        "itemId": { "type": "string" },
+        "itemName": { "type": "string" },
+        "quantity": { "type": "number" },
+        "unit": { "type": "string" },
+        "reason": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "type", "itemId", "quantity", "reason", "createdAt"]
+    },
+    "PurchaseOrder": {
+      "title": "Purchase Order & Purchasing Workflow",
+      "description": "Purchase request, order, goods receiving, supplier invoice, and returns",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "poNumber": { "type": "string" },
+        "type": { "type": "string" },
+        "supplierId": { "type": "string" },
+        "supplierName": { "type": "string" },
+        "totalAmount": { "type": "number" },
+        "paidAmount": { "type": "number" },
+        "status": { "type": "string" },
+        "approvalStatus": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "poNumber", "supplierId", "totalAmount", "status"]
+    },
+    "Supplier": {
+      "title": "Vendor Supplier Profile",
+      "description": "Vendor company details, contact info, payment terms, rating, and outstanding balance",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "companyName": { "type": "string" },
+        "contactPerson": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string" },
+        "address": { "type": "string" },
+        "taxNumber": { "type": "string" },
+        "paymentTerms": { "type": "string" },
+        "outstandingBalance": { "type": "number" },
+        "rating": { "type": "number" }
+      },
+      "required": ["id", "companyName", "contactPerson", "phone"]
+    },
+    "SupplierPayment": {
+      "title": "Supplier Payment Ledger Entry",
+      "description": "Payment made to vendor supplier for purchase order",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "supplierId": { "type": "string" },
+        "amount": { "type": "number" },
+        "paymentMethod": { "type": "string" },
+        "referenceNumber": { "type": "string" },
+        "paymentDate": { "type": "string" }
+      },
+      "required": ["id", "supplierId", "amount", "paymentMethod"]
+    },
+    "CustomerWallet": {
+      "title": "Customer Digital Wallet",
+      "description": "Customer wallet account balance, recharge history, and payments",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "customerId": { "type": "string" },
+        "balance": { "type": "number" },
+        "currency": { "type": "string" }
+      },
+      "required": ["id", "customerId", "balance"]
+    },
+    "CustomerPoints": {
+      "title": "Customer Loyalty Points",
+      "description": "Loyalty points balance, lifetime points, and tier level",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "customerId": { "type": "string" },
+        "currentPointsBalance": { "type": "number" },
+        "lifetimePoints": { "type": "number" },
+        "membershipLevel": { "type": "string", "enum": ["Bronze", "Silver", "Gold", "Platinum", "VIP"] }
+      },
+      "required": ["id", "customerId", "currentPointsBalance"]
+    },
+    "CustomerCoupon": {
+      "title": "Promotional Coupon",
+      "description": "Promotional discount codes, birthday offers, and seasonal vouchers",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "code": { "type": "string" },
+        "discountType": { "type": "string", "enum": ["percentage", "fixed_amount"] },
+        "discountValue": { "type": "number" },
+        "minOrderAmount": { "type": "number" },
+        "expiryDate": { "type": "string" },
+        "isActive": { "type": "boolean" }
+      },
+      "required": ["id", "code", "discountType", "discountValue"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Collection of user profiles and role attributes"
+    },
+    "/activity_logs/{logId}": {
+      "schema": { "$ref": "#/entities/ActivityLog" },
+      "description": "Collection of system activity and audit logs"
+    },
+    "/orders/{orderId}": {
+      "schema": { "$ref": "#/entities/Order" },
+      "description": "Collection of restaurant transaction orders"
+    },
+    "/products/{productId}": {
+      "schema": { "$ref": "#/entities/Product" },
+      "description": "Collection of menu product items"
+    },
+    "/categories/{categoryId}": {
+      "schema": { "$ref": "#/entities/Category" },
+      "description": "Collection of menu categories"
+    },
+    "/customers/{customerId}": {
+      "schema": { "$ref": "#/entities/Customer" },
+      "description": "Collection of restaurant customers"
+    },
+    "/customer_wallets/{walletId}": {
+      "schema": { "$ref": "#/entities/CustomerWallet" },
+      "description": "Collection of customer digital wallets"
+    },
+    "/wallet_transactions/{txId}": {
+      "schema": { "type": "object" },
+      "description": "Collection of customer wallet recharges and payments"
+    },
+    "/customer_points/{pointsId}": {
+      "schema": { "$ref": "#/entities/CustomerPoints" },
+      "description": "Collection of customer loyalty points"
+    },
+    "/customer_rewards/{rewardId}": {
+      "schema": { "type": "object" },
+      "description": "Collection of redeemable loyalty rewards"
+    },
+    "/customer_coupons/{couponId}": {
+      "schema": { "$ref": "#/entities/CustomerCoupon" },
+      "description": "Collection of promotional coupons"
+    },
+    "/customer_notifications/{notificationId}": {
+      "schema": { "type": "object" },
+      "description": "Collection of CRM customer notifications"
+    },
+    "/dining_tables/{tableId}": {
+      "schema": { "$ref": "#/entities/DiningTable" },
+      "description": "Collection of dining room tables"
+    },
+    "/payments/{paymentId}": {
+      "schema": { "$ref": "#/entities/Payment" },
+      "description": "Collection of payment transaction logs"
+    },
+    "/hold_orders/{holdId}": {
+      "schema": { "$ref": "#/entities/HoldOrder" },
+      "description": "Collection of held or parked orders"
+    },
+    "/kitchen_orders/{kitchenOrderId}": {
+      "schema": { "$ref": "#/entities/KitchenOrder" },
+      "description": "Collection of real-time kitchen display tickets"
+    },
+    "/kitchen_stations/{stationId}": {
+      "schema": { "$ref": "#/entities/KitchenStation" },
+      "description": "Collection of kitchen workstations"
+    },
+    "/inventory/{itemId}": {
+      "schema": { "$ref": "#/entities/InventoryItem" },
+      "description": "Collection of raw materials, finished products, beverages, packaging, cleaning supplies"
+    },
+    "/inventory_movements/{movementId}": {
+      "schema": { "$ref": "#/entities/InventoryMovement" },
+      "description": "Collection of inventory movement audit logs"
+    },
+    "/purchase_orders/{poId}": {
+      "schema": { "$ref": "#/entities/PurchaseOrder" },
+      "description": "Collection of purchase requests, orders, receiving slips, invoices, returns"
+    },
+    "/suppliers/{supplierId}": {
+      "schema": { "$ref": "#/entities/Supplier" },
+      "description": "Collection of vendor suppliers"
+    },
+    "/supplier_payments/{paymentId}": {
+      "schema": { "$ref": "#/entities/SupplierPayment" },
+      "description": "Collection of supplier payments"
+    }
+  }
+}

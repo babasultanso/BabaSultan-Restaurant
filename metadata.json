@@ -1,0 +1,6 @@
+{
+  "name": "Restaurant AI Business Assistant",
+  "description": "Restaurant ERP System featuring AI CEO Executive Suite, AI Operations Manager, AI Financial Advisor (CFO) & AI Accountant (CPA) with real-time Firestore monitoring, Business Health Score (0-100), smart decisions, multi-lingual executive query support (English, Arabic, Somali), risk radar, and forecasting.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
