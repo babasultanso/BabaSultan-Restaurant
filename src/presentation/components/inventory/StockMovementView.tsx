@@ -1,6 +1,8 @@
+import { translations } from '../../../i18n/translations';
+import { translateRawUi } from '../../../i18n/rawUi';
 import React, { useState } from 'react';
 import { InventoryMovement, InventoryItem } from '../../../domain/entities/inventory';
-import { InventoryLang, inventoryDict } from './translations';
+import { InventoryLang, inventoryDict } from '../../../i18n';
 import {
   ArrowDownLeft,
   ArrowUpRight,
@@ -33,8 +35,10 @@ export const StockMovementView: React.FC<StockMovementViewProps> = ({
   onRecordMovement,
   initialMovementType
 }) => {
-  const t = inventoryDict[lang] || inventoryDict.en;
-  const isReadOnly = userRole === 'Kitchen' || userRole === 'Cashier';
+  const t = { ...(inventoryDict[lang] || inventoryDict.en), legacyUi: translations[lang].legacyUi };
+  const normalizedRole = String(userRole || '').trim().toLowerCase();
+  const canRecordMovement = ['owner', 'admin', 'manager', 'accountant'].includes(normalizedRole);
+  const isReadOnly = !canRecordMovement;
 
   const [filterType, setFilterType] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -45,10 +49,10 @@ export const StockMovementView: React.FC<StockMovementViewProps> = ({
   const [movType, setMovType] = useState<'stock_in' | 'stock_out' | 'adjustment' | 'transfer' | 'waste'>(
     initialMovementType || 'stock_in'
   );
-  const [quantity, setQuantity] = useState<number>(1);
+  const [quantity, setQuantity] = useState<number>(0);
   const [reason, setReason] = useState<string>('');
-  const [fromLocation, setFromLocation] = useState<string>('Main Warehouse');
-  const [toLocation, setToLocation] = useState<string>('Kitchen Prep Station');
+  const [fromLocation, setFromLocation] = useState<string>('');
+  const [toLocation, setToLocation] = useState<string>('');
 
   // Filter Movements
   const filteredMovements = movements.filter((m) => {
@@ -108,7 +112,7 @@ export const StockMovementView: React.FC<StockMovementViewProps> = ({
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search movement by item, reason, user..."
+            placeholder={translateRawUi('Search movement by item, reason, user...')}
             className="w-full bg-slate-950 border border-slate-800 pl-10 pr-4 py-2.5 rounded-2xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 transition"
           />
         </div>
@@ -121,16 +125,16 @@ export const StockMovementView: React.FC<StockMovementViewProps> = ({
             onChange={(e) => setFilterType(e.target.value)}
             className="bg-slate-950 border border-slate-800 text-xs text-white rounded-2xl px-3 py-2.5 focus:outline-none focus:border-amber-500"
           >
-            <option value="all">All Movement Types</option>
-            <option value="stock_in">Stock In</option>
-            <option value="stock_out">Stock Out</option>
-            <option value="adjustment">Adjustment</option>
-            <option value="transfer">Transfer</option>
-            <option value="waste">Waste</option>
-            <option value="expired">Expired Disposal</option>
+            <option value="all">{t.legacyUi.allMovementTypes}</option>
+            <option value="stock_in">{t.legacyUi.stockIn}</option>
+            <option value="stock_out">{t.legacyUi.stockOut}</option>
+            <option value="adjustment">{translateRawUi('Adjustment')}</option>
+            <option value="transfer">{translateRawUi('Transfer')}</option>
+            <option value="waste">{translateRawUi('Waste')}</option>
+            <option value="expired">{t.legacyUi.expiredDisposal}</option>
           </select>
 
-          {!isReadOnly && (
+          {canRecordMovement && (
             <button
               onClick={() => {
                 setMovType('stock_in');
@@ -138,7 +142,7 @@ export const StockMovementView: React.FC<StockMovementViewProps> = ({
               }}
               className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold px-4 py-2.5 rounded-2xl transition cursor-pointer text-xs flex items-center gap-1.5 shadow-lg shadow-amber-500/20"
             >
-              <Plus className="w-4 h-4" /> Record Movement
+              <Plus className="w-4 h-4" /> {translateRawUi('Record Movement')}
             </button>
           )}
 
@@ -152,13 +156,13 @@ export const StockMovementView: React.FC<StockMovementViewProps> = ({
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] font-extrabold tracking-wider border-b border-slate-800">
               <tr>
-                <th className="p-4">Type</th>
-                <th className="p-4">Item Name</th>
-                <th className="p-4 text-center">Qty Change</th>
-                <th className="p-4 text-center">Prev → New Qty</th>
-                <th className="p-4">Reason / Locations</th>
-                <th className="p-4">Recorded By</th>
-                <th className="p-4 text-right">Timestamp</th>
+                <th className="p-4">{translateRawUi('Type')}</th>
+                <th className="p-4">{t.legacyUi.itemName}</th>
+                <th className="p-4 text-center">{t.legacyUi.qtyChange}</th>
+                <th className="p-4 text-center">{t.legacyUi.prevNewQty}</th>
+                <th className="p-4">{t.legacyUi.reasonLocations}</th>
+                <th className="p-4">{t.legacyUi.recordedBy}</th>
+                <th className="p-4 text-right">{translateRawUi('Timestamp')}</th>
               </tr>
             </thead>
 
@@ -167,7 +171,7 @@ export const StockMovementView: React.FC<StockMovementViewProps> = ({
                 <tr>
                   <td colSpan={7} className="p-12 text-center text-slate-500">
                     <Clock className="w-10 h-10 mx-auto text-slate-700 mb-2" />
-                    No stock movements recorded matching your criteria.
+                    {translateRawUi('No stock movements recorded matching your criteria.')}
                   </td>
                 </tr>
               ) : (
@@ -260,7 +264,7 @@ export const StockMovementView: React.FC<StockMovementViewProps> = ({
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 w-full max-w-lg shadow-2xl space-y-5">
             
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="text-sm font-extrabold text-white">Record Stock Movement</h3>
+              <h3 className="text-sm font-extrabold text-white">{t.legacyUi.recordStockMovement}</h3>
               <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-white">
                 <X className="w-4 h-4" />
               </button>
@@ -269,7 +273,7 @@ export const StockMovementView: React.FC<StockMovementViewProps> = ({
             <form onSubmit={handleSubmit} className="space-y-4 text-xs">
               
               <div>
-                <label className="block text-slate-400 font-bold mb-1">Select Item *</label>
+                <label className="block text-slate-400 font-bold mb-1">{t.legacyUi.selectItemRequired}</label>
                 <select
                   required
                   value={selectedItemId}
@@ -285,22 +289,22 @@ export const StockMovementView: React.FC<StockMovementViewProps> = ({
               </div>
 
               <div>
-                <label className="block text-slate-400 font-bold mb-1">Movement Type *</label>
+                <label className="block text-slate-400 font-bold mb-1">{t.legacyUi.movementTypeRequired}</label>
                 <select
                   value={movType}
                   onChange={(e) => setMovType(e.target.value as any)}
                   className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-3 text-white focus:border-amber-500 focus:outline-none"
                 >
-                  <option value="stock_in">Stock In (Purchase / Intake)</option>
-                  <option value="stock_out">Stock Out (Kitchen Usage / Dispatch)</option>
-                  <option value="adjustment">Physical Stock Adjustment</option>
-                  <option value="transfer">Internal Warehouse Transfer</option>
-                  <option value="waste">Damage / Spoilage / Waste</option>
+                  <option value="stock_in">{t.legacyUi.stockInPurchase}</option>
+                  <option value="stock_out">{t.legacyUi.stockOutKitchen}</option>
+                  <option value="adjustment">{t.legacyUi.physicalStockAdjustment}</option>
+                  <option value="transfer">{t.legacyUi.internalWarehouseTransfer}</option>
+                  <option value="waste">{t.legacyUi.damageSpoilageWaste}</option>
                 </select>
               </div>
 
               <div>
-                <label className="block text-slate-400 font-bold mb-1">Quantity *</label>
+                <label className="block text-slate-400 font-bold mb-1">{t.legacyUi.quantityRequired}</label>
                 <input
                   type="number"
                   required
@@ -315,7 +319,7 @@ export const StockMovementView: React.FC<StockMovementViewProps> = ({
               {movType === 'transfer' && (
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-slate-400 font-bold mb-1">From Location</label>
+                    <label className="block text-slate-400 font-bold mb-1">{t.legacyUi.fromLocation}</label>
                     <input
                       type="text"
                       value={fromLocation}
@@ -324,7 +328,7 @@ export const StockMovementView: React.FC<StockMovementViewProps> = ({
                     />
                   </div>
                   <div>
-                    <label className="block text-slate-400 font-bold mb-1">To Location</label>
+                    <label className="block text-slate-400 font-bold mb-1">{t.legacyUi.toLocation}</label>
                     <input
                       type="text"
                       value={toLocation}
@@ -336,13 +340,13 @@ export const StockMovementView: React.FC<StockMovementViewProps> = ({
               )}
 
               <div>
-                <label className="block text-slate-400 font-bold mb-1">Reason / Reference Notes *</label>
+                <label className="block text-slate-400 font-bold mb-1">{t.legacyUi.reasonReferenceNotes}</label>
                 <input
                   type="text"
                   required
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
-                  placeholder="e.g., Weekly kitchen preparation stock issue"
+                  placeholder={translateRawUi('e.g., Weekly kitchen preparation stock issue')}
                   className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-3 text-white focus:border-amber-500 focus:outline-none"
                 />
               </div>
@@ -353,13 +357,13 @@ export const StockMovementView: React.FC<StockMovementViewProps> = ({
                   onClick={() => setIsModalOpen(false)}
                   className="px-4 py-2 rounded-2xl bg-slate-800 text-slate-300 font-bold"
                 >
-                  Cancel
+                  {translateRawUi('Cancel')}
                 </button>
                 <button
                   type="submit"
                   className="px-5 py-2 rounded-2xl bg-amber-500 text-slate-950 font-black cursor-pointer shadow-lg shadow-amber-500/20"
                 >
-                  Commit Movement
+                  {translateRawUi('Commit Movement')}
                 </button>
               </div>
 

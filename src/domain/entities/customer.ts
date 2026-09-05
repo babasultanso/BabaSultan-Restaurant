@@ -23,6 +23,7 @@ export interface Customer {
   fullName?: string;
   name?: string; // Backward compatibility alias
   phone: string;
+  branchId?: string;
   email?: string;
   gender?: CustomerGender;
   dateOfBirth?: string;
@@ -114,6 +115,7 @@ export interface CustomerReward {
   maxRedemptions?: number;
   currentRedemptions: number;
   createdAt: string;
+  branchId?: string;
 }
 
 export interface ClaimedReward {
@@ -151,6 +153,7 @@ export interface CustomerCoupon {
   usageCount: number;
   isActive: boolean;
   createdAt: string;
+  branchId?: string;
 }
 
 export type NotificationChannel = 'email' | 'sms' | 'push' | 'whatsapp';

@@ -13,7 +13,7 @@ import {
   where,
   writeBatch
 } from 'firebase/firestore';
-import { db, COLLECTIONS, recordInventoryMovementFirestore, getAuthToken } from '../../lib/firebase';
+import { db, COLLECTIONS, recordInventoryMovementFirestore, getAuthToken, getEffectiveBranchId } from '../../lib/firebase';
 import { getApiUrl } from '../../lib/apiConfig';
 import { IInventoryRepository } from '../../domain/repositories/IInventoryRepository';
 import {
@@ -109,7 +109,7 @@ export class InventoryRepositoryImpl implements IInventoryRepository {
           'Content-Type': 'application/json',
           ...(token ? { 'Authorization': `Bearer ${token}` } : {})
         },
-        body: JSON.stringify({ itemData: { ...itemData, status } })
+        body: JSON.stringify({ itemData: { ...itemData, status, idempotencyKey: `${Date.now()}-${Math.random().toString(36).slice(2)}` } })
       });
 
       if (!res.ok) {
@@ -134,7 +134,7 @@ export class InventoryRepositoryImpl implements IInventoryRepository {
           'Content-Type': 'application/json',
           ...(token ? { 'Authorization': `Bearer ${token}` } : {})
         },
-        body: JSON.stringify(updateData)
+        body: JSON.stringify({ ...updateData, idempotencyKey: (updateData as any).idempotencyKey || `${Date.now()}-${Math.random().toString(36).slice(2)}` })
       });
 
       if (!res.ok) {
@@ -155,7 +155,8 @@ export class InventoryRepositoryImpl implements IInventoryRepository {
         headers: {
           'Content-Type': 'application/json',
           ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-        }
+        },
+        body: JSON.stringify({ idempotencyKey: `${Date.now()}-${Math.random().toString(36).slice(2)}` })
       });
 
       if (!res.ok) {
@@ -201,7 +202,7 @@ export class InventoryRepositoryImpl implements IInventoryRepository {
 
   async recordMovement(movementData: Omit<InventoryMovement, 'id' | 'createdAt'>): Promise<InventoryMovement> {
     try {
-      const movementId = await recordInventoryMovementFirestore(movementData as any);
+      const movementId = await recordInventoryMovementFirestore({ ...movementData, itemType: 'inventory' } as any);
       return {
         ...movementData,
         id: movementId,
@@ -253,7 +254,7 @@ export class InventoryRepositoryImpl implements IInventoryRepository {
           'Content-Type': 'application/json',
           ...(token ? { 'Authorization': `Bearer ${token}` } : {})
         },
-        body: JSON.stringify({ poData })
+        body: JSON.stringify({ poData: { ...poData, idempotencyKey: (poData as any).idempotencyKey || `${Date.now()}-${Math.random().toString(36).slice(2)}` } })
       });
 
       if (!res.ok) {
@@ -278,7 +279,7 @@ export class InventoryRepositoryImpl implements IInventoryRepository {
           'Content-Type': 'application/json',
           ...(token ? { 'Authorization': `Bearer ${token}` } : {})
         },
-        body: JSON.stringify(poData)
+        body: JSON.stringify({ ...poData, idempotencyKey: (poData as any).idempotencyKey || `${Date.now()}-${Math.random().toString(36).slice(2)}` })
       });
 
       if (!res.ok) {
@@ -300,7 +301,7 @@ export class InventoryRepositoryImpl implements IInventoryRepository {
           'Content-Type': 'application/json',
           ...(token ? { 'Authorization': `Bearer ${token}` } : {})
         },
-        body: JSON.stringify({ approvedBy })
+        body: JSON.stringify({ approvedBy, idempotencyKey: `${Date.now()}-${Math.random().toString(36).slice(2)}` })
       });
 
       if (!res.ok) {
@@ -326,7 +327,7 @@ export class InventoryRepositoryImpl implements IInventoryRepository {
           'Content-Type': 'application/json',
           ...(token ? { 'Authorization': `Bearer ${token}` } : {})
         },
-        body: JSON.stringify({ poId, receivedItems, receivedBy })
+        body: JSON.stringify({ poId, receivedItems, receivedBy, idempotencyKey: `${Date.now()}-${Math.random().toString(36).slice(2)}` })
       });
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
@@ -376,8 +377,10 @@ export class InventoryRepositoryImpl implements IInventoryRepository {
     try {
       const newRef = doc(collection(db, COLLECTIONS.SUPPLIERS));
       const now = new Date().toISOString();
+      const branchId = getEffectiveBranchId((supplierData as any).branchId || (supplierData as any).branch);
       const sup: Supplier = {
         ...supplierData,
+        branchId,
         id: newRef.id,
         createdAt: now,
         updatedAt: now
@@ -406,7 +409,11 @@ export class InventoryRepositoryImpl implements IInventoryRepository {
   async deleteSupplier(id: string): Promise<void> {
     try {
       const supRef = doc(db, COLLECTIONS.SUPPLIERS, id);
-      await deleteDoc(supRef);
+      await updateDoc(supRef, {
+        isActive: false,
+        isArchived: true,
+        deletedAt: new Date().toISOString()
+      });
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, `${COLLECTIONS.SUPPLIERS}/${id}`);
       throw err;
@@ -433,13 +440,15 @@ export class InventoryRepositoryImpl implements IInventoryRepository {
   async recordSupplierPayment(paymentData: Omit<SupplierPayment, 'id' | 'createdAt'>): Promise<SupplierPayment> {
     try {
       const token = await getAuthToken();
+      const idempotencyKey = (paymentData as any).idempotencyKey || `supplier-payment:${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
       const res = await fetch(getApiUrl('/api/purchases/supplier-payment'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Idempotency-Key': idempotencyKey,
           ...(token ? { 'Authorization': `Bearer ${token}` } : {})
         },
-        body: JSON.stringify(paymentData)
+        body: JSON.stringify({ ...paymentData, idempotencyKey })
       });
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
@@ -448,8 +457,8 @@ export class InventoryRepositoryImpl implements IInventoryRepository {
       const data = await res.json();
       return {
         ...paymentData,
-        id: data.id || 'sup_pay_' + Date.now(),
-        createdAt: new Date().toISOString()
+        id: data.id,
+        createdAt: data.createdAt || new Date().toISOString()
       };
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, COLLECTIONS.SUPPLIER_PAYMENTS);

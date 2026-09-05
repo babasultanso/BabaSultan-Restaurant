@@ -1,3 +1,5 @@
+import { translateRawUi } from '../../../i18n';
+import { useAuth } from '../../context/AuthContext';
 import React, { useState } from 'react';
 import { Customer, NotificationChannel } from '../../../domain/entities/customer';
 import { Mail, MessageSquare, Send, Smartphone, Sparkles, X, CheckCircle, AlertCircle } from 'lucide-react';
@@ -16,6 +18,7 @@ export const CustomerMessagingModal: React.FC<CustomerMessagingModalProps> = ({
   onClose,
   onSent
 }) => {
+  const { t } = useAuth();
   const [channel, setChannel] = useState<NotificationChannel>('sms');
   const [title, setTitle] = useState('');
   const [message, setMessage] = useState('');
@@ -77,7 +80,7 @@ export const CustomerMessagingModal: React.FC<CustomerMessagingModalProps> = ({
               <Send className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-white">Send Customer Communication</h3>
+              <h3 className="text-base font-bold text-white">{t.legacyUi.sendCustomerCommunication}</h3>
               <p className="text-xs text-slate-400">
                 {customer ? `Direct dispatch to ${customer.fullName}` : 'Broadcast to customer target list'}
               </p>
@@ -93,8 +96,8 @@ export const CustomerMessagingModal: React.FC<CustomerMessagingModalProps> = ({
             <div className="w-16 h-16 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto">
               <CheckCircle className="w-8 h-8" />
             </div>
-            <h4 className="text-base font-bold text-white">Message Dispatched Successfully!</h4>
-            <p className="text-xs text-slate-400">Recorded in customer communication logs.</p>
+            <h4 className="text-base font-bold text-white">{t.legacyUi.messageDispatched}</h4>
+            <p className="text-xs text-slate-400">{t.legacyUi.recordedCommunicationLog}</p>
           </div>
         ) : (
           <form onSubmit={handleSend} className="space-y-4">
@@ -107,7 +110,7 @@ export const CustomerMessagingModal: React.FC<CustomerMessagingModalProps> = ({
 
             {/* Channel Selection */}
             <div>
-              <label className="text-xs font-semibold text-slate-300 mb-2 block">Communication Channel</label>
+              <label className="text-xs font-semibold text-slate-300 mb-2 block">{t.legacyUi.communicationChannel}</label>
               <div className="grid grid-cols-4 gap-2">
                 {[
                   { id: 'sms', label: 'SMS', icon: MessageSquare },
@@ -138,7 +141,7 @@ export const CustomerMessagingModal: React.FC<CustomerMessagingModalProps> = ({
 
             {/* Recipient */}
             <div>
-              <label className="text-xs font-semibold text-slate-300 mb-1.5 block">Recipient Detail</label>
+              <label className="text-xs font-semibold text-slate-300 mb-1.5 block">{t.legacyUi.recipientDetail}</label>
               <input
                 type="text"
                 value={recipient}
@@ -150,24 +153,24 @@ export const CustomerMessagingModal: React.FC<CustomerMessagingModalProps> = ({
 
             {/* Title */}
             <div>
-              <label className="text-xs font-semibold text-slate-300 mb-1.5 block">Subject / Headline (Optional)</label>
+              <label className="text-xs font-semibold text-slate-300 mb-1.5 block">{t.legacyUi.subjectHeadlineOptional}</label>
               <input
                 type="text"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                placeholder="e.g. Your VIP Reward Code or Exclusive Weekend Offer"
+                placeholder={translateRawUi('e.g. Your VIP Reward Code or Exclusive Weekend Offer')}
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500"
               />
             </div>
 
             {/* Message Body */}
             <div>
-              <label className="text-xs font-semibold text-slate-300 mb-1.5 block">Message Body</label>
+              <label className="text-xs font-semibold text-slate-300 mb-1.5 block">{t.legacyUi.messageBody}</label>
               <textarea
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
                 rows={4}
-                placeholder="Type your message here..."
+                placeholder={translateRawUi('Type your message here...')}
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500 resize-none"
               />
             </div>
@@ -178,7 +181,7 @@ export const CustomerMessagingModal: React.FC<CustomerMessagingModalProps> = ({
                 onClick={onClose}
                 className="px-4 py-2.5 rounded-xl bg-slate-800 text-slate-300 text-xs font-semibold hover:bg-slate-700"
               >
-                Cancel
+                {translateRawUi('Cancel')}
               </button>
               <button
                 type="submit"

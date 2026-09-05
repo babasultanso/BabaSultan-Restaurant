@@ -1,5 +1,6 @@
+import { translateRawUi } from '../../../i18n/rawUi';
 import React, { useState, useEffect, useMemo } from 'react';
-import { collection, onSnapshot, query, orderBy, where } from 'firebase/firestore';
+import { collection, getDocs, onSnapshot, orderBy, query, where } from 'firebase/firestore';
 import { db, COLLECTIONS } from '../../../lib/firebase';
 import { getCanonicalBranchId, getBranchDisplayName, areBranchesMatching } from '../../../lib/branchUtils';
 import { 
@@ -95,7 +96,7 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
   initialZones,
   language
 }) => {
-  const { userRecord, role, language: authLang } = useAuth();
+  const { userRecord, role, language: authLang, t} = useAuth();
   const currentLang = (language || authLang || 'en') as Language;
 
   const [activeTab, setActiveTab] = useState<
@@ -112,6 +113,21 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
   const [zones, setZones] = useState<DeliveryZone[]>(
     initialZones && initialZones.length > 0 ? initialZones : []
   );
+  const [availableBranches, setAvailableBranches] = useState<Array<{ id: string; name?: string; code?: string }>>([]);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const snap = await getDocs(collection(db, COLLECTIONS.BRANCHES));
+        if (!active) return;
+        setAvailableBranches(snap.docs.map(d => { const data = d.data() as any; return { id: d.id, name: data.name, code: data.code }; }));
+      } catch (err) {
+        console.warn('Could not load branch options:', err);
+      }
+    })();
+    return () => { active = false; };
+  }, []);
   const [notifications, setNotifications] = useState<DeliveryNotification[]>([]);
 
   // Selected Delivery for Live Map Tracking
@@ -145,14 +161,14 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
   }>({
     fullName: '',
     employeeId: '',
-    phoneNumber: '+252 61 ',
+    phoneNumber: '',
     vehicleType: 'motorcycle',
     vehicleNumber: '',
     licenseNumber: '',
     status: 'active',
     availability: 'available',
-    address: 'Mogadishu Central',
-    branchId: 'branch_hq_01'
+    address: '',
+    branchId: ''
   });
 
   // Zone Form
@@ -169,11 +185,11 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
   }>({
     name: '',
     code: '',
-    city: 'Mogadishu',
-    coverageRadiusKm: 5,
-    baseDeliveryFee: 3.00,
-    minOrderAmount: 15.00,
-    estimatedTimeMinutes: 30,
+    city: '',
+    coverageRadiusKm: 0,
+    baseDeliveryFee: 0,
+    minOrderAmount: 0,
+    estimatedTimeMinutes: 0,
     isActive: true,
     branchId: ''
   });
@@ -233,7 +249,7 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
         const list: DeliveryDriver[] = [];
         snap.forEach((d) => {
           const data = d.data();
-          const canonBranch = getCanonicalBranchId(data.branchId || data.branch || userBranch || 'branch_hq_01');
+          const canonBranch = getCanonicalBranchId(data.branchId || data.branch || userBranch || '');
           const canonBranchName = data.branchName || getBranchDisplayName(canonBranch);
 
           // If branch-scoped, ensure driver branch matches user's branch
@@ -306,24 +322,24 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
           list.push({
             id: d.id,
             orderId: data.orderId || d.id,
-            customerName: data.customerName || 'Delivery Customer',
+            customerName: data.customerName || '',
             customerPhone: data.customerPhone || data.phone || '',
             deliveryZoneId: data.deliveryZoneId || data.zoneId || '',
             deliveryZoneName: data.deliveryZoneName || data.zoneName || '',
             branchId: data.branchId || '',
             branchName: data.branchName || '',
             driverId: data.driverId || undefined,
-            driverName: data.driverName || (data.driverId ? 'Assigned Driver' : undefined),
+            driverName: data.driverName || undefined,
             driverPhone: data.driverPhone || undefined,
             totalAmount: Number(data.totalAmount || data.total || 0),
             deliveryFee: Number(data.deliveryFee || 0),
             itemsCount: Number(data.itemsCount || (data.items ? data.items.length : 1)),
-            estimatedDeliveryTimeMinutes: Number(data.estimatedDeliveryTimeMinutes || 30),
+            estimatedDeliveryTimeMinutes: Number.isFinite(Number(data.estimatedDeliveryTimeMinutes)) ? Number(data.estimatedDeliveryTimeMinutes) : 0,
             createdAt: data.createdAt || new Date().toISOString(),
             ...data,
             // Guaranteed normalized properties
             deliveryNumber: deliveryNum,
-            deliveryAddress: data.deliveryAddress || data.address || data.customerAddress || 'Address on file',
+            deliveryAddress: data.deliveryAddress || data.address || data.customerAddress || '',
             status: normalizedStatus
           } as DeliveryOrder);
         });
@@ -358,7 +374,7 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
         const list: DeliveryZone[] = [];
         snap.forEach((d) => {
           const data = d.data();
-          const canonBranch = getCanonicalBranchId(data.branchId || data.branch || userBranch || 'branch_hq_01');
+          const canonBranch = getCanonicalBranchId(data.branchId || data.branch || userBranch || '');
           if (isBranchScoped && userBranch && !areBranchesMatching(canonBranch, userBranch)) {
             return;
           }
@@ -406,7 +422,8 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
   const handleSaveDriver = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const canonBranch = getCanonicalBranchId(driverForm.branchId || userRecord?.branchId || (userRecord as any)?.branch || 'branch_hq_01');
+      const canonBranch = getCanonicalBranchId(driverForm.branchId || userRecord?.branchId || (userRecord as any)?.branch || '');
+      if (!canonBranch) { alert('Unable to determine the driver branch. Select a valid branch or reload your profile.'); return; }
       const payload = {
         fullName: driverForm.fullName,
         employeeId: driverForm.employeeId || `EMP-${Date.now().toString().slice(-4)}`,
@@ -415,21 +432,22 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
         vehicleNumber: driverForm.vehicleNumber,
         licenseNumber: driverForm.licenseNumber,
         status: driverForm.status,
-        availability: driverForm.availability,
         branchId: canonBranch,
         branchName: getBranchDisplayName(canonBranch),
-        currentLocation: {
-          lat: 2.0469,
-          lng: 45.3181,
-          address: driverForm.address
-        }
+        ...(editingDriver ? {} : { availability: driverForm.availability }),
+        currentLocation: driverForm.address.trim() ? {
+          lat: editingDriver?.currentLocation?.lat ?? 0,
+          lng: editingDriver?.currentLocation?.lng ?? 0,
+          address: driverForm.address.trim(),
+          ...(editingDriver?.currentLocation?.lastUpdated ? { lastUpdated: editingDriver.currentLocation.lastUpdated } : {})
+        } : undefined
       };
 
       if (editingDriver) {
         await updateDriver(editingDriver.id, payload);
         showToast(`Driver "${driverForm.fullName}" updated successfully.`);
       } else {
-        await createDriver(payload);
+        await createDriver({ ...payload, availability: driverForm.availability } as any);
         showToast(`New Driver "${driverForm.fullName}" registered.`);
       }
       setShowDriverModal(false);
@@ -450,8 +468,8 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
       licenseNumber: d.licenseNumber,
       status: d.status,
       availability: d.availability,
-      address: d.currentLocation?.address || 'Mogadishu Central',
-      branchId: getCanonicalBranchId(d.branchId || 'branch_hq_01')
+      address: d.currentLocation?.address || '',
+      branchId: getCanonicalBranchId(d.branchId || '')
     });
     setShowDriverModal(true);
   };
@@ -480,11 +498,11 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
       const payload = {
         name: zoneForm.name.trim(),
         code: zoneForm.code.trim() || `Z-MOG-0${zones.length + 1}`,
-        city: zoneForm.city.trim() || 'Mogadishu',
-        coverageRadiusKm: Number(zoneForm.coverageRadiusKm) || 5,
+        city: zoneForm.city.trim(),
+        coverageRadiusKm: Number(zoneForm.coverageRadiusKm) || 0,
         baseDeliveryFee: validatedFee,
         minOrderAmount: Number(zoneForm.minOrderAmount) || 0,
-        estimatedTimeMinutes: Number(zoneForm.estimatedTimeMinutes) || 25,
+        estimatedTimeMinutes: Number(zoneForm.estimatedTimeMinutes) || 0,
         isActive: Boolean(zoneForm.isActive),
         branchId: canonBranch,
         branchName: getBranchDisplayName(canonBranch)
@@ -507,16 +525,16 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
   const openEditZone = (z: DeliveryZone) => {
     setEditingZone(z);
     const rawBranch = z.branchId || userRecord?.branchId || (userRecord as any)?.branch;
-    const canonBranch = getCanonicalBranchId(rawBranch || (isHqUser ? 'branch_hq_01' : ''));
+    const canonBranch = getCanonicalBranchId(rawBranch || '');
     const rawFee = typeof z.baseDeliveryFee === 'number' ? z.baseDeliveryFee : (typeof (z as any).deliveryFee === 'number' ? (z as any).deliveryFee : 0);
     setZoneForm({
       name: z.name || '',
       code: z.code || '',
-      city: z.city || 'Mogadishu',
-      coverageRadiusKm: typeof z.coverageRadiusKm === 'number' ? z.coverageRadiusKm : 5,
+      city: z.city || '',
+      coverageRadiusKm: typeof z.coverageRadiusKm === 'number' ? z.coverageRadiusKm : 0,
       baseDeliveryFee: Number.isFinite(rawFee) && rawFee >= 0 ? rawFee : 0,
-      minOrderAmount: typeof z.minOrderAmount === 'number' ? z.minOrderAmount : 15.00,
-      estimatedTimeMinutes: typeof z.estimatedTimeMinutes === 'number' ? z.estimatedTimeMinutes : 30,
+      minOrderAmount: typeof z.minOrderAmount === 'number' ? z.minOrderAmount : 0,
+      estimatedTimeMinutes: typeof z.estimatedTimeMinutes === 'number' ? z.estimatedTimeMinutes : 0,
       isActive: z.isActive !== false,
       branchId: canonBranch
     });
@@ -628,19 +646,19 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
     switch (status) {
       case 'unassigned':
       case 'pending':
-        return <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-amber-500/20 text-amber-300 border border-amber-500/30">Unassigned</span>;
+        return <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-amber-500/20 text-amber-300 border border-amber-500/30">{translateRawUi('Unassigned')}</span>;
       case 'assigned':
-        return <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">Driver Assigned</span>;
+        return <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">{t.legacyUi.driverAssigned}</span>;
       case 'accepted':
-        return <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-teal-500/20 text-teal-300 border border-teal-500/30">Driver Accepted</span>;
+        return <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-teal-500/20 text-teal-300 border border-teal-500/30">{t.legacyUi.driverAccepted}</span>;
       case 'picked_up':
-        return <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-purple-500/20 text-purple-300 border border-purple-500/30">Order Picked Up</span>;
+        return <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-purple-500/20 text-purple-300 border border-purple-500/30">{translateRawUi('Order Picked Up')}</span>;
       case 'on_the_way':
-        return <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 animate-pulse flex items-center gap-1"><Radio className="w-3 h-3 text-emerald-400" /> On The Way</span>;
+        return <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 animate-pulse flex items-center gap-1"><Radio className="w-3 h-3 text-emerald-400" /> {translateRawUi('On The Way')}</span>;
       case 'arrived':
-        return <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">Driver Arrived</span>;
+        return <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">{t.legacyUi.driverArrived}</span>;
       case 'delivered':
-        return <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-emerald-500/30 text-emerald-400 border border-emerald-500/50 flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Delivered</span>;
+        return <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-emerald-500/30 text-emerald-400 border border-emerald-500/50 flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> {translateRawUi('Delivered')}</span>;
       case 'failed':
       case 'returned':
       case 'cancelled':
@@ -667,9 +685,9 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
     return (
       <div className="p-8 text-center bg-slate-900 border border-slate-800 rounded-3xl space-y-3">
         <ShieldCheck className="w-12 h-12 text-indigo-400 mx-auto opacity-70" />
-        <h3 className="text-lg font-bold text-white">Dispatcher Management Restricted</h3>
+        <h3 className="text-lg font-bold text-white">{t.legacyUi.dispatcherRestricted}</h3>
         <p className="text-xs text-slate-400 max-w-md mx-auto">
-          Dispatch management controls and driver assignment tools are restricted to Dispatchers and Management. Please access your assigned deliveries via the Delivery Driver Portal.
+          {translateRawUi('Dispatch management controls and driver assignment tools are restricted to Dispatchers and Management. Please access your assigned deliveries via the Delivery Driver Portal.')}
         </p>
       </div>
     );
@@ -691,19 +709,19 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
           <div>
             <div className="flex items-center gap-2 mb-2">
               <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-wider flex items-center gap-1.5 shadow-sm">
-                <Truck className="w-3.5 h-3.5 text-emerald-400" /> Phase 14 Delivery & Logistics Engine
+                <Truck className="w-3.5 h-3.5 text-emerald-400" /> {translateRawUi('Phase 14 Delivery & Logistics Engine')}
               </span>
               <span className="bg-teal-500/20 text-teal-300 border border-teal-500/30 text-[10px] font-bold px-3 py-1 rounded-full flex items-center gap-1.5">
-                <Navigation className="w-3.5 h-3.5 text-teal-400" /> Live GPS Dispatch Center
+                <Navigation className="w-3.5 h-3.5 text-teal-400" /> {translateRawUi('Live GPS Dispatch Center')}
               </span>
             </div>
 
             <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white flex items-center gap-3">
               <Truck className="w-8 h-8 text-emerald-400" />
-              Delivery Management & Fleet Logistics HQ
+              {translateRawUi('Delivery Management & Fleet Logistics HQ')}
             </h1>
             <p className="text-slate-300 text-xs sm:text-sm mt-1 max-w-3xl leading-relaxed">
-              Real-time driver dispatching, live GPS order tracking, zone fee management, automated milestone notifications, and logistics efficiency analytics.
+              {translateRawUi('Real-time driver dispatching, live GPS order tracking, zone fee management, automated milestone notifications, and logistics efficiency analytics.')}
             </p>
           </div>
 
@@ -716,20 +734,20 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
                     setDriverForm({
                       fullName: '',
                       employeeId: `EMP-DRV-${drivers.length + 105}`,
-                      phoneNumber: '+252 61 ',
+                      phoneNumber: '',
                       vehicleType: 'motorcycle',
                       vehicleNumber: '',
                       licenseNumber: '',
                       status: 'active',
                       availability: 'available',
-                      address: 'Mogadishu Central',
-                      branchId: getCanonicalBranchId(userRecord?.branchId || (userRecord as any)?.branch || 'branch_hq_01')
+                      address: '',
+                      branchId: getCanonicalBranchId(userRecord?.branchId || (userRecord as any)?.branch || '')
                     });
                     setShowDriverModal(true);
                   }}
                   className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold px-4 py-2.5 rounded-2xl text-xs transition flex items-center gap-2 cursor-pointer shadow-lg shadow-emerald-500/20"
                 >
-                  <Plus className="w-4 h-4" /> Add New Driver
+                  <Plus className="w-4 h-4" /> {translateRawUi('Add New Driver')}
                 </button>
 
                 <button
@@ -740,16 +758,16 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
                       alert('Unable to determine your branch. Please reload your account profile or contact an administrator.');
                       return;
                     }
-                    const defaultBranch = isHqUser ? (userBranch || 'branch_hq_01') : userBranch;
+                    const defaultBranch = userBranch;
                     setEditingZone(null);
                     setZoneForm({
                       name: '',
                       code: `Z-MOG-0${zones.length + 1}`,
-                      city: 'Mogadishu',
-                      coverageRadiusKm: 5,
-                      baseDeliveryFee: 3.00,
-                      minOrderAmount: 15.00,
-                      estimatedTimeMinutes: 30,
+                      city: '',
+                      coverageRadiusKm: 0,
+                      baseDeliveryFee: 0,
+                      minOrderAmount: 0,
+                      estimatedTimeMinutes: 0,
                       isActive: true,
                       branchId: defaultBranch
                     });
@@ -757,7 +775,7 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
                   }}
                   className="bg-teal-600 hover:bg-teal-500 text-white font-extrabold px-4 py-2.5 rounded-2xl text-xs transition flex items-center gap-2 cursor-pointer shadow-lg shadow-teal-600/20"
                 >
-                  <Plus className="w-4 h-4" /> Add Delivery Zone
+                  <Plus className="w-4 h-4" /> {translateRawUi('Add Delivery Zone')}
                 </button>
               </>
             )}
@@ -779,7 +797,7 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
               }}
               className="bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold px-4 py-2.5 rounded-2xl text-xs transition flex items-center gap-2 cursor-pointer border border-slate-700"
             >
-              <FileSpreadsheet className="w-4 h-4 text-emerald-400" /> Export Audit (.XLSX)
+              <FileSpreadsheet className="w-4 h-4 text-emerald-400" /> {translateRawUi('Export Audit (.XLSX)')}
             </button>
           </div>
         </div>
@@ -787,32 +805,32 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
         {/* Real-time KPI Ribbon */}
         <div className="mt-6 pt-6 border-t border-slate-800 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 relative z-10">
           <div className="bg-slate-900/80 p-3.5 rounded-2xl border border-slate-800">
-            <span className="text-[10px] text-slate-400 uppercase font-bold block">Active Deliveries</span>
+            <span className="text-[10px] text-slate-400 uppercase font-bold block">{t.legacyUi.activeDeliveries}</span>
             <span className="text-sm font-extrabold text-emerald-400 mt-0.5 block">{analytics.activeCount} In Transit</span>
           </div>
 
           <div className="bg-slate-900/80 p-3.5 rounded-2xl border border-slate-800">
-            <span className="text-[10px] text-slate-400 uppercase font-bold block">Pending Dispatch</span>
+            <span className="text-[10px] text-slate-400 uppercase font-bold block">{translateRawUi('Pending Dispatch')}</span>
             <span className="text-sm font-extrabold text-amber-400 mt-0.5 block">{analytics.pendingCount} Orders</span>
           </div>
 
           <div className="bg-slate-900/80 p-3.5 rounded-2xl border border-slate-800">
-            <span className="text-[10px] text-slate-400 uppercase font-bold block">Completed Today</span>
+            <span className="text-[10px] text-slate-400 uppercase font-bold block">{t.legacyUi.completedToday}</span>
             <span className="text-sm font-extrabold text-indigo-400 mt-0.5 block">{analytics.completedCount} Deliveries</span>
           </div>
 
           <div className="bg-slate-900/80 p-3.5 rounded-2xl border border-slate-800">
-            <span className="text-[10px] text-slate-400 uppercase font-bold block">Avg Delivery Time</span>
+            <span className="text-[10px] text-slate-400 uppercase font-bold block">{t.legacyUi.avgDeliveryTime}</span>
             <span className="text-sm font-extrabold text-teal-400 mt-0.5 block">{analytics.avgDeliveryTime} Mins</span>
           </div>
 
           <div className="bg-slate-900/80 p-3.5 rounded-2xl border border-slate-800">
-            <span className="text-[10px] text-slate-400 uppercase font-bold block">On-Time Rate</span>
+            <span className="text-[10px] text-slate-400 uppercase font-bold block">{translateRawUi('On-Time Rate')}</span>
             <span className="text-sm font-extrabold text-cyan-400 mt-0.5 block">{analytics.onTimeRate}%</span>
           </div>
 
           <div className="bg-slate-900/80 p-3.5 rounded-2xl border border-slate-800">
-            <span className="text-[10px] text-slate-400 uppercase font-bold block">Delivery Fee Revenue</span>
+            <span className="text-[10px] text-slate-400 uppercase font-bold block">{t.legacyUi.deliveryFeeRevenue}</span>
             <span className="text-sm font-extrabold text-purple-400 mt-0.5 block">${(analytics.totalFees || 0).toFixed(2)}</span>
           </div>
         </div>
@@ -866,7 +884,7 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
             }`}
           >
             <TrendingUp className="w-4 h-4" />
-            Logistics Analytics & Driver Ranking
+            {translateRawUi('Logistics Analytics & Driver Ranking')}
           </button>
 
           <button
@@ -895,7 +913,7 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search order #, customer or address..."
+                  placeholder={translateRawUi('Search order #, customer or address...')}
                   className="w-full bg-slate-950 border border-slate-800 rounded-2xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
                 />
               </div>
@@ -908,7 +926,7 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
             <div className="space-y-3 max-h-[700px] overflow-y-auto pr-1">
               {filteredDeliveries.length === 0 ? (
                 <div className="bg-slate-900/60 border border-slate-800 rounded-3xl p-8 text-center text-slate-400 text-xs">
-                  No deliveries found.
+                  {translateRawUi('No deliveries found.')}
                 </div>
               ) : (
                 filteredDeliveries.map((del) => {
@@ -947,14 +965,14 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
 
                       <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-300">
                         <div>
-                          <span className="text-[10px] text-slate-400 block">Driver:</span>
+                          <span className="text-[10px] text-slate-400 block">{translateRawUi('Driver:')}</span>
                           <span className="font-extrabold text-white">
                             {del.driverName || 'Unassigned'}
                           </span>
                         </div>
 
                         <div className="text-right">
-                          <span className="text-[10px] text-slate-400 block">Total Bill:</span>
+                          <span className="text-[10px] text-slate-400 block">{t.legacyUi.totalBill}</span>
                           <span className="font-extrabold text-emerald-400">${(del.totalAmount || 0).toFixed(2)}</span>
                         </div>
                       </div>
@@ -970,7 +988,7 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
                             }}
                             className="w-full py-2 px-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-2xl text-xs flex items-center justify-center gap-2 cursor-pointer shadow-md shadow-emerald-500/20 transition"
                           >
-                            <UserCheck className="w-3.5 h-3.5" /> Assign Driver
+                            <UserCheck className="w-3.5 h-3.5" /> {translateRawUi('Assign Driver')}
                           </button>
                         </div>
                       )}
@@ -1003,7 +1021,7 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
                       onClick={() => openAssignModalForDelivery(currentTrackingDelivery)}
                       className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold px-4 py-2 rounded-2xl text-xs flex items-center gap-2 cursor-pointer shadow-lg shadow-emerald-500/20"
                     >
-                      <UserCheck className="w-4 h-4" /> Assign Driver Now
+                      <UserCheck className="w-4 h-4" /> {translateRawUi('Assign Driver Now')}
                     </button>
                   ) : (
                     <div className="flex items-center gap-2">
@@ -1013,13 +1031,13 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
                             onClick={() => openAssignModalForDelivery(currentTrackingDelivery)}
                             className="bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold px-3 py-1.5 rounded-xl text-xs cursor-pointer border border-slate-700"
                           >
-                            Reassign
+                            {translateRawUi('Reassign')}
                           </button>
                           <button
                             onClick={() => handleAdvanceStatus(currentTrackingDelivery, 'accepted')}
                             className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-3 py-1.5 rounded-xl text-xs cursor-pointer"
                           >
-                            Accept Delivery
+                            {translateRawUi('Accept Delivery')}
                           </button>
                         </>
                       )}
@@ -1028,7 +1046,7 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
                           onClick={() => handleAdvanceStatus(currentTrackingDelivery, 'picked_up')}
                           className="bg-purple-600 hover:bg-purple-500 text-white font-bold px-3 py-1.5 rounded-xl text-xs cursor-pointer"
                         >
-                          Pick Up Order
+                          {translateRawUi('Pick Up Order')}
                         </button>
                       )}
                       {currentTrackingDelivery.status === 'picked_up' && (
@@ -1036,7 +1054,7 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
                           onClick={() => handleAdvanceStatus(currentTrackingDelivery, 'on_the_way')}
                           className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3 py-1.5 rounded-xl text-xs cursor-pointer"
                         >
-                          On The Way
+                          {translateRawUi('On The Way')}
                         </button>
                       )}
                       {currentTrackingDelivery.status === 'on_the_way' && (
@@ -1044,7 +1062,7 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
                           onClick={() => handleAdvanceStatus(currentTrackingDelivery, 'arrived')}
                           className="bg-cyan-600 hover:bg-cyan-500 text-white font-bold px-3 py-1.5 rounded-xl text-xs cursor-pointer"
                         >
-                          Driver Arrived
+                          {translateRawUi('Driver Arrived')}
                         </button>
                       )}
                       {currentTrackingDelivery.status === 'arrived' && (
@@ -1052,7 +1070,7 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
                           onClick={() => handleAdvanceStatus(currentTrackingDelivery, 'delivered')}
                           className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold px-3 py-1.5 rounded-xl text-xs cursor-pointer shadow-lg shadow-emerald-500/20"
                         >
-                          Mark Delivered
+                          {translateRawUi('Mark Delivered')}
                         </button>
                       )}
                       {['assigned', 'accepted', 'picked_up', 'on_the_way', 'arrived'].includes(currentTrackingDelivery.status) && (
@@ -1063,7 +1081,7 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
                           }}
                           className="bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 font-bold px-3 py-1.5 rounded-xl text-xs cursor-pointer border border-rose-500/30"
                         >
-                          Fail Order
+                          {translateRawUi('Fail Order')}
                         </button>
                       )}
                     </div>
@@ -1079,11 +1097,11 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
                   <div className="relative z-10 flex items-center justify-between text-xs">
                     {currentTrackingDelivery.currentLat && currentTrackingDelivery.currentLng ? (
                       <span className="bg-slate-900/90 backdrop-blur-md text-emerald-400 font-bold px-3 py-1.5 rounded-xl border border-slate-800 flex items-center gap-1.5">
-                        <Radio className="w-3.5 h-3.5 text-emerald-400 animate-pulse" /> Live Telemetry Broadcasting
+                        <Radio className="w-3.5 h-3.5 text-emerald-400 animate-pulse" /> {translateRawUi('Live Telemetry Broadcasting')}
                       </span>
                     ) : (
                       <span className="bg-slate-900/90 backdrop-blur-md text-slate-400 font-medium px-3 py-1.5 rounded-xl border border-slate-800 flex items-center gap-1.5">
-                        <MapPin className="w-3.5 h-3.5 text-slate-500" /> Live GPS Unavailable
+                        <MapPin className="w-3.5 h-3.5 text-slate-500" /> {translateRawUi('Live GPS Unavailable')}
                       </span>
                     )}
 
@@ -1103,12 +1121,12 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
                             <Truck className="w-5 h-5" />
                           </div>
                           <div>
-                            <div className="text-[10px] text-slate-400 uppercase font-bold">Driver Telematics</div>
+                            <div className="text-[10px] text-slate-400 uppercase font-bold">{t.legacyUi.driverTelematics}</div>
                             <div className="text-sm font-bold text-white">{currentTrackingDelivery.driverName || 'Assigned Courier'}</div>
                           </div>
                         </div>
                         <div className="text-right">
-                          <div className="text-[10px] text-slate-400">Coordinates</div>
+                          <div className="text-[10px] text-slate-400">{translateRawUi('Coordinates')}</div>
                           <div className="text-xs font-mono text-emerald-400">{currentTrackingDelivery.currentLat.toFixed(4)}°, {currentTrackingDelivery.currentLng.toFixed(4)}°</div>
                         </div>
                       </div>
@@ -1136,7 +1154,7 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
                       <span className="text-slate-300 font-medium">{currentTrackingDelivery.deliveryAddress || 'No destination address'}</span>
                     </div>
                     <div>
-                      Status: <span className="text-white font-bold uppercase">{currentTrackingDelivery.status}</span>
+                      {translateRawUi('Status:')} <span className="text-white font-bold uppercase">{currentTrackingDelivery.status}</span>
                     </div>
                   </div>
                 </div>
@@ -1144,25 +1162,25 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
                 {/* Delivery Order Details Grid */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
                   <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2">
-                    <span className="font-bold text-white uppercase text-[10px] text-slate-400 block">Customer Information</span>
-                    <p className="text-slate-200"><strong>Name:</strong> {currentTrackingDelivery.customerName}</p>
-                    <p className="text-slate-200"><strong>Phone:</strong> {currentTrackingDelivery.customerPhone}</p>
-                    <p className="text-slate-200"><strong>Address:</strong> {currentTrackingDelivery.deliveryAddress}</p>
-                    <p className="text-slate-200"><strong>Payment:</strong> {(currentTrackingDelivery.paymentMethod || 'cash').toUpperCase()} ({currentTrackingDelivery.paymentStatus || 'completed'})</p>
+                    <span className="font-bold text-white uppercase text-[10px] text-slate-400 block">{t.legacyUi.customerInformation}</span>
+                    <p className="text-slate-200"><strong>{translateRawUi('Name:')}</strong> {currentTrackingDelivery.customerName}</p>
+                    <p className="text-slate-200"><strong>{translateRawUi('Phone:')}</strong> {currentTrackingDelivery.customerPhone}</p>
+                    <p className="text-slate-200"><strong>{translateRawUi('Address:')}</strong> {currentTrackingDelivery.deliveryAddress}</p>
+                    <p className="text-slate-200"><strong>{translateRawUi('Payment:')}</strong> {(currentTrackingDelivery.paymentMethod || 'cash').toUpperCase()} ({currentTrackingDelivery.paymentStatus || 'completed'})</p>
                   </div>
 
                   <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2">
-                    <span className="font-bold text-white uppercase text-[10px] text-slate-400 block">Delivery Package Summary</span>
+                    <span className="font-bold text-white uppercase text-[10px] text-slate-400 block">{t.legacyUi.deliveryPackageSummary}</span>
                     <p className="text-slate-200"><strong>Items ({currentTrackingDelivery.itemsCount || 0}):</strong> {currentTrackingDelivery.itemsSummary || 'Standard Meal Package'}</p>
-                    <p className="text-slate-200"><strong>Subtotal:</strong> ${(currentTrackingDelivery.subtotal || 0).toFixed(2)}</p>
-                    <p className="text-slate-200"><strong>Delivery Fee:</strong> ${(currentTrackingDelivery.deliveryFee || 0).toFixed(2)}</p>
-                    <p className="text-emerald-400 font-extrabold text-sm"><strong>Total Bill:</strong> ${(currentTrackingDelivery.totalAmount || 0).toFixed(2)}</p>
+                    <p className="text-slate-200"><strong>{translateRawUi('Subtotal:')}</strong> ${(currentTrackingDelivery.subtotal || 0).toFixed(2)}</p>
+                    <p className="text-slate-200"><strong>{t.legacyUi.deliveryFee}</strong> ${(currentTrackingDelivery.deliveryFee || 0).toFixed(2)}</p>
+                    <p className="text-emerald-400 font-extrabold text-sm"><strong>{t.legacyUi.totalBill}</strong> ${(currentTrackingDelivery.totalAmount || 0).toFixed(2)}</p>
                   </div>
                 </div>
               </div>
             ) : (
               <div className="bg-slate-900 border border-slate-800 rounded-3xl p-12 text-center text-slate-400 text-xs">
-                Select a delivery from the left list to view live GPS tracking telematics.
+                {translateRawUi('Select a delivery from the left list to view live GPS tracking telematics.')}
               </div>
             )}
           </div>
@@ -1215,19 +1233,19 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
 
                 <div className="grid grid-cols-3 gap-2 pt-3 border-t border-slate-800 text-center text-xs">
                   <div className="bg-slate-950 p-2 rounded-xl">
-                    <span className="text-[9px] text-slate-400 block">Rating</span>
+                    <span className="text-[9px] text-slate-400 block">{translateRawUi('Rating')}</span>
                     <span className="font-extrabold text-amber-400 flex items-center justify-center gap-0.5 mt-0.5">
                       <Star className="w-3 h-3 fill-amber-400 text-amber-400" /> {drv.rating ? drv.rating.toFixed(1) : 'N/A'}
                     </span>
                   </div>
 
                   <div className="bg-slate-950 p-2 rounded-xl">
-                    <span className="text-[9px] text-slate-400 block">Completed</span>
+                    <span className="text-[9px] text-slate-400 block">{t.legacyUi.completed}</span>
                     <span className="font-extrabold text-emerald-400 mt-0.5 block">{drv.completedDeliveries || 0}</span>
                   </div>
 
                   <div className="bg-slate-950 p-2 rounded-xl">
-                    <span className="text-[9px] text-slate-400 block">Failed</span>
+                    <span className="text-[9px] text-slate-400 block">{t.legacyUi.failedLabel}</span>
                     <span className="font-extrabold text-rose-400 mt-0.5 block">{drv.failedDeliveries || 0}</span>
                   </div>
                 </div>
@@ -1236,7 +1254,7 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
                   <button
                     onClick={() => openEditDriver(drv)}
                     className="p-2 bg-slate-950 hover:bg-slate-800 text-slate-300 rounded-xl border border-slate-800 cursor-pointer"
-                    title="Edit Driver"
+                    title={translateRawUi('Edit Driver')}
                   >
                     <Edit className="w-4 h-4" />
                   </button>
@@ -1249,7 +1267,7 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
                       }
                     }}
                     className="p-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 rounded-xl border border-rose-500/20 cursor-pointer"
-                    title="Delete Driver"
+                    title={translateRawUi('Delete Driver')}
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
@@ -1284,17 +1302,17 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
 
                 <div className="space-y-2 pt-2 border-t border-slate-800 text-xs">
                   <div className="flex justify-between">
-                    <span className="text-slate-400">Base Delivery Fee:</span>
+                    <span className="text-slate-400">{t.legacyUi.baseDeliveryFeeColon}</span>
                     <span className="font-extrabold text-emerald-400">${(z.baseDeliveryFee || 0).toFixed(2)}</span>
                   </div>
 
                   <div className="flex justify-between">
-                    <span className="text-slate-400">Min Order Amount:</span>
+                    <span className="text-slate-400">{translateRawUi('Min Order Amount:')}</span>
                     <span className="font-bold text-white">${(z.minOrderAmount || 0).toFixed(2)}</span>
                   </div>
 
                   <div className="flex justify-between">
-                    <span className="text-slate-400">Est. Arrival Time:</span>
+                    <span className="text-slate-400">{t.legacyUi.estimatedArrivalTime}</span>
                     <span className="font-bold text-amber-400">{z.estimatedTimeMinutes} mins</span>
                   </div>
                 </div>
@@ -1329,20 +1347,20 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
         <div className="space-y-6">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-6">
             <h3 className="text-base font-bold text-white flex items-center gap-2">
-              <Award className="w-5 h-5 text-amber-400" /> Driver Performance Leaderboard & Earnings
+              <Award className="w-5 h-5 text-amber-400" /> {translateRawUi('Driver Performance Leaderboard & Earnings')}
             </h3>
 
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
                   <tr className="border-b border-slate-800 text-slate-400 font-bold uppercase text-[10px]">
-                    <th className="py-3 px-3">Rank</th>
-                    <th className="py-3 px-3">Driver Name</th>
-                    <th className="py-3 px-3">Vehicle</th>
-                    <th className="py-3 px-3">Assigned</th>
-                    <th className="py-3 px-3">Completed</th>
-                    <th className="py-3 px-3">Driver Payout ($)</th>
-                    <th className="py-3 px-3">Rating</th>
+                    <th className="py-3 px-3">{translateRawUi('Rank')}</th>
+                    <th className="py-3 px-3">{t.legacyUi.driverName}</th>
+                    <th className="py-3 px-3">{translateRawUi('Vehicle')}</th>
+                    <th className="py-3 px-3">{translateRawUi('Assigned')}</th>
+                    <th className="py-3 px-3">{t.legacyUi.completed}</th>
+                    <th className="py-3 px-3">{t.legacyUi.driverPayoutUsd}</th>
+                    <th className="py-3 px-3">{translateRawUi('Rating')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60">
@@ -1370,13 +1388,13 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
       {activeTab === 'notifications' && (
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4">
           <h3 className="text-base font-bold text-white flex items-center gap-2">
-            <Bell className="w-5 h-5 text-emerald-400" /> Automated Delivery Notifications Stream
+            <Bell className="w-5 h-5 text-emerald-400" /> {translateRawUi('Automated Delivery Notifications Stream')}
           </h3>
 
           <div className="space-y-3">
             {notifications.length === 0 ? (
               <div className="p-8 text-center text-xs text-slate-400">
-                No notifications logged yet. Trigger delivery milestones to test automated notifications.
+                {translateRawUi('No notifications logged yet. Trigger delivery milestones to test automated notifications.')}
               </div>
             ) : (
               notifications.map((n) => (
@@ -1408,19 +1426,19 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
 
             <form onSubmit={handleSaveDriver} className="space-y-3 text-xs">
               <div>
-                <label className="block text-slate-400 font-bold mb-1">Full Name *</label>
+                <label className="block text-slate-400 font-bold mb-1">{t.legacyUi.fullNameRequired}</label>
                 <input
                   type="text"
                   required
                   value={driverForm.fullName}
                   onChange={(e) => setDriverForm({ ...driverForm, fullName: e.target.value })}
-                  placeholder="e.g. Hassan Abdi"
+                  placeholder={translateRawUi('e.g. Hassan Abdi')}
                   className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-3.5 py-2 text-white"
                 />
               </div>
 
               <div>
-                <label className="block text-slate-400 font-bold mb-1">Phone Number *</label>
+                <label className="block text-slate-400 font-bold mb-1">{t.legacyUi.phoneNumberRequired}</label>
                 <input
                   type="text"
                   required
@@ -1432,43 +1450,45 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-slate-400 font-bold mb-1">Vehicle Type</label>
+                  <label className="block text-slate-400 font-bold mb-1">{translateRawUi('Vehicle Type')}</label>
                   <select
                     value={driverForm.vehicleType}
                     onChange={(e) => setDriverForm({ ...driverForm, vehicleType: e.target.value as VehicleType })}
                     className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-3.5 py-2 text-white"
                   >
-                    <option value="motorcycle">Motorcycle</option>
-                    <option value="scooter">Scooter</option>
-                    <option value="car">Car</option>
-                    <option value="van">Van</option>
+                    <option value="motorcycle">{translateRawUi('Motorcycle')}</option>
+                    <option value="scooter">{translateRawUi('Scooter')}</option>
+                    <option value="car">{translateRawUi('Car')}</option>
+                    <option value="van">{translateRawUi('Van')}</option>
                   </select>
                 </div>
 
                 <div>
-                  <label className="block text-slate-400 font-bold mb-1">Vehicle Plate #</label>
+                  <label className="block text-slate-400 font-bold mb-1">{translateRawUi('Vehicle Plate #')}</label>
                   <input
                     type="text"
                     required
                     value={driverForm.vehicleNumber}
                     onChange={(e) => setDriverForm({ ...driverForm, vehicleNumber: e.target.value })}
-                    placeholder="MOG-9921"
+                    placeholder={translateRawUi('MOG-9921')}
                     className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-3.5 py-2 text-white"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-slate-400 font-bold mb-1">Assigned Branch *</label>
+                <label className="block text-slate-400 font-bold mb-1">{t.legacyUi.assignedBranchRequired}</label>
                 <select
                   value={driverForm.branchId}
                   onChange={(e) => setDriverForm({ ...driverForm, branchId: e.target.value })}
                   disabled={!isHqUser}
                   className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-3.5 py-2 text-white font-medium disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  <option value="branch_hq_01">Headquarters - Mogadishu Main (branch_hq_01)</option>
-                  <option value="branch_hargeisa_01">Hargeisa Flagship Branch (branch_hargeisa_01)</option>
-                  <option value="branch_kismayo_01">Kismayo Coastal Express (branch_kismayo_01)</option>
+                  {availableBranches.map((branch) => (
+                    <option key={branch.id} value={branch.id}>
+                      {branch.name || branch.id}{branch.code ? ` (${branch.code})` : ''}
+                    </option>
+                  ))}
                 </select>
                 {!isHqUser && (
                   <p className="text-[10px] text-slate-500 mt-1">Locked to your authenticated branch ({getBranchDisplayName(driverForm.branchId)}).</p>
@@ -1481,13 +1501,13 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
                   onClick={() => setShowDriverModal(false)}
                   className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 font-bold"
                 >
-                  Cancel
+                  {translateRawUi('Cancel')}
                 </button>
                 <button
                   type="submit"
                   className="px-4 py-2 rounded-xl bg-emerald-500 text-slate-950 font-black"
                 >
-                  Save Driver
+                  {translateRawUi('Save Driver')}
                 </button>
               </div>
             </form>
@@ -1505,54 +1525,56 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
 
             <form onSubmit={handleSaveZone} className="space-y-3 text-xs">
               <div>
-                <label className="block text-slate-400 font-bold mb-1">Zone Name *</label>
+                <label className="block text-slate-400 font-bold mb-1">{translateRawUi('Zone Name *')}</label>
                 <input
                   type="text"
                   required
                   value={zoneForm.name}
                   onChange={(e) => setZoneForm({ ...zoneForm, name: e.target.value })}
-                  placeholder="e.g. Hodan & Wadajir Corridor"
+                  placeholder={translateRawUi('e.g. Hodan & Wadajir Corridor')}
                   className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-3.5 py-2 text-white"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-slate-400 font-bold mb-1">Zone Code *</label>
+                  <label className="block text-slate-400 font-bold mb-1">{translateRawUi('Zone Code *')}</label>
                   <input
                     type="text"
                     required
                     value={zoneForm.code}
                     onChange={(e) => setZoneForm({ ...zoneForm, code: e.target.value })}
-                    placeholder="e.g. Z-MOG-01"
+                    placeholder={translateRawUi('e.g. Z-MOG-01')}
                     className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-3.5 py-2 text-white"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-slate-400 font-bold mb-1">City *</label>
+                  <label className="block text-slate-400 font-bold mb-1">{t.legacyUi.cityRequired}</label>
                   <input
                     type="text"
                     required
                     value={zoneForm.city}
                     onChange={(e) => setZoneForm({ ...zoneForm, city: e.target.value })}
-                    placeholder="e.g. Mogadishu"
+                    placeholder={translateRawUi('e.g. City / Region')}
                     className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-3.5 py-2 text-white"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-slate-400 font-bold mb-1">Assigned Branch *</label>
+                <label className="block text-slate-400 font-bold mb-1">{t.legacyUi.assignedBranchRequired}</label>
                 <select
                   value={zoneForm.branchId}
                   onChange={(e) => setZoneForm({ ...zoneForm, branchId: e.target.value })}
                   disabled={!isHqUser}
                   className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-3.5 py-2 text-white font-medium disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  <option value="branch_hq_01">Headquarters - Mogadishu Main (branch_hq_01)</option>
-                  <option value="branch_hargeisa_01">Hargeisa Flagship Branch (branch_hargeisa_01)</option>
-                  <option value="branch_kismayo_01">Kismayo Coastal Express (branch_kismayo_01)</option>
+                  {availableBranches.map((branch) => (
+                    <option key={branch.id} value={branch.id}>
+                      {branch.name || branch.id}{branch.code ? ` (${branch.code})` : ''}
+                    </option>
+                  ))}
                 </select>
                 {!isHqUser && (
                   <p className="text-[10px] text-slate-500 mt-1">Locked to your authenticated branch ({getBranchDisplayName(zoneForm.branchId)}).</p>
@@ -1561,7 +1583,7 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-slate-400 font-bold mb-1">Base Delivery Fee ($)</label>
+                  <label className="block text-slate-400 font-bold mb-1">{t.legacyUi.baseDeliveryFeeUsd}</label>
                   <input
                     type="number"
                     step="0.5"
@@ -1574,13 +1596,13 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-slate-400 font-bold mb-1">Est. Time (Mins)</label>
+                  <label className="block text-slate-400 font-bold mb-1">{t.legacyUi.estimatedTimeMins}</label>
                   <input
                     type="number"
                     required
                     min="1"
                     value={zoneForm.estimatedTimeMinutes}
-                    onChange={(e) => setZoneForm({ ...zoneForm, estimatedTimeMinutes: parseInt(e.target.value) || 25 })}
+                    onChange={(e) => setZoneForm({ ...zoneForm, estimatedTimeMinutes: e.target.value === '' ? 0 : parseInt(e.target.value, 10) })}
                     className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-3.5 py-2 text-white"
                   />
                 </div>
@@ -1588,20 +1610,20 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-slate-400 font-bold mb-1">Coverage Radius (km)</label>
+                  <label className="block text-slate-400 font-bold mb-1">{t.legacyUi.coverageRadiusKm}</label>
                   <input
                     type="number"
                     step="0.5"
                     min="0.5"
                     required
                     value={zoneForm.coverageRadiusKm}
-                    onChange={(e) => setZoneForm({ ...zoneForm, coverageRadiusKm: parseFloat(e.target.value) || 5 })}
+                    onChange={(e) => setZoneForm({ ...zoneForm, coverageRadiusKm: Number.isFinite(parseFloat(e.target.value)) ? parseFloat(e.target.value) : 0 })}
                     className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-3.5 py-2 text-white"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-slate-400 font-bold mb-1">Min Order Amount ($)</label>
+                  <label className="block text-slate-400 font-bold mb-1">{t.legacyUi.minOrderAmountUsd}</label>
                   <input
                     type="number"
                     step="1"
@@ -1620,13 +1642,13 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
                   onClick={() => setShowZoneModal(false)}
                   className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 font-bold"
                 >
-                  Cancel
+                  {translateRawUi('Cancel')}
                 </button>
                 <button
                   type="submit"
                   className="px-4 py-2 rounded-xl bg-emerald-500 text-slate-950 font-black"
                 >
-                  Save Zone
+                  {translateRawUi('Save Zone')}
                 </button>
               </div>
             </form>
@@ -1638,13 +1660,13 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
       {showAssignModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-md w-full space-y-4 shadow-2xl">
-            <h3 className="text-lg font-black text-white">Assign Delivery Driver</h3>
+            <h3 className="text-lg font-black text-white">{t.legacyUi.assignDeliveryDriver}</h3>
 
             <div className="space-y-3 text-xs">
-              <label className="block text-slate-400 font-bold">Select Available Driver:</label>
+              <label className="block text-slate-400 font-bold">{translateRawUi('Select Available Driver:')}</label>
               {eligibleDrivers.length === 0 ? (
                 <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-2xl text-amber-300 text-xs">
-                  No eligible drivers currently available. Drivers must be active and not currently on delivery.
+                  {translateRawUi('No eligible drivers currently available. Drivers must be active and not currently on delivery.')}
                 </div>
               ) : (
                 <select
@@ -1666,13 +1688,13 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
                   onClick={() => setShowAssignModal(false)}
                   className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 font-bold"
                 >
-                  Cancel
+                  {translateRawUi('Cancel')}
                 </button>
                 <button
                   onClick={handleConfirmAssign}
                   className="px-4 py-2 rounded-xl bg-emerald-500 text-slate-950 font-black"
                 >
-                  Confirm Assignment
+                  {translateRawUi('Confirm Assignment')}
                 </button>
               </div>
             </div>

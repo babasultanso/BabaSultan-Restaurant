@@ -1,3 +1,4 @@
+import { translateRawUi } from '../i18n/rawUi';
 import React, { useState, useEffect } from 'react';
 import { 
   collection, 
@@ -74,7 +75,7 @@ interface Props {
 }
 
 export const AIOperationsManagerView: React.FC<Props> = ({ language: initialLanguage }) => {
-  const { userRecord, role } = useAuth();
+  const { userRecord, role, t } = useAuth();
   const [currentLang, setCurrentLang] = useState<Language>(initialLanguage || 'en');
   const [activeTab, setActiveTab] = useState<'dashboard' | 'kitchen' | 'staff' | 'delivery' | 'customer' | 'assistant'>('dashboard');
 
@@ -382,10 +383,10 @@ export const AIOperationsManagerView: React.FC<Props> = ({ language: initialLang
           <div>
             <div className="flex items-center gap-3 mb-2">
               <span className="bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider flex items-center gap-1.5">
-                <Zap className="w-3.5 h-3.5 text-indigo-400" /> AI Executive Operations Command
+                <Zap className="w-3.5 h-3.5 text-indigo-400" /> {translateRawUi('AI Executive Operations Command')}
               </span>
               <span className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" /> Real-Time Firestore Sync
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" /> {translateRawUi('Real-Time Firestore Sync')}
               </span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white flex items-center gap-3">
@@ -393,7 +394,7 @@ export const AIOperationsManagerView: React.FC<Props> = ({ language: initialLang
               {currentLang === 'ar' ? 'مدير عمليات المطبخ والنظام الذكي' : currentLang === 'so' ? 'Maamulaha AI ee Shaqada Maqaayadda' : 'AI Restaurant Operations Manager'}
             </h1>
             <p className="text-slate-400 text-sm mt-1 max-w-2xl">
-              Real-time multi-department supervisor monitoring kitchen workload, order prep delays, driver dispatch, staff shifts, and customer complaints directly from live Firestore collections.
+              {translateRawUi('Real-time multi-department supervisor monitoring kitchen workload, order prep delays, driver dispatch, staff shifts, and customer complaints directly from live Firestore collections.')}
             </p>
           </div>
 
@@ -406,7 +407,7 @@ export const AIOperationsManagerView: React.FC<Props> = ({ language: initialLang
                   currentLang === 'en' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
                 }`}
               >
-                English
+                {translateRawUi('English')}
               </button>
               <button
                 onClick={() => setCurrentLang('ar')}
@@ -422,7 +423,7 @@ export const AIOperationsManagerView: React.FC<Props> = ({ language: initialLang
                   currentLang === 'so' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
                 }`}
               >
-                Soomaali
+                {translateRawUi('Soomaali')}
               </button>
             </div>
 
@@ -430,7 +431,7 @@ export const AIOperationsManagerView: React.FC<Props> = ({ language: initialLang
               onClick={() => showToast('Refreshed live Firestore operational data pipelines!')}
               className="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold px-4 py-2 rounded-xl text-xs flex items-center gap-2 cursor-pointer transition-colors"
             >
-              <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} /> Sync All Departments
+              <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} /> {translateRawUi('Sync All Departments')}
             </button>
           </div>
         </div>
@@ -438,7 +439,7 @@ export const AIOperationsManagerView: React.FC<Props> = ({ language: initialLang
         {/* Live Department Health Badges Bar */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mt-6 pt-6 border-t border-slate-800">
           <div className="bg-slate-800/60 rounded-xl p-3 border border-slate-700/50">
-            <span className="text-xs text-slate-400 block font-medium">Kitchen Workload</span>
+            <span className="text-xs text-slate-400 block font-medium">{t.legacyUi.kitchenWorkload}</span>
             <div className="flex items-center justify-between mt-1">
               <span className="text-base font-bold text-white">{kpis.kitchenWorkloadPercentage}%</span>
               <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
@@ -452,7 +453,7 @@ export const AIOperationsManagerView: React.FC<Props> = ({ language: initialLang
           </div>
 
           <div className="bg-slate-800/60 rounded-xl p-3 border border-slate-700/50">
-            <span className="text-xs text-slate-400 block font-medium">Active Kitchen Orders</span>
+            <span className="text-xs text-slate-400 block font-medium">{t.legacyUi.activeKitchenOrders}</span>
             <div className="flex items-center justify-between mt-1">
               <span className="text-base font-bold text-indigo-400">{kpis.totalPreparingOrders} preparing</span>
               <span className="text-[10px] text-amber-400 font-bold">{kpis.delayedOrdersCount} delayed</span>
@@ -460,7 +461,7 @@ export const AIOperationsManagerView: React.FC<Props> = ({ language: initialLang
           </div>
 
           <div className="bg-slate-800/60 rounded-xl p-3 border border-slate-700/50">
-            <span className="text-xs text-slate-400 block font-medium">Staff Attendance</span>
+            <span className="text-xs text-slate-400 block font-medium">{translateRawUi('Staff Attendance')}</span>
             <div className="flex items-center justify-between mt-1">
               <span className="text-base font-bold text-emerald-400">{kpis.attendanceRatePercentage}%</span>
               <span className="text-[10px] text-slate-400">{kpis.presentEmployeesCount}/{kpis.totalEmployees} Staff</span>
@@ -468,7 +469,7 @@ export const AIOperationsManagerView: React.FC<Props> = ({ language: initialLang
           </div>
 
           <div className="bg-slate-800/60 rounded-xl p-3 border border-slate-700/50">
-            <span className="text-xs text-slate-400 block font-medium">Delivery Success Rate</span>
+            <span className="text-xs text-slate-400 block font-medium">{t.legacyUi.deliverySuccessRate}</span>
             <div className="flex items-center justify-between mt-1">
               <span className="text-base font-bold text-teal-400">{kpis.deliverySuccessRatePercentage}%</span>
               <span className="text-[10px] text-slate-400">{kpis.inTransitDriversCount} Drivers Active</span>
@@ -476,7 +477,7 @@ export const AIOperationsManagerView: React.FC<Props> = ({ language: initialLang
           </div>
 
           <div className="bg-slate-800/60 rounded-xl p-3 border border-slate-700/50">
-            <span className="text-xs text-slate-400 block font-medium">Customer Rating</span>
+            <span className="text-xs text-slate-400 block font-medium">{t.legacyUi.customerRating}</span>
             <div className="flex items-center justify-between mt-1">
               <span className="text-base font-bold text-amber-400">★ {kpis.avgCustomerRating} / 5.0</span>
               <span className="text-[10px] text-slate-400">{kpis.customerSatisfactionPercentage}% Satisfied</span>
@@ -484,10 +485,10 @@ export const AIOperationsManagerView: React.FC<Props> = ({ language: initialLang
           </div>
 
           <div className="bg-slate-800/60 rounded-xl p-3 border border-slate-700/50">
-            <span className="text-xs text-slate-400 block font-medium">Low Stock Alerts</span>
+            <span className="text-xs text-slate-400 block font-medium">{t.legacyUi.lowStockAlertsLabel}</span>
             <div className="flex items-center justify-between mt-1">
               <span className="text-base font-bold text-rose-400">{kpis.criticalLowStockCount} items</span>
-              <span className="text-[10px] text-rose-400 underline cursor-pointer" onClick={() => setActiveTab('dashboard')}>Reorder</span>
+              <span className="text-[10px] text-rose-400 underline cursor-pointer" onClick={() => setActiveTab('dashboard')}>{translateRawUi('Reorder')}</span>
             </div>
           </div>
         </div>
@@ -500,7 +501,7 @@ export const AIOperationsManagerView: React.FC<Props> = ({ language: initialLang
             <h2 className="text-sm font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200 flex items-center gap-2">
               <ShieldAlert className="w-4 h-4 text-rose-500" /> Operational Smart Alerts ({smartAlerts.length})
             </h2>
-            <span className="text-xs text-slate-500">Auto-detected by AI Operations Manager</span>
+            <span className="text-xs text-slate-500">{t.legacyUi.autoDetectedAiOps}</span>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -559,7 +560,7 @@ export const AIOperationsManagerView: React.FC<Props> = ({ language: initialLang
               : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
           }`}
         >
-          <Activity className="w-4 h-4" /> Command Center
+          <Activity className="w-4 h-4" /> {translateRawUi('Command Center')}
         </button>
 
         <button
@@ -586,7 +587,7 @@ export const AIOperationsManagerView: React.FC<Props> = ({ language: initialLang
               : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
           }`}
         >
-          <Users className="w-4 h-4" /> Staff & Roster
+          <Users className="w-4 h-4" /> {translateRawUi('Staff & Roster')}
         </button>
 
         <button
@@ -597,7 +598,7 @@ export const AIOperationsManagerView: React.FC<Props> = ({ language: initialLang
               : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
           }`}
         >
-          <Truck className="w-4 h-4" /> Delivery Dispatch
+          <Truck className="w-4 h-4" /> {translateRawUi('Delivery Dispatch')}
         </button>
 
         <button
@@ -608,7 +609,7 @@ export const AIOperationsManagerView: React.FC<Props> = ({ language: initialLang
               : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
           }`}
         >
-          <Smile className="w-4 h-4" /> Customer Service
+          <Smile className="w-4 h-4" /> {translateRawUi('Customer Service')}
         </button>
 
         <button
@@ -619,7 +620,7 @@ export const AIOperationsManagerView: React.FC<Props> = ({ language: initialLang
               : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
           }`}
         >
-          <Bot className="w-4 h-4 text-amber-300" /> Voice & Chat AI Assistant
+          <Bot className="w-4 h-4 text-amber-300" /> {translateRawUi('Voice & Chat AI Assistant')}
         </button>
       </div>
 
@@ -633,7 +634,7 @@ export const AIOperationsManagerView: React.FC<Props> = ({ language: initialLang
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h3 className="text-lg font-bold flex items-center gap-2">
-                  <Clock className="w-5 h-5 text-amber-400" /> Real-time Order Preparation & Delay Detector
+                  <Clock className="w-5 h-5 text-amber-400" /> {translateRawUi('Real-time Order Preparation & Delay Detector')}
                 </h3>
                 <p className="text-xs text-slate-400 mt-0.5">
                   Orders exceeding the target preparation threshold ({kpis.targetPrepTimeMinutes} minutes) are flagged automatically.
@@ -647,7 +648,7 @@ export const AIOperationsManagerView: React.FC<Props> = ({ language: initialLang
             {delayedOrderAlerts.length === 0 ? (
               <div className="bg-slate-800/40 rounded-xl p-8 text-center border border-slate-800">
                 <CheckCircle2 className="w-10 h-10 text-emerald-400 mx-auto mb-2 opacity-80" />
-                <p className="text-sm font-semibold text-slate-200">All kitchen orders are running within schedule!</p>
+                <p className="text-sm font-semibold text-slate-200">{t.legacyUi.allKitchenOnSchedule}</p>
                 <p className="text-xs text-slate-400 mt-1">Average kitchen preparation time is currently {kpis.avgPreparationTimeMinutes} mins.</p>
               </div>
             ) : (
@@ -655,12 +656,12 @@ export const AIOperationsManagerView: React.FC<Props> = ({ language: initialLang
                 <table className="w-full text-left text-xs">
                   <thead className="bg-slate-800/80 text-slate-400 font-semibold uppercase tracking-wider">
                     <tr>
-                      <th className="p-3 rounded-l-xl">Order #</th>
-                      <th className="p-3">Customer</th>
-                      <th className="p-3">Items Summary</th>
-                      <th className="p-3">Elapsed Time</th>
-                      <th className="p-3">Chef Station</th>
-                      <th className="p-3 text-right rounded-r-xl">Manager Action</th>
+                      <th className="p-3 rounded-l-xl">{translateRawUi('Order #')}</th>
+                      <th className="p-3">{translateRawUi('Customer')}</th>
+                      <th className="p-3">{t.legacyUi.itemsSummary}</th>
+                      <th className="p-3">{t.legacyUi.elapsedTime}</th>
+                      <th className="p-3">{t.legacyUi.chefStation}</th>
+                      <th className="p-3 text-right rounded-r-xl">{t.legacyUi.managerAction}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800">
@@ -682,7 +683,7 @@ export const AIOperationsManagerView: React.FC<Props> = ({ language: initialLang
                             onClick={() => handleExpediteOrder(ord.orderId)}
                             className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3 py-1.5 rounded-lg text-xs cursor-pointer transition-colors shadow-sm"
                           >
-                            Expedite & Mark Ready
+                            {translateRawUi('Expedite & Mark Ready')}
                           </button>
                         </td>
                       </tr>
@@ -696,7 +697,7 @@ export const AIOperationsManagerView: React.FC<Props> = ({ language: initialLang
           {/* AI Operational Recommendations */}
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm">
             <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2 mb-4">
-              <Sparkles className="w-5 h-5 text-indigo-500" /> AI Operations Optimizations & Recommendations
+              <Sparkles className="w-5 h-5 text-indigo-500" /> {translateRawUi('AI Operations Optimizations & Recommendations')}
             </h3>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -708,7 +709,7 @@ export const AIOperationsManagerView: React.FC<Props> = ({ language: initialLang
                         {(rec.category || 'General').replace('_', ' ')}
                       </span>
                       <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">
-                        Impact: {rec.impact}
+                        {translateRawUi('Impact:')} {rec.impact}
                       </span>
                     </div>
                     <h4 className="font-bold text-sm text-slate-900 dark:text-white">{rec.title}</h4>
@@ -721,7 +722,7 @@ export const AIOperationsManagerView: React.FC<Props> = ({ language: initialLang
                     }}
                     className="mt-4 w-full bg-slate-900 hover:bg-slate-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white font-bold py-2 rounded-xl text-xs flex items-center justify-center gap-2 cursor-pointer transition-colors"
                   >
-                    Apply Optimization <ChevronRight className="w-4 h-4" />
+                    {translateRawUi('Apply Optimization')} <ChevronRight className="w-4 h-4" />
                   </button>
                 </div>
               ))}
@@ -752,15 +753,15 @@ export const AIOperationsManagerView: React.FC<Props> = ({ language: initialLang
 
                 <div className="space-y-2 text-xs text-slate-600 dark:text-slate-400">
                   <div className="flex justify-between">
-                    <span>Chef Assigned:</span>
+                    <span>{t.legacyUi.chefAssignedColon}</span>
                     <span className="font-semibold text-slate-900 dark:text-slate-200">{st.assignedChef}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span>Active Tickets:</span>
+                    <span>{t.legacyUi.activeTickets}</span>
                     <span className="font-bold text-indigo-600 dark:text-indigo-400">{st.activeOrdersCount} orders</span>
                   </div>
                   <div className="flex justify-between">
-                    <span>Avg Prep Time:</span>
+                    <span>{t.legacyUi.avgPrepTimeColon}</span>
                     <span className="font-medium text-slate-800 dark:text-slate-200">{st.avgPrepTimeMinutes} mins</span>
                   </div>
                 </div>
@@ -770,7 +771,7 @@ export const AIOperationsManagerView: React.FC<Props> = ({ language: initialLang
                     onClick={() => handleBalanceStation(st.id)}
                     className="mt-4 w-full bg-rose-600 hover:bg-rose-500 text-white font-bold py-2 rounded-xl text-xs flex items-center justify-center gap-2 cursor-pointer shadow-sm transition-colors"
                   >
-                    Balance & Re-assign Workload
+                    {translateRawUi('Balance & Re-assign Workload')}
                   </button>
                 )}
               </div>
@@ -780,14 +781,14 @@ export const AIOperationsManagerView: React.FC<Props> = ({ language: initialLang
           {/* KDS Active Tickets Grid */}
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 text-white">
             <h3 className="text-base font-bold flex items-center gap-2 mb-4">
-              <Flame className="w-5 h-5 text-amber-500" /> Live Kitchen Display System (KDS Tickets)
+              <Flame className="w-5 h-5 text-amber-500" /> {translateRawUi('Live Kitchen Display System (KDS Tickets)')}
             </h3>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {orders.filter(o => o.status === 'pending' || o.prepStatus === 'preparing' || o.prepStatus === 'new').map(ord => {
                 const elapsedFromCreated = ord.createdAt ? Math.max(1, Math.round((Date.now() - new Date(ord.createdAt).getTime()) / 60000)) : 0;
                 const prepMinutes = ord.prepTimeMinutes || elapsedFromCreated;
-                const isDelayed = prepMinutes > (ord.targetPrepTimeMinutes || 15);
+                const isDelayed = Number.isFinite(Number(ord.targetPrepTimeMinutes)) && prepMinutes > Number(ord.targetPrepTimeMinutes);
 
                 return (
                   <div key={ord.id} className={`p-4 rounded-xl border flex flex-col justify-between ${
@@ -804,7 +805,7 @@ export const AIOperationsManagerView: React.FC<Props> = ({ language: initialLang
                       </div>
 
                       <div className="text-xs text-slate-300 font-medium mb-2">
-                        Customer: <span className="text-white font-semibold">{ord.customerName}</span>
+                        {translateRawUi('Customer:')} <span className="text-white font-semibold">{ord.customerName}</span>
                       </div>
 
                       <div className="border-t border-slate-700 pt-2 space-y-1">
@@ -820,7 +821,7 @@ export const AIOperationsManagerView: React.FC<Props> = ({ language: initialLang
                       onClick={() => handleExpediteOrder(ord.id)}
                       className="mt-4 w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 rounded-xl text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow"
                     >
-                      <Check className="w-4 h-4" /> Mark Order Ready
+                      <Check className="w-4 h-4" /> {translateRawUi('Mark Order Ready')}
                     </button>
                   </div>
                 );
@@ -837,19 +838,19 @@ export const AIOperationsManagerView: React.FC<Props> = ({ language: initialLang
         <div className="space-y-6">
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm">
             <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2 mb-4">
-              <Users className="w-5 h-5 text-indigo-500" /> Real-time Staff Attendance & Late Arrival Tracker
+              <Users className="w-5 h-5 text-indigo-500" /> {translateRawUi('Real-time Staff Attendance & Late Arrival Tracker')}
             </h3>
 
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-semibold uppercase">
                   <tr>
-                    <th className="p-3">Employee Name</th>
-                    <th className="p-3">Shift</th>
-                    <th className="p-3">Check-In Time</th>
-                    <th className="p-3">Status</th>
-                    <th className="p-3">Overtime</th>
-                    <th className="p-3 text-right">Schedule Recommendation</th>
+                    <th className="p-3">{t.legacyUi.employeeName}</th>
+                    <th className="p-3">{t.legacyUi.shiftLabel}</th>
+                    <th className="p-3">{t.legacyUi.checkInTime}</th>
+                    <th className="p-3">{translateRawUi('Status')}</th>
+                    <th className="p-3">{translateRawUi('Overtime')}</th>
+                    <th className="p-3 text-right">{translateRawUi('Schedule Recommendation')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
@@ -873,7 +874,7 @@ export const AIOperationsManagerView: React.FC<Props> = ({ language: initialLang
                           onClick={() => showToast(`Optimized shift schedule for ${att.employeeName}`)}
                           className="bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 font-bold px-3 py-1.5 rounded-lg hover:bg-indigo-100 transition-colors cursor-pointer"
                         >
-                          Optimize Shift
+                          {translateRawUi('Optimize Shift')}
                         </button>
                       </td>
                     </tr>
@@ -892,7 +893,7 @@ export const AIOperationsManagerView: React.FC<Props> = ({ language: initialLang
         <div className="space-y-6">
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm">
             <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2 mb-4">
-              <Truck className="w-5 h-5 text-indigo-500" /> Active Delivery Drivers Roster
+              <Truck className="w-5 h-5 text-indigo-500" /> {translateRawUi('Active Delivery Drivers Roster')}
             </h3>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -908,9 +909,9 @@ export const AIOperationsManagerView: React.FC<Props> = ({ language: initialLang
                   </div>
 
                   <div className="text-xs text-slate-600 dark:text-slate-400 space-y-1">
-                    <p>Vehicle: <span className="font-semibold text-slate-800 dark:text-slate-200">{drv.vehicle}</span></p>
-                    <p>Rating: <span className="font-bold text-amber-500">★ {drv.rating}</span></p>
-                    <p>Avg Delivery Time: <span className="font-semibold">{drv.avgDeliveryTimeMinutes} mins</span></p>
+                    <p>{translateRawUi('Vehicle:')} <span className="font-semibold text-slate-800 dark:text-slate-200">{drv.vehicle}</span></p>
+                    <p>{translateRawUi('Rating:')} <span className="font-bold text-amber-500">★ {drv.rating}</span></p>
+                    <p>{translateRawUi('Avg Delivery Time:')} <span className="font-semibold">{drv.avgDeliveryTimeMinutes} {translateRawUi('mins')}</span></p>
                   </div>
                 </div>
               ))}
@@ -926,7 +927,7 @@ export const AIOperationsManagerView: React.FC<Props> = ({ language: initialLang
         <div className="space-y-6">
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm">
             <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2 mb-4">
-              <Smile className="w-5 h-5 text-indigo-500" /> Customer Complaints & Resolution Center
+              <Smile className="w-5 h-5 text-indigo-500" /> {translateRawUi('Customer Complaints & Resolution Center')}
             </h3>
 
             <div className="space-y-3">
@@ -950,7 +951,7 @@ export const AIOperationsManagerView: React.FC<Props> = ({ language: initialLang
                       onClick={() => handleResolveFeedback(fb.id)}
                       className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-4 py-2 rounded-xl text-xs cursor-pointer"
                     >
-                      Resolve & Issue Voucher
+                      {translateRawUi('Resolve & Issue Voucher')}
                     </button>
                   )}
                 </div>
@@ -967,10 +968,10 @@ export const AIOperationsManagerView: React.FC<Props> = ({ language: initialLang
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 text-white shadow-xl space-y-6">
           <div>
             <h3 className="text-lg font-bold flex items-center gap-2">
-              <Bot className="w-6 h-6 text-indigo-400" /> AI Operations Voice & Chat Assistant (EN / AR / SO)
+              <Bot className="w-6 h-6 text-indigo-400" /> {translateRawUi('AI Operations Voice & Chat Assistant (EN / AR / SO)')}
             </h3>
             <p className="text-xs text-slate-400 mt-1">
-              Ask operational questions regarding kitchen performance, employee lateness, delayed orders, pending deliveries, or raw ingredient reorders.
+              {translateRawUi('Ask operational questions regarding kitchen performance, employee lateness, delayed orders, pending deliveries, or raw ingredient reorders.')}
             </p>
           </div>
 
@@ -980,35 +981,35 @@ export const AIOperationsManagerView: React.FC<Props> = ({ language: initialLang
               onClick={() => handleAskPresetQuestion('kitchen_performance')}
               className="p-3 rounded-xl bg-slate-800/80 hover:bg-slate-800 border border-slate-700 text-left text-xs font-bold text-indigo-300 hover:text-white flex items-center gap-2 transition-all cursor-pointer"
             >
-              <Flame className="w-4 h-4 text-amber-400" /> How is the kitchen performing today?
+              <Flame className="w-4 h-4 text-amber-400" /> {translateRawUi('How is the kitchen performing today?')}
             </button>
 
             <button
               onClick={() => handleAskPresetQuestion('employee_late')}
               className="p-3 rounded-xl bg-slate-800/80 hover:bg-slate-800 border border-slate-700 text-left text-xs font-bold text-rose-300 hover:text-white flex items-center gap-2 transition-all cursor-pointer"
             >
-              <UserCheck className="w-4 h-4 text-rose-400" /> Which employee is late?
+              <UserCheck className="w-4 h-4 text-rose-400" /> {translateRawUi('Which employee is late?')}
             </button>
 
             <button
               onClick={() => handleAskPresetQuestion('orders_delayed')}
               className="p-3 rounded-xl bg-slate-800/80 hover:bg-slate-800 border border-slate-700 text-left text-xs font-bold text-amber-300 hover:text-white flex items-center gap-2 transition-all cursor-pointer"
             >
-              <Timer className="w-4 h-4 text-amber-400" /> Which orders are delayed?
+              <Timer className="w-4 h-4 text-amber-400" /> {translateRawUi('Which orders are delayed?')}
             </button>
 
             <button
               onClick={() => handleAskPresetQuestion('deliveries_pending')}
               className="p-3 rounded-xl bg-slate-800/80 hover:bg-slate-800 border border-slate-700 text-left text-xs font-bold text-teal-300 hover:text-white flex items-center gap-2 transition-all cursor-pointer"
             >
-              <Truck className="w-4 h-4 text-teal-400" /> How many deliveries pending?
+              <Truck className="w-4 h-4 text-teal-400" /> {translateRawUi('How many deliveries pending?')}
             </button>
 
             <button
               onClick={() => handleAskPresetQuestion('reorder_ingredients_today')}
               className="p-3 rounded-xl bg-slate-800/80 hover:bg-slate-800 border border-slate-700 text-left text-xs font-bold text-emerald-300 hover:text-white flex items-center gap-2 transition-all cursor-pointer"
             >
-              <PackageCheck className="w-4 h-4 text-emerald-400" /> Do I need to reorder ingredients today?
+              <PackageCheck className="w-4 h-4 text-emerald-400" /> {translateRawUi('Do I need to reorder ingredients today?')}
             </button>
           </div>
 
@@ -1046,7 +1047,7 @@ export const AIOperationsManagerView: React.FC<Props> = ({ language: initialLang
               value={inputQuestion}
               onChange={(e) => setInputQuestion(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSendQuestion()}
-              placeholder="Ask the AI Operations Manager a question..."
+              placeholder={translateRawUi('Ask the AI Operations Manager a question...')}
               className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
             />
 

@@ -1,6 +1,8 @@
+import { translations } from '../../../i18n/translations';
+import { translateRawUi } from '../../../i18n/rawUi';
 import React, { useState, useMemo } from 'react';
 import { InventoryItem, InventoryCategory, InventoryItemStatus } from '../../../domain/entities/inventory';
-import { InventoryLang, inventoryDict } from './translations';
+import { InventoryLang, inventoryDict } from '../../../i18n';
 import {
   Package,
   Search,
@@ -38,7 +40,7 @@ export const InventoryListView: React.FC<InventoryListViewProps> = ({
   onDeleteItem,
   onQuickAdjust
 }) => {
-  const t = inventoryDict[lang] || inventoryDict.en;
+  const t = { ...(inventoryDict[lang] || inventoryDict.en), legacyUi: translations[lang].legacyUi };
   const isReadOnly = userRole === 'Kitchen' || userRole === 'Cashier';
 
   // State
@@ -66,10 +68,10 @@ export const InventoryListView: React.FC<InventoryListViewProps> = ({
     purchaseCost: 0,
     sellingCost: 0,
     currentQuantity: 0,
-    minimumQuantity: 10,
-    maximumQuantity: 100,
-    reorderLevel: 15,
-    storageLocation: 'Main Warehouse',
+    minimumQuantity: 0,
+    maximumQuantity: 0,
+    reorderLevel: 0,
+    storageLocation: '',
     supplierName: '',
     expirationDate: '',
     batchNumber: ''
@@ -106,11 +108,11 @@ export const InventoryListView: React.FC<InventoryListViewProps> = ({
       purchaseCost: 0,
       sellingCost: 0,
       currentQuantity: 0,
-      minimumQuantity: 10,
-      maximumQuantity: 200,
-      reorderLevel: 15,
-      storageLocation: 'Main Dry Storage',
-      supplierName: 'Global Food Wholesale Ltd',
+      minimumQuantity: 0,
+      maximumQuantity: 0,
+      reorderLevel: 0,
+      storageLocation: '',
+      supplierName: '',
       expirationDate: '',
       batchNumber: `BATCH-${Date.now().toString().slice(-6)}`
     });
@@ -250,7 +252,7 @@ export const InventoryListView: React.FC<InventoryListViewProps> = ({
                 <tr>
                   <td colSpan={8} className="p-12 text-center text-slate-500">
                     <Package className="w-10 h-10 mx-auto text-slate-700 mb-2" />
-                    No inventory items found matching your filter criteria.
+                    {translateRawUi('No inventory items found matching your filter criteria.')}
                   </td>
                 </tr>
               ) : (
@@ -271,7 +273,7 @@ export const InventoryListView: React.FC<InventoryListViewProps> = ({
                             <button
                               onClick={() => setViewingBarcodeItem(item)}
                               className="flex items-center gap-1 hover:text-white"
-                              title="Click to view Barcode"
+                              title={translateRawUi('Click to view Barcode')}
                             >
                               <Barcode className="w-3 h-3 text-slate-500" />
                               <span className="font-mono">{item.barcode}</span>
@@ -341,7 +343,7 @@ export const InventoryListView: React.FC<InventoryListViewProps> = ({
                                 setAdjustReason('');
                               }}
                               className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-400 transition cursor-pointer"
-                              title="Quick Stock Adjustment"
+                              title={translateRawUi('Quick Stock Adjustment')}
                             >
                               <RefreshCw className="w-3.5 h-3.5" />
                             </button>
@@ -352,7 +354,7 @@ export const InventoryListView: React.FC<InventoryListViewProps> = ({
                             <button
                               onClick={() => handleOpenEdit(item)}
                               className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-cyan-400 transition cursor-pointer"
-                              title="Edit Item Details"
+                              title={translateRawUi('Edit Item Details')}
                             >
                               <Edit2 className="w-3.5 h-3.5" />
                             </button>
@@ -367,7 +369,7 @@ export const InventoryListView: React.FC<InventoryListViewProps> = ({
                                 }
                               }}
                               className="p-2 rounded-xl bg-slate-800 hover:bg-rose-950 text-rose-400 transition cursor-pointer"
-                              title="Delete Item"
+                              title={translateRawUi('Delete Item')}
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
@@ -405,19 +407,19 @@ export const InventoryListView: React.FC<InventoryListViewProps> = ({
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-slate-400 font-bold mb-1">Item Name *</label>
+                  <label className="block text-slate-400 font-bold mb-1">{t.legacyUi.itemNameRequired}</label>
                   <input
                     type="text"
                     required
                     value={formData.itemName}
                     onChange={(e) => setFormData({ ...formData, itemName: e.target.value })}
                     className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-3 text-white focus:border-amber-500 focus:outline-none"
-                    placeholder="e.g., Premium Basmati Rice"
+                    placeholder={translateRawUi('e.g., Premium Basmati Rice')}
                   />
                 </div>
 
                 <div>
-                  <label className="block text-slate-400 font-bold mb-1">Item Code *</label>
+                  <label className="block text-slate-400 font-bold mb-1">{t.legacyUi.itemCodeRequired}</label>
                   <input
                     type="text"
                     required
@@ -428,52 +430,52 @@ export const InventoryListView: React.FC<InventoryListViewProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-slate-400 font-bold mb-1">Barcode</label>
+                  <label className="block text-slate-400 font-bold mb-1">{translateRawUi('Barcode')}</label>
                   <input
                     type="text"
                     value={formData.barcode}
                     onChange={(e) => setFormData({ ...formData, barcode: e.target.value })}
                     className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-3 text-white focus:border-amber-500 focus:outline-none font-mono"
-                    placeholder="EAN-13 / UPC"
+                    placeholder={translateRawUi('EAN-13 / UPC')}
                   />
                 </div>
 
                 <div>
-                  <label className="block text-slate-400 font-bold mb-1">Category</label>
+                  <label className="block text-slate-400 font-bold mb-1">{translateRawUi('Category')}</label>
                   <select
                     value={formData.category}
                     onChange={(e) => setFormData({ ...formData, category: e.target.value as InventoryCategory })}
                     className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-3 text-white focus:border-amber-500 focus:outline-none"
                   >
-                    <option value="Raw Materials">Raw Materials</option>
-                    <option value="Finished Products">Finished Products</option>
-                    <option value="Packaging Materials">Packaging Materials</option>
-                    <option value="Beverages">Beverages</option>
-                    <option value="Cleaning Supplies">Cleaning Supplies</option>
+                    <option value="Raw Materials">{t.legacyUi.rawMaterials}</option>
+                    <option value="Finished Products">{t.legacyUi.finishedProducts}</option>
+                    <option value="Packaging Materials">{t.legacyUi.packagingMaterials}</option>
+                    <option value="Beverages">{translateRawUi('Beverages')}</option>
+                    <option value="Cleaning Supplies">{t.legacyUi.cleaningSupplies}</option>
                   </select>
                 </div>
 
                 <div>
-                  <label className="block text-slate-400 font-bold mb-1">Unit of Measure</label>
+                  <label className="block text-slate-400 font-bold mb-1">{t.legacyUi.unitOfMeasure}</label>
                   <select
                     value={formData.unit}
                     onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
                     className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-3 text-white focus:border-amber-500 focus:outline-none"
                   >
-                    <option value="kg">Kilograms (kg)</option>
-                    <option value="g">Grams (g)</option>
-                    <option value="liters">Liters (liters)</option>
-                    <option value="ml">Milliliters (ml)</option>
-                    <option value="pcs">Pieces (pcs)</option>
-                    <option value="boxes">Boxes</option>
-                    <option value="bags">Bags</option>
-                    <option value="bottles">Bottles</option>
-                    <option value="cans">Cans</option>
+                    <option value="kg">{t.legacyUi.kilograms}</option>
+                    <option value="g">{t.legacyUi.grams}</option>
+                    <option value="liters">{t.legacyUi.liters}</option>
+                    <option value="ml">{t.legacyUi.milliliters}</option>
+                    <option value="pcs">{t.legacyUi.pieces}</option>
+                    <option value="boxes">{translateRawUi('Boxes')}</option>
+                    <option value="bags">{translateRawUi('Bags')}</option>
+                    <option value="bottles">{translateRawUi('Bottles')}</option>
+                    <option value="cans">{translateRawUi('Cans')}</option>
                   </select>
                 </div>
 
                 <div>
-                  <label className="block text-slate-400 font-bold mb-1">Purchase Cost ($)</label>
+                  <label className="block text-slate-400 font-bold mb-1">{t.legacyUi.purchaseCostUsd}</label>
                   <input
                     type="number"
                     step="0.01"
@@ -484,7 +486,7 @@ export const InventoryListView: React.FC<InventoryListViewProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-slate-400 font-bold mb-1">Current Quantity</label>
+                  <label className="block text-slate-400 font-bold mb-1">{t.legacyUi.currentQuantity}</label>
                   <input
                     type="number"
                     value={formData.currentQuantity}
@@ -494,7 +496,7 @@ export const InventoryListView: React.FC<InventoryListViewProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-slate-400 font-bold mb-1">Min Quantity (Low Alert)</label>
+                  <label className="block text-slate-400 font-bold mb-1">{t.legacyUi.minQuantityLowAlert}</label>
                   <input
                     type="number"
                     value={formData.minimumQuantity}
@@ -504,18 +506,18 @@ export const InventoryListView: React.FC<InventoryListViewProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-slate-400 font-bold mb-1">Storage Location</label>
+                  <label className="block text-slate-400 font-bold mb-1">{t.legacyUi.storageLocation}</label>
                   <input
                     type="text"
                     value={formData.storageLocation}
                     onChange={(e) => setFormData({ ...formData, storageLocation: e.target.value })}
                     className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-3 text-white focus:border-amber-500 focus:outline-none"
-                    placeholder="e.g., Cold Storage #2"
+                    placeholder={translateRawUi('e.g., Cold Storage #2')}
                   />
                 </div>
 
                 <div>
-                  <label className="block text-slate-400 font-bold mb-1">Expiration Date</label>
+                  <label className="block text-slate-400 font-bold mb-1">{t.legacyUi.expirationDate}</label>
                   <input
                     type="date"
                     value={formData.expirationDate}
@@ -531,7 +533,7 @@ export const InventoryListView: React.FC<InventoryListViewProps> = ({
                   onClick={() => setIsFormOpen(false)}
                   className="px-5 py-2.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold cursor-pointer"
                 >
-                  Cancel
+                  {translateRawUi('Cancel')}
                 </button>
                 <button
                   type="submit"
@@ -560,9 +562,9 @@ export const InventoryListView: React.FC<InventoryListViewProps> = ({
             <form onSubmit={handleAdjustSubmit} className="space-y-4 text-xs">
               <div>
                 <label className="block text-slate-400 font-bold mb-1">
-                  Previous Quantity: <span className="text-white">{adjustingItem.currentQuantity} {adjustingItem.unit}</span>
+                  {translateRawUi('Previous Quantity:')} <span className="text-white">{adjustingItem.currentQuantity} {adjustingItem.unit}</span>
                 </label>
-                <label className="block text-slate-400 font-bold mb-1">New Physical Count Quantity *</label>
+                <label className="block text-slate-400 font-bold mb-1">{t.legacyUi.newPhysicalCount}</label>
                 <input
                   type="number"
                   required
@@ -573,13 +575,13 @@ export const InventoryListView: React.FC<InventoryListViewProps> = ({
               </div>
 
               <div>
-                <label className="block text-slate-400 font-bold mb-1">Reason for Adjustment *</label>
+                <label className="block text-slate-400 font-bold mb-1">{t.legacyUi.reasonAdjustmentRequired}</label>
                 <input
                   type="text"
                   required
                   value={adjustReason}
                   onChange={(e) => setAdjustReason(e.target.value)}
-                  placeholder="e.g., Weekly Physical Cycle Count Discrepancy"
+                  placeholder={translateRawUi('e.g., Weekly Physical Cycle Count Discrepancy')}
                   className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-3 text-white focus:border-amber-500 focus:outline-none"
                 />
               </div>
@@ -590,13 +592,13 @@ export const InventoryListView: React.FC<InventoryListViewProps> = ({
                   onClick={() => setAdjustingItem(null)}
                   className="px-4 py-2 rounded-2xl bg-slate-800 text-slate-300 font-bold"
                 >
-                  Cancel
+                  {translateRawUi('Cancel')}
                 </button>
                 <button
                   type="submit"
                   className="px-5 py-2 rounded-2xl bg-amber-500 text-slate-950 font-black"
                 >
-                  Apply Adjustment
+                  {translateRawUi('Apply Adjustment')}
                 </button>
               </div>
             </form>
@@ -624,7 +626,7 @@ export const InventoryListView: React.FC<InventoryListViewProps> = ({
               onClick={() => setViewingBarcodeItem(null)}
               className="w-full py-2.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs"
             >
-              Close Barcode
+              {translateRawUi('Close Barcode')}
             </button>
           </div>
         </div>

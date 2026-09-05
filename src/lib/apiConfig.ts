@@ -1,9 +1,9 @@
 /**
  * Production API Configuration
- *
- * The API can live on a separate backend host (for example Render) while the
- * React/Firebase frontend stays on its existing host. Set VITE_API_BASE_URL
- * at build time in the frontend deployment.
+ * 
+ * Manages dynamic routing between local/Cloud Run environments and external deployments (e.g. Vercel).
+ * When running on Vercel or external static hosting, routes trusted backend operations directly to Cloud Run
+ * where Google Cloud Application Default Credentials (ADC) and Firebase Admin SDK are initialized.
  */
 
 export function getApiBaseUrl(): string {
@@ -13,9 +13,14 @@ export function getApiBaseUrl(): string {
     return envUrl.trim().replace(/\/+$/, '');
   }
 
-  // 2. Browser runtime fallback: keep relative URLs when frontend and API share a host.
+  // 2. Production frontends must explicitly declare their trusted backend.
+  // This avoids accidentally sending a Vercel/custom-domain build to the wrong
+  // same-origin path or to an obsolete backend.
+  if ((import.meta as any).env?.PROD) {
+    throw new Error('VITE_API_BASE_URL is required for production frontends. Configure the intended trusted backend explicitly.');
+  }
 
-  // 3. Default to relative paths for local development or same-host hosting.
+  // 3. Relative API paths are development-only.
   return '';
 }
 

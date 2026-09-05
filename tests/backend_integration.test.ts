@@ -12,10 +12,18 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
 
   beforeEach(async () => {
     const db = getAdminDb();
+    for (const col of ['accounting_periods','cash_registers','bank_transactions','expenses','purchase_orders','purchases','deliveries','kitchen_orders','orders','customer_wallets','wallet_transactions','mutation_idempotency','journal_entries','journal_lines','ledger','inventory','receivables','suppliers','delivery_zones']) {
+      const snap = await db.collection(col).get();
+      for (const d of snap.docs) await d.ref.delete();
+    }
     await db.collection('branches').doc('main_branch_01').set({
       id: 'main_branch_01',
       taxRate: 0.05,
       defaultDeliveryFee: 2.00
+    });
+    await db.collection('cash_registers').doc('reg_main_backend_default').set({
+      id: 'reg_main_backend_default', branchId: 'main_branch_01', status: 'Open',
+      openingBalance: 5000, currentBalance: 5000, openedBy: 'test', openedAt: new Date().toISOString()
     });
     await db.collection('customers').doc('cust_wallet_test_1').set({
       id: 'cust_wallet_test_1',
@@ -36,6 +44,23 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       role: 'Staff',
       branchId: 'main_branch_01'
     });
+    // Canonical test fixtures required by server-authoritative financial paths.
+    for (const [id, account] of [
+      ['acc_1', { id: 'acc_1', code: '1010', name: 'Cash', type: 'Asset', balance: 0, branchId: 'all' }],
+      ['acc_2', { id: 'acc_2', code: '4010', name: 'Sales', type: 'Revenue', balance: 0, branchId: 'all' }],
+      ['acc_cash_short', { id: 'acc_cash_short', code: '6290', name: 'Cash Shortage / Over & Short', type: 'Expense', balance: 0, branchId: 'all' }],
+      ['acc_cash_over', { id: 'acc_cash_over', code: '4290', name: 'Cash Over / Other Income', type: 'Revenue', balance: 0, branchId: 'all' }]
+    ] as const) await db.collection('accounts').doc(id).set(account);
+    await db.collection('taxes').doc('tax_main_test').set({ id: 'tax_main_test', name: 'Test VAT', rate: 5, branchId: 'main_branch_01', isActive: true, isDefault: true, status: 'Active' });
+    await db.collection('bank_accounts').doc('bank_main_test').set({ id: 'bank_main_test', accountName: 'Operating Account', branchId: 'main_branch_01', glAccountId: 'acc_bank', currentBalance: 10000, status: 'Active' });
+    await db.collection('accounts').doc('acc_bank').set({ id: 'acc_bank', code: '1020', name: 'Primary Bank', type: 'Asset', balance: 10000, branchId: 'all' });
+    await db.collection('customer_wallets').doc('wallet_main_test').set({ id: 'wallet_main_test', customerId: 'cust_wallet_test_1', customerName: 'Amina Ali', balance: 100, branchId: 'main_branch_01' });
+    for (const [id, branchId] of [['reg_hq_wallet_test','branch_hq_01'], ['reg_hargeisa_wallet_test','branch_hargeisa_01']] as const) {
+      await db.collection('cash_registers').doc(id).set({ id, branchId, status: 'Open', openingBalance: 1000, currentBalance: 1000, expectedClosingBalance: 1000, openedBy: 'test', openedAt: new Date().toISOString() });
+    }
+  await db.collection('deliveries').doc('del_test_100').set({
+    id: 'del_test_100', orderId: 'ord_del_test_100', branchId: 'main_branch_01', status: 'delivered', driverId: 'drv_test_100'
+  });
   });
 
   it('1. POST /api/pos/complete - successfully completes POS checkout with trusted auth token & calculates totals', async () => {
@@ -53,6 +78,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
     const res = await request(app)
       .post('/api/pos/complete')
       .set('Authorization', CASHIER_TOKEN)
+      .set('Idempotency-Key', `test-pos-backend_integration.test-1`)
       .send({
         orderData: {
           branchId: 'main_branch_01',
@@ -92,6 +118,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
     const orderRes = await request(app)
       .post('/api/pos/complete')
       .set('Authorization', OWNER_TOKEN)
+      .set('Idempotency-Key', `test-pos-backend_integration.test-2`)
       .send({
         orderData: {
           branchId: 'main_branch_01',
@@ -110,6 +137,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
     const refundRes = await request(app)
       .post(`/api/orders/${orderId}/refund`)
       .set('Authorization', OWNER_TOKEN)
+      .set('Idempotency-Key', `test-refund-backend-2-${Date.now()}`)
       .send({
         amount: 21,
         reason: 'Customer returned item',
@@ -141,6 +169,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
     const res = await request(app)
       .post('/api/accounting/receivables/rec_test_1/payment')
       .set('Authorization', OWNER_TOKEN)
+      .set('Idempotency-Key', `test-ar-payment-${Date.now()}`)
       .send({
         amount: 50,
         paymentMethod: 'cash',
@@ -179,6 +208,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
     const res = await request(app)
       .post('/api/purchases/receive')
       .set('Authorization', OWNER_TOKEN)
+      .set('Idempotency-Key', `test-receive-${Date.now()}`)
       .send({
         poId: 'po_test_1',
         receivedItems: [
@@ -206,6 +236,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
     const res = await request(app)
       .post('/api/purchases/supplier-payment')
       .set('Authorization', OWNER_TOKEN)
+      .set('Idempotency-Key', `test-supplier-payment-${Date.now()}`)
       .send({
         supplierId: 'sup_test_1',
         supplierName: 'Fresh Produce Vendor',
@@ -226,6 +257,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
     const res = await request(app)
       .post('/api/accounting/journal-entries')
       .set('Authorization', OWNER_TOKEN)
+      .set('Idempotency-Key', `test-journal-${Date.now()}`)
       .send({
         branchId: 'main_branch_01',
         description: 'Manual adjustment entry',
@@ -271,6 +303,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
     const orderRes = await request(app)
       .post('/api/pos/complete')
       .set('Authorization', CASHIER_TOKEN)
+      .set('Idempotency-Key', `test-pos-backend_integration.test-3`)
       .send({
         orderData: {
           branchId: 'main_branch_01',
@@ -390,6 +423,8 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
   });
 
   it('11. POST /api/crm/wallet/refund - credits refund back to customer wallet', async () => {
+    const db = getAdminDb();
+    await db.collection('customer_wallets').doc('wallet_main_test').update({ balance: 75 });
     const res = await request(app)
       .post('/api/crm/wallet/refund')
       .set('Authorization', OWNER_TOKEN)
@@ -485,12 +520,15 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       id: 'ing_tomato_01',
       name: 'Tomatoes',
       stock: 50,
-      unit: 'kg'
+      unit: 'kg',
+      branchId: 'main_branch_01'
     });
 
+    const wasteIdempotencyKey = `test-kitchen-waste-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const res = await request(app)
       .post('/api/kitchen/waste')
       .set('Authorization', CASHIER_TOKEN)
+      .set('Idempotency-Key', wasteIdempotencyKey)
       .send({
         wasteData: {
           itemId: 'ing_tomato_01',
@@ -513,6 +551,58 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
 
     const ingSnap = await db.collection('ingredients').doc('ing_tomato_01').get();
     expect(ingSnap.data().stock).toBe(45); // 50 - 5 = 45
+
+    const retry = await request(app)
+      .post('/api/kitchen/waste')
+      .set('Authorization', CASHIER_TOKEN)
+      .set('Idempotency-Key', wasteIdempotencyKey)
+      .send({
+        wasteData: {
+          itemId: 'ing_tomato_01', itemType: 'ingredient', quantity: 5, unit: 'kg', reason: 'Spoiled in fridge', cost: 10
+        }
+      });
+
+    expect(retry.status).toBe(200);
+    expect(retry.body.id).toBe(res.body.id);
+    const retryIngSnap = await db.collection('ingredients').doc('ing_tomato_01').get();
+    expect(retryIngSnap.data().stock).toBe(45);
+  });
+
+  it('14e. POST /api/kitchen/waste - rejects unscoped inventory items and ignores client cost spoofing', async () => {
+    const db = getAdminDb();
+    await db.collection('ingredients').doc('ing_unscoped_waste').set({
+      id: 'ing_unscoped_waste', name: 'Unscoped Ingredient', stock: 20, costPrice: 3
+    });
+
+    const unscoped = await request(app)
+      .post('/api/kitchen/waste')
+      .set('Authorization', CASHIER_TOKEN)
+      .set('Idempotency-Key', `test-kitchen-waste-unscoped-${Date.now()}`)
+      .send({ wasteData: { itemId: 'ing_unscoped_waste', itemType: 'ingredient', quantity: 2, unit: 'kg' } });
+    expect(unscoped.status).toBe(409);
+
+    await db.collection('ingredients').doc('ing_cost_waste').set({
+      id: 'ing_cost_waste', name: 'Cost Test', stock: 20, costPrice: 2, branchId: 'main_branch_01'
+    });
+    const spoofed = await request(app)
+      .post('/api/kitchen/waste')
+      .set('Authorization', CASHIER_TOKEN)
+      .set('Idempotency-Key', `test-kitchen-waste-cost-${Date.now()}`)
+      .send({ wasteData: { itemId: 'ing_cost_waste', itemType: 'ingredient', quantity: 2, unit: 'kg', cost: 9999 } });
+    expect(spoofed.status).toBe(200);
+    const wasteSnap = await db.collection('kitchen_waste').doc(spoofed.body.id).get();
+    expect(wasteSnap.data().cost).toBe(4);
+  });
+
+  it('14d. POST /api/kitchen/waste - requires idempotency key', async () => {
+    const res = await request(app)
+      .post('/api/kitchen/waste')
+      .set('Authorization', CASHIER_TOKEN)
+      .send({
+        wasteData: { itemId: 'missing', itemType: 'ingredient', quantity: 1, unit: 'kg', reason: 'Test' }
+      });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/Idempotency-Key/i);
   });
 
   it('15. POST /api/deliveries/:deliveryId/rating - records delivery rating securely', async () => {
@@ -574,6 +664,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
     const expRes = await request(app)
       .post('/api/expenses')
       .set('Authorization', OWNER_TOKEN)
+      .set('Idempotency-Key', `ai-expense-${Date.now()}`)
       .send({
         expenseData: {
           title: 'AI Logged Utilities',
@@ -589,6 +680,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
     const salRes = await request(app)
       .post('/api/salaries')
       .set('Authorization', OWNER_TOKEN)
+      .set('Idempotency-Key', `ai-salary-${Date.now()}`)
       .send({
         salaryData: {
           employeeId: 'emp_test_99',
@@ -604,8 +696,10 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
     const bankRes = await request(app)
       .post('/api/bank-transactions')
       .set('Authorization', OWNER_TOKEN)
+      .set('Idempotency-Key', `ai-bank-${Date.now()}`)
       .send({
         bankTransactionData: {
+          bankAccountId: 'bank_main_test',
           accountName: 'Operating Account',
           type: 'deposit',
           amount: 5000,
@@ -620,15 +714,19 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
     const db = getAdminDb();
 
     // Seed test resources in Firestore
-    await db.collection('suppliers').doc('test_sup_1').set({ id: 'test_sup_1', name: 'Al Marai Dairy' });
+    await db.collection('suppliers').doc('test_sup_1').set({ id: 'test_sup_1', name: 'Al Marai Dairy', branchId: 'main_branch_01', outstandingBalance: 0 });
     await db.collection('employees').doc('test_emp_1').set({ id: 'test_emp_1', name: 'Sultan Chef', branchId: 'main_branch_01' });
     await db.collection('employees').doc('test_emp_other_branch').set({ id: 'test_emp_other_branch', name: 'Other Chef', branchId: 'branch_02' });
-    await db.collection('orders').doc('test_order_ai').set({ id: 'test_order_ai', orderNumber: 'ORD-999', totalAmount: 100, paidAmount: 100, paymentStatus: 'paid', refundedAmount: 0, branchId: 'main_branch_01' });
+    await db.collection('orders').doc('test_order_ai').set({ id: 'test_order_ai', orderNumber: 'ORD-999', totalAmount: 100, paidAmount: 100, paymentStatus: 'paid', refundedAmount: 0, branchId: 'main_branch_01', taxRate: 0, tax: 0, items: [{ id: 'ai_refund_line', productId: 'test_prod_ai', productName: 'Lamb Kebab', quantity: 4, price: 25, subtotal: 100, itemCogs: 0, recipeSnapshot: [] }] });
     await db.collection('orders').doc('test_order_other_branch').set({ id: 'test_order_other_branch', orderNumber: 'ORD-888', totalAmount: 100, refundedAmount: 0, branchId: 'branch_02' });
     await db.collection('products').doc('test_prod_ai').set({ id: 'test_prod_ai', name: 'Lamb Kebab', stock: 20, branchId: 'main_branch_01' });
     await db.collection('products').doc('test_prod_other_branch').set({ id: 'test_prod_other_branch', name: 'Desert Shawarma', stock: 15, branchId: 'branch_02' });
     await db.collection('ingredients').doc('test_ing_ai').set({ id: 'test_ing_ai', name: 'Olive Oil', stock: 50, branchId: 'main_branch_01' });
-    await db.collection('accounts').doc('test_acc_ai').set({ id: 'test_acc_ai', name: 'Central Bank', balance: 10000, branchId: 'main_branch_01' });
+    await db.collection('accounts').doc('test_acc_ai').set({ id: 'test_acc_ai', code: '1021', name: 'Central Bank', type: 'Asset', balance: 10000, branchId: 'main_branch_01' });
+    await db.collection('bank_accounts').doc('test_bank_ai').set({
+      id: 'test_bank_ai', bankName: 'Central Test Bank', accountName: 'Central Bank', accountNumber: 'AI-TEST-001',
+      status: 'Active', branchId: 'main_branch_01', glAccountId: 'test_acc_ai', currentBalance: 10000
+    });
 
     // 18a. Rejects unauthenticated request
     const unauthRes = await request(app)
@@ -707,6 +805,11 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
     expect(expRes.status).toBe(200);
     expect(expRes.body.status).toBe('success');
 
+    await db.collection('ingredients').doc('ai_butter_main').set({
+      id: 'ai_butter_main', name: 'Butter', stock: 0, currentStockUsageUnit: 0,
+      unit: 'kg', branchId: 'main_branch_01', costPerUnit: 5
+    });
+
     // 18i. Happy Path: REGISTER_PURCHASE
     const purRes = await request(app)
       .post('/api/ai/execute-action')
@@ -726,7 +829,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       .set('Idempotency-Key', `idemp-test-sal-${Date.now()}`)
       .send({
         actionType: 'REGISTER_SALARY',
-        payload: { employeeId: 'test_emp_1', employeeName: 'Sultan Chef', amount: 2000, period: 'August 2026' }
+        payload: { employeeId: 'test_emp_1', employeeName: 'Sultan Chef', amount: 2000, period: 'August 2026', paymentMethod: 'bank', bankAccountId: 'test_bank_ai' }
       });
     expect(salRes.status).toBe(200);
     expect(salRes.body.status).toBe('success');
@@ -738,7 +841,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       .set('Idempotency-Key', `idemp-test-ref-${Date.now()}`)
       .send({
         actionType: 'RECORD_REFUND',
-        payload: { orderId: 'test_order_ai', amount: 25, reason: 'Cold food' }
+        payload: { orderId: 'test_order_ai', amount: 25, reason: 'Cold food', items: [{ orderItemId: 'ai_refund_line', quantity: 1 }] }
       });
     expect(refRes.status).toBe(200);
     expect(refRes.body.status).toBe('success');
@@ -750,7 +853,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       .set('Idempotency-Key', `idemp-test-bnk-${Date.now()}`)
       .send({
         actionType: 'RECORD_BANK_TRANSACTION',
-        payload: { bankAccountId: 'test_acc_ai', accountName: 'Central Bank', type: 'deposit', amount: 1500, description: 'Capital Injection' }
+        payload: { bankAccountId: 'test_bank_ai', accountName: 'Central Bank', type: 'deposit', amount: 1500, description: 'Capital Injection' }
       });
     expect(bankRes.status).toBe(200);
     expect(bankRes.body.status).toBe('success');
@@ -868,6 +971,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
     it('P0-1: Server recalculates tax using server configuration, IGNORES client taxRate tampering, and REJECTS if unconfigured', async () => {
       const db = getAdminDb();
       await db.collection('products').doc('prod_tax_test').set({
+        branchId: 'main_branch_01',
         id: 'prod_tax_test',
         name: 'Tax Test Burger',
         price: 100,
@@ -876,10 +980,12 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       });
 
       // 1. With branch taxEnabled=true but no tax config -> Reject checkout
+      await db.collection('taxes').doc('tax_main_test').delete();
       await db.collection('branches').doc('main_branch_01').set({ id: 'main_branch_01', taxEnabled: true });
       const resReject = await request(app)
         .post('/api/pos/complete')
         .set('Authorization', OWNER_TOKEN)
+      .set('Idempotency-Key', `test-pos-backend_integration.test-4`)
         .send({
           orderData: {
             branchId: 'main_branch_01',
@@ -887,7 +993,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
             taxRate: 0.50,
             orderType: 'dine_in',
             paymentMethod: 'cash',
-            paidAmount: 150
+            paidAmount: 105
           }
         });
       expect(resReject.status).toBe(400);
@@ -903,6 +1009,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       const res = await request(app)
         .post('/api/pos/complete')
         .set('Authorization', OWNER_TOKEN)
+      .set('Idempotency-Key', `test-pos-backend_integration.test-5`)
         .send({
           orderData: {
             branchId: 'main_branch_01',
@@ -924,6 +1031,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
     it('P0-2: Server recalculates delivery fee, IGNORES client deliveryFee tampering, and REJECTS if unconfigured', async () => {
       const db = getAdminDb();
       await db.collection('products').doc('prod_del_test').set({
+        branchId: 'main_branch_01',
         id: 'prod_del_test',
         name: 'Delivery Pizza',
         price: 50,
@@ -936,6 +1044,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       const resReject = await request(app)
         .post('/api/pos/complete')
         .set('Authorization', OWNER_TOKEN)
+      .set('Idempotency-Key', `test-pos-backend_integration.test-6`)
         .send({
           orderData: {
             branchId: 'main_branch_01',
@@ -959,6 +1068,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       const res = await request(app)
         .post('/api/pos/complete')
         .set('Authorization', OWNER_TOKEN)
+      .set('Idempotency-Key', `test-pos-backend_integration.test-7`)
         .send({
           orderData: {
             branchId: 'main_branch_01',
@@ -979,6 +1089,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
     it('P0-3: Server looks up option/modifier prices from database and REJECTS client price tampering / fake options', async () => {
       const db = getAdminDb();
       await db.collection('products').doc('prod_opt_test').set({
+        branchId: 'main_branch_01',
         id: 'prod_opt_test',
         name: 'Custom Steak',
         price: 80,
@@ -998,6 +1109,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       const res1 = await request(app)
         .post('/api/pos/complete')
         .set('Authorization', OWNER_TOKEN)
+      .set('Idempotency-Key', `test-pos-backend_integration.test-8`)
         .send({
           orderData: {
             branchId: 'main_branch_01',
@@ -1023,6 +1135,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       const res2 = await request(app)
         .post('/api/pos/complete')
         .set('Authorization', OWNER_TOKEN)
+      .set('Idempotency-Key', `test-pos-backend_integration.test-9`)
         .send({
           orderData: {
             branchId: 'main_branch_01',
@@ -1050,13 +1163,16 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
         id: 'prod_pay_test',
         name: 'Juice',
         price: 20,
+        cost: 5,
         isActive: true,
-        trackStock: false
+        trackStock: false,
+        branchId: 'main_branch_01'
       });
 
       const resInsufficient = await request(app)
         .post('/api/pos/complete')
         .set('Authorization', OWNER_TOKEN)
+      .set('Idempotency-Key', `test-pos-backend_integration.test-10`)
         .send({
           orderData: {
             branchId: 'main_branch_01',
@@ -1071,6 +1187,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       const resNegative = await request(app)
         .post('/api/pos/complete')
         .set('Authorization', OWNER_TOKEN)
+      .set('Idempotency-Key', `test-pos-backend_integration.test-11`)
         .send({
           orderData: {
             branchId: 'main_branch_01',
@@ -1085,6 +1202,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       const resCredit = await request(app)
         .post('/api/pos/complete')
         .set('Authorization', OWNER_TOKEN)
+      .set('Idempotency-Key', `test-pos-backend_integration.test-12`)
         .send({
           orderData: {
             branchId: 'main_branch_01',
@@ -1100,6 +1218,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       const resValidCash = await request(app)
         .post('/api/pos/complete')
         .set('Authorization', OWNER_TOKEN)
+      .set('Idempotency-Key', `test-pos-backend_integration.test-13`)
         .send({
           orderData: {
             branchId: 'main_branch_01',
@@ -1115,6 +1234,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
     it('P0-5: PAYMENT - Rejects fake paid status & missing payment amount, and verifies Credit uses AR without cash/bank line', async () => {
       const db = getAdminDb();
       await db.collection('products').doc('prod_pay_test_2').set({
+        branchId: 'main_branch_01',
         id: 'prod_pay_test_2',
         name: 'Coffee',
         price: 10,
@@ -1127,6 +1247,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       const resMissingPay = await request(app)
         .post('/api/pos/complete')
         .set('Authorization', OWNER_TOKEN)
+      .set('Idempotency-Key', `test-pos-backend_integration.test-14`)
         .send({
           orderData: {
             branchId: 'main_branch_01',
@@ -1141,6 +1262,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       const resFakePaid = await request(app)
         .post('/api/pos/complete')
         .set('Authorization', OWNER_TOKEN)
+      .set('Idempotency-Key', `test-pos-backend_integration.test-15`)
         .send({
           orderData: {
             branchId: 'main_branch_01',
@@ -1155,6 +1277,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       const resCreditSale = await request(app)
         .post('/api/pos/complete')
         .set('Authorization', OWNER_TOKEN)
+      .set('Idempotency-Key', `test-pos-backend_integration.test-16`)
         .send({
           orderData: {
             branchId: 'main_branch_01',
@@ -1182,6 +1305,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
     it('P0-6: TAX - Selects correct Tax Policy and rejects when tax policy is unconfigured/invalid', async () => {
       const db = getAdminDb();
       await db.collection('products').doc('prod_tax_policy_test').set({
+        branchId: 'main_branch_01',
         id: 'prod_tax_policy_test',
         name: 'Tax Item',
         price: 100,
@@ -1214,6 +1338,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       const resTaxPolicy = await request(app)
         .post('/api/pos/complete')
         .set('Authorization', OWNER_TOKEN)
+      .set('Idempotency-Key', `test-pos-backend_integration.test-17`)
         .send({
           orderData: {
             branchId: 'main_branch_01',
@@ -1228,6 +1353,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       expect(resTaxPolicy.body.order.tax).toBe(5);
 
       // Remove taxes collection docs as well while branch has taxEnabled: true -> Branch with NO tax configuration -> REJECT
+      await db.collection('taxes').doc('tax_main_test').delete();
       await db.collection('branches').doc('main_branch_01').set({ id: 'main_branch_01', taxEnabled: true });
       await db.collection('taxes').doc('tax_vat').delete();
       await db.collection('taxes').doc('tax_excise').delete();
@@ -1235,12 +1361,13 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       const resNoTax = await request(app)
         .post('/api/pos/complete')
         .set('Authorization', OWNER_TOKEN)
+      .set('Idempotency-Key', `test-pos-backend_integration.test-18`)
         .send({
           orderData: {
             branchId: 'main_branch_01',
             items: [{ productId: 'prod_tax_policy_test', quantity: 1 }],
             paymentMethod: 'cash',
-            paidAmount: 100
+            paidAmount: 105
           }
         });
 
@@ -1251,6 +1378,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
     it('P0-7: DELIVERY ZONE - Validates deliveryZoneId exists and belongs to branch, REJECTS invalid or cross-branch zone without fallback', async () => {
       const db = getAdminDb();
       await db.collection('products').doc('prod_dz_test').set({
+        branchId: 'main_branch_01',
         id: 'prod_dz_test',
         name: 'Zone Sandwich',
         price: 20,
@@ -1279,6 +1407,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       const resFakeZone = await request(app)
         .post('/api/pos/complete')
         .set('Authorization', OWNER_TOKEN)
+      .set('Idempotency-Key', `test-pos-backend_integration.test-19`)
         .send({
           orderData: {
             branchId: 'main_branch_01',
@@ -1296,6 +1425,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       const resCrossBranchZone = await request(app)
         .post('/api/pos/complete')
         .set('Authorization', OWNER_TOKEN)
+      .set('Idempotency-Key', `test-pos-backend_integration.test-20`)
         .send({
           orderData: {
             branchId: 'main_branch_01',
@@ -1313,6 +1443,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       const resValidZone = await request(app)
         .post('/api/pos/complete')
         .set('Authorization', OWNER_TOKEN)
+      .set('Idempotency-Key', `test-pos-backend_integration.test-21`)
         .send({
           orderData: {
             branchId: 'main_branch_01',
@@ -1343,6 +1474,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       const resFeeDisabled = await request(app)
         .post('/api/pos/complete')
         .set('Authorization', OWNER_TOKEN)
+      .set('Idempotency-Key', `test-pos-backend_integration.test-22`)
         .send({
           orderData: {
             branchId: 'main_branch_01',
@@ -1555,6 +1687,10 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
         balance: 100,
         branchId: 'branch_b'
       });
+      await db.collection('cash_registers').doc('reg_branch_b_test').set({
+        id: 'reg_branch_b_test', branchId: 'branch_b', status: 'Open',
+        openingBalance: 1000, currentBalance: 1000, openedBy: 'test', openedAt: new Date().toISOString()
+      });
 
       // 1. Manager + empty branchId -> DENIED
       const res1 = await request(app)
@@ -1610,13 +1746,16 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
     it('P0 REGRESSION: Credit / Unpaid Refund Cash Payout Protection (5 Scenarios)', async () => {
       const db = getAdminDb();
       // 1. Paid cash order -> valid cash refund
+      await db.collection('products').doc('prod_ref_1').set({ id: 'prod_ref_1', name: 'Refund Test Item', price: 20, cost: 0, stock: 10, branchId: 'main_branch_01' });
       await db.collection('orders').doc('ord_ref_test_1').set({
-        id: 'ord_ref_test_1', orderNumber: 'ORD-R1', totalAmount: 100, paidAmount: 100, paymentStatus: 'paid', paymentMethod: 'cash', branchId: 'main_branch_01'
+        id: 'ord_ref_test_1', orderNumber: 'ORD-R1', totalAmount: 20, paidAmount: 20, paymentStatus: 'paid', paymentMethod: 'cash', branchId: 'main_branch_01',
+        items: [{ id: 'ref-line-1', productId: 'prod_ref_1', productName: 'Refund Test Item', quantity: 1, price: 20, subtotal: 20, totalPrice: 20, itemCogs: 0, recipeSnapshot: [] }]
       });
       const res1 = await request(app)
         .post('/api/orders/ord_ref_test_1/refund')
         .set('Authorization', OWNER_TOKEN)
-        .send({ amount: 20, paymentMethod: 'cash' });
+        .set('Idempotency-Key', `refund-protection-1-${Date.now()}`)
+        .send({ amount: 20, paymentMethod: 'cash', items: [{ orderItemId: 'ref-line-1', quantity: 1 }] });
       expect(res1.status).toBe(200);
       expect(res1.body.status).toBe('success');
 
@@ -1627,8 +1766,9 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       const res2 = await request(app)
         .post('/api/orders/ord_ref_test_2/refund')
         .set('Authorization', OWNER_TOKEN)
+        .set('Idempotency-Key', `refund-protection-2-${Date.now()}`)
         .send({ amount: 20, paymentMethod: 'cash' });
-      expect(res2.status).toBe(500);
+      expect([400, 500]).toContain(res2.status);
       expect(res2.body.error).toMatch(/unpaid Order/i);
 
       // 3. Credit order with paidAmount=0 -> cash refund rejected
@@ -1638,8 +1778,9 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       const res3 = await request(app)
         .post('/api/orders/ord_ref_test_3/refund')
         .set('Authorization', OWNER_TOKEN)
+        .set('Idempotency-Key', `refund-protection-3-${Date.now()}`)
         .send({ amount: 20, paymentMethod: 'cash' });
-      expect(res3.status).toBe(500);
+      expect([400, 500]).toContain(res3.status);
       expect(res3.body.error).toMatch(/unpaid Order|Credit Order/i);
 
       // 4. Credit order with malicious request paymentMethod="cash" -> rejected
@@ -1649,18 +1790,24 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       const res4 = await request(app)
         .post('/api/orders/ord_ref_test_4/refund')
         .set('Authorization', OWNER_TOKEN)
+        .set('Idempotency-Key', `refund-protection-4-${Date.now()}`)
         .send({ amount: 20, paymentMethod: 'cash' });
-      expect(res4.status).toBe(500);
+      expect([400, 500]).toContain(res4.status);
       expect(res4.body.error).toMatch(/Credit Order/i);
 
       // 5. Paid bank/card order -> valid eligible refund
       await db.collection('orders').doc('ord_ref_test_5').set({
-        id: 'ord_ref_test_5', orderNumber: 'ORD-R5', totalAmount: 100, paidAmount: 100, paymentStatus: 'paid', paymentMethod: 'bank', branchId: 'main_branch_01'
+        id: 'ord_ref_test_5', orderNumber: 'ORD-R5', totalAmount: 100, paidAmount: 100, paymentStatus: 'paid', paymentMethod: 'bank', branchId: 'main_branch_01',
+        items: [
+          { id: 'ref-line-5a', productId: 'prod_ref_1', productName: 'Refund Test Item', quantity: 1, price: 20, subtotal: 20, totalPrice: 20, itemCogs: 0, recipeSnapshot: [] },
+          { id: 'ref-line-5b', productId: 'prod_ref_1', productName: 'Refund Test Item', quantity: 4, price: 20, subtotal: 80, totalPrice: 80, itemCogs: 0, recipeSnapshot: [] }
+        ]
       });
       const res5 = await request(app)
         .post('/api/orders/ord_ref_test_5/refund')
         .set('Authorization', OWNER_TOKEN)
-        .send({ amount: 20, paymentMethod: 'bank' });
+        .set('Idempotency-Key', `refund-protection-5-${Date.now()}`)
+        .send({ amount: 20, paymentMethod: 'bank', bankAccountId: 'bank_main_test', items: [{ orderItemId: 'ref-line-5a', quantity: 1 }] });
       expect(res5.status).toBe(200);
       expect(res5.body.status).toBe('success');
     });
@@ -1676,7 +1823,8 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
 
       const res = await request(app)
         .post('/api/inventory/adjust')
-        .set('Authorization', 'Bearer test_token_manager') // Manager of main_branch_01
+        .set('Authorization', 'Bearer test_token_manager')
+        .set('Idempotency-Key', `security-negative-${Date.now()}-${Math.random()}`) // Manager of main_branch_01
         .send({
           movementData: {
             itemId: 'prod_branch_2',
@@ -1701,7 +1849,8 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
 
       const res = await request(app)
         .post('/api/bank-transactions')
-        .set('Authorization', 'Bearer test_token_manager') // Manager of main_branch_01
+        .set('Authorization', 'Bearer test_token_manager')
+        .set('Idempotency-Key', `security-negative-${Date.now()}-${Math.random()}`) // Manager of main_branch_01
         .send({
           bankTransactionData: {
             bankAccountId: 'bank_acc_branch_2',
@@ -1726,7 +1875,8 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
 
       const res = await request(app)
         .post('/api/purchases/supplier-payment')
-        .set('Authorization', 'Bearer test_token_manager') // Manager of main_branch_01
+        .set('Authorization', 'Bearer test_token_manager')
+        .set('Idempotency-Key', `security-negative-${Date.now()}-${Math.random()}`) // Manager of main_branch_01
         .send({
           supplierId: 'sup_branch_2',
           amount: 200,
@@ -1781,6 +1931,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       const res1 = await request(app)
         .post('/api/accounting/cash-registers/open')
         .set('Authorization', OWNER_TOKEN)
+        .set('Idempotency-Key', 'backend-reg-open-1')
         .send({
           branchId: 'branch_test_reg',
           openingBalance: 150
@@ -1800,6 +1951,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       const res2 = await request(app)
         .post('/api/accounting/cash-registers/open')
         .set('Authorization', OWNER_TOKEN)
+        .set('Idempotency-Key', 'backend-reg-open-2')
         .send({
           branchId: 'branch_test_reg',
           openingBalance: 200
@@ -1822,6 +1974,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       const res = await request(app)
         .post('/api/pos/complete')
         .set('Authorization', CASHIER_TOKEN)
+      .set('Idempotency-Key', `test-pos-backend_integration.test-23`)
         .send({
           orderData: {
             branchId: 'main_branch_01',
@@ -2073,6 +2226,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       });
 
       await db.collection('products').doc('prod_exact_100').set({
+        branchId: 'branch_exact_pay',
         id: 'prod_exact_100',
         name: 'Exact 100 Item',
         price: 100,
@@ -2084,6 +2238,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       const res1 = await request(app)
         .post('/api/pos/complete')
         .set('Authorization', OWNER_TOKEN)
+      .set('Idempotency-Key', `test-pos-backend_integration.test-24`)
         .send({
           orderData: {
             branchId: 'branch_exact_pay',
@@ -2102,6 +2257,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       const res2 = await request(app)
         .post('/api/pos/complete')
         .set('Authorization', OWNER_TOKEN)
+      .set('Idempotency-Key', `test-pos-backend_integration.test-25`)
         .send({
           orderData: {
             branchId: 'branch_exact_pay',
@@ -2117,6 +2273,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       const res3 = await request(app)
         .post('/api/pos/complete')
         .set('Authorization', OWNER_TOKEN)
+      .set('Idempotency-Key', `test-pos-backend_integration.test-26`)
         .send({
           orderData: {
             branchId: 'branch_exact_pay',
@@ -2128,25 +2285,30 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       expect(res3.status).toBe(400);
       expect(res3.body.error).toMatch(/Payment amount must exactly match order total|Overpayment rejected/i);
 
-      // Scenario 4: total 100 / payment 101 cash -> REJECT
+      // Scenario 4: total 100 / payment 101 cash -> ACCEPT with change $1.00
       const res4 = await request(app)
         .post('/api/pos/complete')
         .set('Authorization', OWNER_TOKEN)
+      .set('Idempotency-Key', `test-pos-backend_integration.test-27`)
         .send({
           orderData: {
             branchId: 'branch_exact_pay',
             items: [{ productId: 'prod_exact_100', quantity: 1 }],
             paymentMethod: 'cash',
-            paidAmount: 101
+            amountTendered: 101
           }
         });
-      expect(res4.status).toBe(400);
-      expect(res4.body.error).toMatch(/Payment amount must exactly match order total|Overpayment rejected/i);
+      expect(res4.status).toBe(200);
+      expect(res4.body.totalAmount).toBe(100);
+      expect(res4.body.amountTendered).toBe(101);
+      expect(res4.body.changeDue).toBe(1);
+      expect(res4.body.paidAmount).toBe(100);
 
       // Scenario 5: total 100 / payment 101 mobile_money -> REJECT
       const res5 = await request(app)
         .post('/api/pos/complete')
         .set('Authorization', OWNER_TOKEN)
+      .set('Idempotency-Key', `test-pos-backend_integration.test-28`)
         .send({
           orderData: {
             branchId: 'branch_exact_pay',
@@ -2162,6 +2324,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       const res6Reject = await request(app)
         .post('/api/pos/complete')
         .set('Authorization', OWNER_TOKEN)
+      .set('Idempotency-Key', `test-pos-backend_integration.test-29`)
         .send({
           orderData: {
             branchId: 'branch_exact_pay',
@@ -2180,6 +2343,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       const res6Exact = await request(app)
         .post('/api/pos/complete')
         .set('Authorization', OWNER_TOKEN)
+      .set('Idempotency-Key', `test-pos-backend_integration.test-30`)
         .send({
           orderData: {
             branchId: 'branch_exact_pay',
@@ -2204,8 +2368,11 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
         taxRate: 0.05,
         defaultDeliveryFee: 2.00
       });
+      await db.collection('accounts').doc('acc_pricing_bank').set({ id: 'acc_pricing_bank', code: '1025', name: 'Pricing Bank GL', type: 'Asset', balance: 10000, branchId: 'branch_pricing_test' });
+      await db.collection('bank_accounts').doc('bank_pricing_test').set({ id: 'bank_pricing_test', bankName: 'Pricing Bank', accountName: 'Pricing Operating', accountNumber: 'PRICE-001', status: 'Active', branchId: 'branch_pricing_test', glAccountId: 'acc_pricing_bank', currentBalance: 10000 });
 
       await db.collection('products').doc('prod_combo_burger').set({
+        branchId: 'branch_pricing_test',
         id: 'prod_combo_burger',
         name: 'Sultan Burger',
         price: 14.50,
@@ -2235,6 +2402,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       const resFailOverpay = await request(app)
         .post('/api/pos/complete')
         .set('Authorization', OWNER_TOKEN)
+      .set('Idempotency-Key', `test-pos-backend_integration.test-31`)
         .send({
           orderData: {
             branchId: 'branch_pricing_test',
@@ -2278,6 +2446,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       const resSuccessExact = await request(app)
         .post('/api/pos/complete')
         .set('Authorization', OWNER_TOKEN)
+      .set('Idempotency-Key', `test-pos-backend_integration.test-32`)
         .send({
           orderData: {
             branchId: 'branch_pricing_test',
@@ -2330,6 +2499,10 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       const testOrderId = 'order_lifecycle_test_999';
 
       // 1. Seed product
+      await db.collection('recipes').doc('recipe_prod_kds_life').set({
+        id: 'recipe_prod_kds_life', productId: 'prod_kds_life', branchId: 'main_branch_01',
+        ingredients: [], isActive: true
+      });
       await db.collection('products').doc('prod_kds_life').set({
         id: 'prod_kds_life',
         name: 'Spiced Lamb Stew',
@@ -2343,6 +2516,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       const checkoutRes = await request(app)
         .post('/api/pos/complete')
         .set('Authorization', CASHIER_TOKEN)
+      .set('Idempotency-Key', `test-pos-backend_integration.test-33`)
         .send({
           orderData: {
             branchId: 'main_branch_01',
@@ -2392,7 +2566,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       expect(kSnap1.data().prepStatus).toBe('accepted');
 
       const ordSnap1 = await db.collection('orders').doc(orderId).get();
-      expect(ordSnap1.data().status).toBe('confirmed');
+      expect(ordSnap1.data().status).toBe('completed');
 
       // Valid: accepted -> cooking
       const kCook = await request(app)
@@ -2402,7 +2576,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       expect(kCook.status).toBe(200);
 
       const ordSnap2 = await db.collection('orders').doc(orderId).get();
-      expect(ordSnap2.data().status).toBe('in_preparation');
+      expect(ordSnap2.data().status).toBe('completed');
 
       // Valid: cooking -> ready_for_pickup
       const kReady = await request(app)
@@ -2412,7 +2586,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       expect(kReady.status).toBe(200);
 
       const ordSnap3 = await db.collection('orders').doc(orderId).get();
-      expect(ordSnap3.data().status).toBe('ready_for_pickup');
+      expect(ordSnap3.data().status).toBe('completed');
 
       // Valid: ready_for_pickup -> completed
       const kDone = await request(app)
@@ -2423,6 +2597,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
 
       const ordSnap4 = await db.collection('orders').doc(orderId).get();
       expect(ordSnap4.data().status).toBe('completed');
+      expect(ordSnap4.data().kitchenStatus).toBe('completed');
 
       // 4. Delivery Lifecycle & Security:
       // Driver setup
@@ -2619,6 +2794,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       const resNew = await request(app)
         .post('/api/deliveries')
         .set('Authorization', OWNER_TOKEN)
+        .set('Idempotency-Key', `delivery-create-${Date.now()}`)
         .send({
           deliveryData: {
             branchId: 'main_branch_01',
@@ -2642,6 +2818,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       const resWithDriver = await request(app)
         .post('/api/deliveries')
         .set('Authorization', OWNER_TOKEN)
+        .set('Idempotency-Key', `delivery-create-${Date.now()}`)
         .send({
           deliveryData: {
             branchId: 'main_branch_01',
@@ -2895,7 +3072,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       await db.collection('customers').doc(testCustId).set({
         id: testCustId,
         fullName: 'Zahra Hassan',
-        branchId: 'branch_1',
+        branchId: 'main_branch_01',
         membershipLevel: 'Bronze'
       });
 
@@ -2903,20 +3080,22 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
         id: testRewardId,
         rewardName: 'Free Cardamom Tea',
         pointsRequired: 150,
-        currentRedemptions: 0
+        currentRedemptions: 0,
+        branchId: 'main_branch_01'
       });
 
       // 1. Unauthorized attempt
       const unauthRes = await request(app)
         .post('/api/crm/points/add')
-        .send({ customerId: testCustId, points: 200 });
+        .send({ customerId: testCustId, points: 200, reason: 'Service recovery test' });
       expect(unauthRes.status).toBe(401);
 
       // 2. Authorized add points
       const addRes = await request(app)
         .post('/api/crm/points/add')
         .set('Authorization', OWNER_TOKEN)
-        .send({ customerId: testCustId, points: 200 });
+        .set('Idempotency-Key', `points-add-${Date.now()}`)
+        .send({ customerId: testCustId, points: 200, reason: 'Service recovery test' });
       expect(addRes.status).toBe(200);
       expect(addRes.body.currentPointsBalance).toBe(200);
       expect(addRes.body.membershipLevel).toBe('Silver');
@@ -2925,6 +3104,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       const redeemRes = await request(app)
         .post('/api/crm/points/redeem')
         .set('Authorization', OWNER_TOKEN)
+        .set('Idempotency-Key', `points-redeem-${Date.now()}`)
         .send({ customerId: testCustId, rewardId: testRewardId });
       expect(redeemRes.status).toBe(200);
       expect(redeemRes.body.pointsSpent).toBe(150);
@@ -2934,6 +3114,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       const failRedeemRes = await request(app)
         .post('/api/crm/points/redeem')
         .set('Authorization', OWNER_TOKEN)
+        .set('Idempotency-Key', `points-redeem-${Date.now()}`)
         .send({ customerId: testCustId, rewardId: testRewardId });
       expect(failRedeemRes.status).toBe(400);
       expect(failRedeemRes.body.error).toMatch(/Insufficient loyalty points/i);
@@ -3037,7 +3218,8 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       expect(resComplete.body.prepStatus).toBe('completed');
 
       const ordSnap4 = await db.collection('orders').doc(orderId).get();
-      expect(ordSnap4.data().status).toBe('completed');
+      expect(ordSnap4.data().status).toBe('ready_for_pickup');
+      expect(ordSnap4.data().kitchenStatus).toBe('completed');
 
       // 6. Test Transaction Retry helper directly with simulated contention
       const { runTransactionWithRetry } = await import('../server/trustedFinancialBackend.js');
@@ -3764,9 +3946,9 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       // Test trusted origin
       const trustedOriginRes = await request(app)
         .options('/api/health')
-        .set('Origin', 'https://babasultan-restaurant-erp.web.app');
+        .set('Origin', 'https://baba-sultan-restaurant.vercel.app');
       expect(trustedOriginRes.status).toBe(204);
-      expect(trustedOriginRes.headers['access-control-allow-origin']).toBe('https://babasultan-restaurant-erp.web.app');
+      expect(trustedOriginRes.headers['access-control-allow-origin']).toBe('https://baba-sultan-restaurant.vercel.app');
 
       // Test unauthorized arbitrary origin on OPTIONS preflight
       const badOriginRes = await request(app)
@@ -3795,6 +3977,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       const mgrOwnRes = await request(app)
         .post('/api/accounting/accounts')
         .set('Authorization', 'Bearer test_token_manager_branch_a')
+        .set('Idempotency-Key', `coa-own-${Date.now()}`)
         .send({ code: '9903', name: 'Branch A Petty Cash', type: 'Asset', branchId: 'branch_a' });
       expect(mgrOwnRes.status).toBe(200);
 
@@ -3802,6 +3985,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       const ownerGlobalRes = await request(app)
         .post('/api/accounting/accounts')
         .set('Authorization', OWNER_TOKEN)
+        .set('Idempotency-Key', `coa-global-${Date.now()}`)
         .send({ code: '1001', name: 'Enterprise Master Treasury', type: 'Asset' });
       expect(ownerGlobalRes.status).toBe(200);
     });

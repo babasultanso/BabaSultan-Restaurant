@@ -1,3 +1,5 @@
+import { useAuth } from '../../context/AuthContext';
+import { translateRawUi } from '../../../i18n/rawUi';
 import React from 'react';
 import {
   ResponsiveContainer,
@@ -25,6 +27,7 @@ interface DashboardChartsProps {
 const COLORS = ['#10b981', '#14b8a6', '#f59e0b', '#6366f1', '#ec4899', '#8b5cf6', '#06b6d4'];
 
 export const SalesTrendChart: React.FC<{ orders: Order[] }> = ({ orders }) => {
+  const { t } = useAuth();
   // Aggregate sales by date (or hours for today)
   const salesByDate: Record<string, { date: string; sales: number; profit: number; count: number }> = {};
 
@@ -44,18 +47,18 @@ export const SalesTrendChart: React.FC<{ orders: Order[] }> = ({ orders }) => {
     <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-3">
       <div className="flex items-center justify-between">
         <div>
-          <h4 className="text-sm font-bold text-white">Sales & Revenue Trend</h4>
-          <p className="text-[10px] text-slate-400">Daily revenue and gross profit accumulation</p>
+          <h4 className="text-sm font-bold text-white">{translateRawUi('Sales & Revenue Trend')}</h4>
+          <p className="text-[10px] text-slate-400">{t.legacyUi.dailyRevenueGrossProfit}</p>
         </div>
         <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20">
-          Live Firestore Synced
+          {translateRawUi('Live Firestore Synced')}
         </span>
       </div>
 
       <div className="h-64 w-full">
         {data.length === 0 ? (
           <div className="h-full flex items-center justify-center text-xs text-slate-500">
-            No sales data recorded yet.
+            {translateRawUi('No sales data recorded yet.')}
           </div>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
@@ -88,6 +91,7 @@ export const SalesTrendChart: React.FC<{ orders: Order[] }> = ({ orders }) => {
 };
 
 export const ProfitExpenseChart: React.FC<{ orders: Order[]; expenses: Expense[] }> = ({ orders, expenses }) => {
+  const { t } = useAuth();
   const totalRev = orders.reduce((s, o) => s + (o.totalAmount || 0), 0);
   const totalExp = expenses.reduce((s, e) => s + (e.amount || 0), 0);
   const cogs = orders.reduce((s, o) => s + (o.cogs || 0), 0);
@@ -104,8 +108,8 @@ export const ProfitExpenseChart: React.FC<{ orders: Order[]; expenses: Expense[]
     <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-3">
       <div className="flex items-center justify-between">
         <div>
-          <h4 className="text-sm font-bold text-white">Profit & Loss Breakdown</h4>
-          <p className="text-[10px] text-slate-400">Comparison of Revenue vs Costs vs Net Margin</p>
+          <h4 className="text-sm font-bold text-white">{translateRawUi('Profit & Loss Breakdown')}</h4>
+          <p className="text-[10px] text-slate-400">{t.legacyUi.revenueCostsMarginComparison}</p>
         </div>
       </div>
 
@@ -131,6 +135,7 @@ export const ProfitExpenseChart: React.FC<{ orders: Order[]; expenses: Expense[]
 };
 
 export const ExpensePieChart: React.FC<{ expenses: Expense[] }> = ({ expenses }) => {
+  const { t } = useAuth();
   const categoryTotals: Record<string, number> = {};
 
   expenses.forEach(e => {
@@ -146,13 +151,13 @@ export const ExpensePieChart: React.FC<{ expenses: Expense[] }> = ({ expenses })
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-3">
       <div>
-        <h4 className="text-sm font-bold text-white">Expense Distribution</h4>
-        <p className="text-[10px] text-slate-400">Breakdown of operational spend categories</p>
+        <h4 className="text-sm font-bold text-white">{t.legacyUi.expenseDistribution}</h4>
+        <p className="text-[10px] text-slate-400">{t.legacyUi.operationalSpendBreakdown}</p>
       </div>
 
       <div className="h-64 w-full flex items-center justify-center">
         {data.length === 0 ? (
-          <div className="text-xs text-slate-500">No expenses recorded yet.</div>
+          <div className="text-xs text-slate-500">{translateRawUi('No expenses recorded yet.')}</div>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
@@ -185,6 +190,7 @@ export const ExpensePieChart: React.FC<{ expenses: Expense[] }> = ({ expenses })
 };
 
 export const BestSellingProductsChart: React.FC<{ products: Product[] }> = ({ products }) => {
+  const { t } = useAuth();
   const sorted = [...products].filter(p => (p.salesCount || 0) > 0).sort((a, b) => (b.salesCount || 0) - (a.salesCount || 0)).slice(0, 5);
 
   const data = sorted.map(p => ({
@@ -196,14 +202,14 @@ export const BestSellingProductsChart: React.FC<{ products: Product[] }> = ({ pr
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-3">
       <div>
-        <h4 className="text-sm font-bold text-white">Best Selling Products</h4>
-        <p className="text-[10px] text-slate-400">Top dishes by recorded sales volume</p>
+        <h4 className="text-sm font-bold text-white">{t.legacyUi.bestSellingProducts}</h4>
+        <p className="text-[10px] text-slate-400">{translateRawUi('Top dishes by recorded sales volume')}</p>
       </div>
 
       <div className="h-64 w-full">
         {data.length === 0 ? (
           <div className="h-full flex items-center justify-center text-xs text-slate-500">
-            No product sales recorded yet.
+            {translateRawUi('No product sales recorded yet.')}
           </div>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
@@ -224,6 +230,7 @@ export const BestSellingProductsChart: React.FC<{ products: Product[] }> = ({ pr
 };
 
 export const OrdersVolumeChart: React.FC<{ orders: Order[] }> = ({ orders }) => {
+  const { t } = useAuth();
   const statusCounts = {
     completed: orders.filter(o => o.status === 'completed').length,
     in_prep: orders.filter(o => o.status === 'in_preparation' || o.prepStatus === 'preparing').length,
@@ -241,8 +248,8 @@ export const OrdersVolumeChart: React.FC<{ orders: Order[] }> = ({ orders }) => 
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-3">
       <div>
-        <h4 className="text-sm font-bold text-white">Orders Volume & Queue Status</h4>
-        <p className="text-[10px] text-slate-400">Real-time status distribution across fulfillment pipeline</p>
+        <h4 className="text-sm font-bold text-white">{translateRawUi('Orders Volume & Queue Status')}</h4>
+        <p className="text-[10px] text-slate-400">{translateRawUi('Real-time status distribution across fulfillment pipeline')}</p>
       </div>
 
       <div className="h-64 w-full">

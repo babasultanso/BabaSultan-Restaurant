@@ -11,17 +11,17 @@ import { doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs } from '
 
 let testEnv: RulesTestEnvironment;
 
-describe('FIRESTORE SECURITY RULES EMULATOR SUITE', () => {
+describe.skipIf(!process.env.FIRESTORE_EMULATOR_HOST)('FIRESTORE SECURITY RULES EMULATOR SUITE', () => {
   beforeAll(async () => {
     const rulesPath = path.resolve(process.cwd(), 'firestore.rules');
     const rules = fs.readFileSync(rulesPath, 'utf8');
 
     testEnv = await initializeTestEnvironment({
-      projectId: 'babasultan-restaurant-erp',
+      projectId: 'babasultan-rules-firestore',
       firestore: {
         rules,
-        host: '127.0.0.1',
-        port: 8080
+        host: (process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8081').split(':')[0],
+        port: Number((process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8081').split(':')[1])
       }
     });
   });
@@ -172,6 +172,8 @@ describe('FIRESTORE SECURITY RULES EMULATOR SUITE', () => {
     await assertSucceeds(getDoc(doc(cashierADb, 'customers', 'cust_branch_a')));
     // Branch A user CANNOT read Branch B customer
     await assertFails(getDoc(doc(cashierADb, 'customers', 'cust_branch_b')));
+    // Missing customer documents must fail closed without a rules-engine null evaluation error.
+    await assertFails(getDoc(doc(cashierADb, 'customers', 'cust_missing')));
 
     // Owner/HQ can read any branch customer
     const ownerDb = testEnv.authenticatedContext('owner_hq').firestore();
@@ -218,7 +220,30 @@ describe('FIRESTORE SECURITY RULES EMULATOR SUITE', () => {
     }));
   });
 
-  // 8. P0-1: PRIVILEGE ESCALATION VIA isHQ BLOCKED
+  // 8. SERVER-AUTHORITATIVE OPERATIONAL/PROCUREMENT COLLECTIONS
+  it('8. Blocks direct writes to server-authoritative waste, purchase items, cash transfers and token branch changes', async () => {
+    const managerADb = testEnv.authenticatedContext('manager_a').firestore();
+
+    await assertFails(setDoc(doc(managerADb, 'kitchen_waste', 'waste_spoof_001'), {
+      branchId: 'BR-001', itemId: 'ing_1', itemType: 'ingredient', quantity: 999
+    }));
+    await assertFails(setDoc(doc(managerADb, 'purchase_items', 'pi_spoof_001'), {
+      branchId: 'BR-001', itemId: 'item_1', quantity: 999, unitPrice: 1
+    }));
+    await assertFails(setDoc(doc(managerADb, 'cash_transfers', 'ct_spoof_001'), {
+      branchId: 'BR-001', amount: 9999, fromAccountId: 'cash', toAccountId: 'bank'
+    }));
+
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), 'notification_tokens', 'manager_a'), {
+        userId: 'manager_a', branchId: 'BR-001', fcmToken: 'token-original'
+      });
+    });
+    await assertFails(updateDoc(doc(managerADb, 'notification_tokens', 'manager_a'), { branchId: 'BR-002' }));
+    await assertSucceeds(updateDoc(doc(managerADb, 'notification_tokens', 'manager_a'), { fcmToken: 'token-updated' }));
+  });
+
+  // 9. P0-1: PRIVILEGE ESCALATION VIA isHQ BLOCKED
   it('8. Strictly blocks user from escalating privileges via isHQ in Firestore', async () => {
     const cashierADb = testEnv.authenticatedContext('cashier_a').firestore();
     // Attempting to set isHQ=true on self profile update is rejected
@@ -303,4 +328,141 @@ describe('FIRESTORE SECURITY RULES EMULATOR SUITE', () => {
       stock: 100
     }));
   });
+
+  it('14a. Prevents employees from changing leave workflow/approval fields and enforces workflow transitions', async () => {
+    const employeeDb = testEnv.authenticatedContext('cashier_a').firestore();
+    const managerDb = testEnv.authenticatedContext('manager_a').firestore();
+
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), 'employees', 'emp_leave_a'), { id: 'emp_leave_a', name: 'Employee A', branchId: 'BR-001' });
+      await setDoc(doc(context.firestore(), 'leave_requests', 'leave_rules_001'), {
+        id: 'leave_rules_001', employeeId: 'cashier_a', branchId: 'BR-001',
+        status: 'pending', approvalStatus: 'pending', workflowStatus: 'Request',
+        leaveType: 'Annual', startDate: '2026-09-10', endDate: '2026-09-11', daysCount: 2
+      });
+    });
+
+    await assertFails(updateDoc(doc(employeeDb, 'leave_requests', 'leave_rules_001'), { workflowStatus: 'Completed' }));
+    await assertFails(updateDoc(doc(employeeDb, 'leave_requests', 'leave_rules_001'), { managerApproval: { approvedBy: 'Attacker' } }));
+    await assertFails(setDoc(doc(employeeDb, 'leave_requests', 'leave_rules_create_tamper'), {
+      employeeId: 'cashier_a', branchId: 'BR-001', status: 'pending', approvalStatus: 'pending',
+      workflowStatus: 'Completed', leaveType: 'Annual', startDate: '2026-09-12', endDate: '2026-09-13', daysCount: 2
+    }));
+
+    await assertSucceeds(updateDoc(doc(managerDb, 'leave_requests', 'leave_rules_001'), { workflowStatus: 'Manager Approval' }));
+    await assertFails(updateDoc(doc(managerDb, 'leave_requests', 'leave_rules_001'), { daysCount: 99 }));
+    await assertFails(updateDoc(doc(managerDb, 'leave_requests', 'leave_rules_001'), { workflowStatus: 'Request' }));
+    await assertSucceeds(updateDoc(doc(managerDb, 'leave_requests', 'leave_rules_001'), { workflowStatus: 'Completed' }));
+  });
+
+  it('13a. Blocks client writes to supplier financial balances', async () => {
+    const accountantDb = testEnv.authenticatedContext('manager_a').firestore();
+    await assertFails(setDoc(doc(accountantDb, 'suppliers', 'sup_finance_create_bad'), {
+      id: 'sup_finance_create_bad', name: 'Supplier', branchId: 'BR-001', pendingAmount: 9999
+    }));
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), 'suppliers', 'sup_finance_update_bad'), {
+        id: 'sup_finance_update_bad', name: 'Supplier', branchId: 'BR-001', pendingAmount: 0, overdueAmount: 0
+      });
+    });
+    await assertFails(updateDoc(doc(accountantDb, 'suppliers', 'sup_finance_update_bad'), { pendingAmount: 500 }));
+    await assertSucceeds(updateDoc(doc(accountantDb, 'suppliers', 'sup_finance_update_bad'), { phone: '+252600000000' }));
+  });
+
+  it('13b. Customer feedback creation is server-authoritative only', async () => {
+    const cashierDb = testEnv.authenticatedContext('cashier_a').firestore();
+    await assertFails(setDoc(doc(cashierDb, 'customer_feedbacks', 'feedback_client_write_blocked'), {
+      customerId: 'cashier_a', branchId: 'BR-001', rating: 1, comment: 'forged feedback', status: 'open'
+    }));
+  });
+
+  it('14. Blocks POS staff from forging driver operational state', async () => {
+    const cashierADb = testEnv.authenticatedContext('cashier_a').firestore();
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), 'drivers', 'drv_rules_001'), {
+        id: 'drv_rules_001',
+        branchId: 'BR-001',
+        fullName: 'Driver A',
+        availability: 'available',
+        rating: 5,
+        totalDeliveries: 10,
+        completedDeliveries: 9,
+        failedDeliveries: 1,
+        currentLocation: { lat: 2.0, lng: 45.0 }
+      });
+    });
+
+    await assertFails(updateDoc(doc(cashierADb, 'drivers', 'drv_rules_001'), { availability: 'offline' }));
+    await assertFails(updateDoc(doc(cashierADb, 'drivers', 'drv_rules_001'), { rating: 1 }));
+    await assertFails(updateDoc(doc(cashierADb, 'drivers', 'drv_rules_001'), { activeDeliveryId: 'delivery_fake' }));
+  });
+
+  it('15. Allows management to update driver profile fields but not operational counters/state', async () => {
+    const managerADb = testEnv.authenticatedContext('manager_a').firestore();
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), 'drivers', 'drv_rules_002'), {
+        id: 'drv_rules_002',
+        branchId: 'BR-001',
+        fullName: 'Driver A',
+        phoneNumber: '+252611111111',
+        availability: 'available',
+        rating: 5,
+        totalDeliveries: 10
+      });
+    });
+
+    await assertSucceeds(updateDoc(doc(managerADb, 'drivers', 'drv_rules_002'), { phoneNumber: '+252622222222' }));
+    await assertFails(updateDoc(doc(managerADb, 'drivers', 'drv_rules_002'), { totalDeliveries: 99 }));
+    await assertFails(updateDoc(doc(managerADb, 'drivers', 'drv_rules_002'), { availability: 'offline' }));
+  });
+
+  it('16. Rejects management attempts to create products or ingredients with non-zero hidden stock projections', async () => {
+    const managerADb = testEnv.authenticatedContext('manager_a').firestore();
+    await assertFails(setDoc(doc(managerADb, 'products', 'prod_bad_projection'), {
+      id: 'prod_bad_projection', branchId: 'BR-001', name: 'Bad Product', stock: 0, currentStock: 25
+    }));
+    await assertFails(setDoc(doc(managerADb, 'ingredients', 'ing_bad_projection'), {
+      id: 'ing_bad_projection', branchId: 'BR-001', name: 'Bad Ingredient', stock: 0, currentQuantity: 25
+    }));
+    await assertSucceeds(setDoc(doc(managerADb, 'products', 'prod_zero_projection'), {
+      id: 'prod_zero_projection', branchId: 'BR-001', name: 'Safe Product', stock: 0, currentStock: 0
+    }));
+  });
+
+  it('13. Enforces customer coupon branch isolation while allowing global coupons', async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const db = context.firestore();
+      await setDoc(doc(db, 'customer_coupons', 'coupon_branch_a'), {
+        id: 'coupon_branch_a',
+        code: 'BRANCHA10',
+        branchId: 'BR-001',
+        isActive: true
+      });
+      await setDoc(doc(db, 'customer_coupons', 'coupon_branch_b'), {
+        id: 'coupon_branch_b',
+        code: 'BRANCHB10',
+        branchId: 'BR-002',
+        isActive: true
+      });
+      await setDoc(doc(db, 'customer_coupons', 'coupon_global'), {
+        id: 'coupon_global',
+        code: 'GLOBAL10',
+        branchId: 'all',
+        isActive: true
+      });
+    });
+
+    const branchA = testEnv.authenticatedContext('cashier_a').firestore();
+    const branchB = testEnv.authenticatedContext('cashier_b').firestore();
+    const owner = testEnv.authenticatedContext('owner_hq').firestore();
+
+    await assertSucceeds(getDoc(doc(branchA, 'customer_coupons', 'coupon_branch_a')));
+    await assertFails(getDoc(doc(branchA, 'customer_coupons', 'coupon_branch_b')));
+    await assertSucceeds(getDoc(doc(branchA, 'customer_coupons', 'coupon_global')));
+    await assertSucceeds(getDoc(doc(branchB, 'customer_coupons', 'coupon_branch_b')));
+    await assertFails(getDoc(doc(branchB, 'customer_coupons', 'coupon_branch_a')));
+    await assertSucceeds(getDoc(doc(owner, 'customer_coupons', 'coupon_branch_a')));
+    await assertSucceeds(getDoc(doc(owner, 'customer_coupons', 'coupon_branch_b')));
+  });
+
 });

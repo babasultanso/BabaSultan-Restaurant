@@ -1,11 +1,12 @@
-import { collection, getDocs } from 'firebase/firestore';
-import { db, COLLECTIONS, addCategoryFirestore, updateCategoryFirestore, deleteCategoryFirestore, reorderCategoriesFirestore } from '../../lib/firebase';
+import { collection, getDocs, query, where } from 'firebase/firestore';
+import { db, COLLECTIONS, getEffectiveBranchId, addCategoryFirestore, updateCategoryFirestore, deleteCategoryFirestore, reorderCategoriesFirestore } from '../../lib/firebase';
 import { ICategoryRepository } from '../../domain/repositories/ICategoryRepository';
 import { Category } from '../../types';
 
 export class CategoryRepository implements ICategoryRepository {
   async fetchCategories(): Promise<Category[]> {
-    const snap = await getDocs(collection(db, COLLECTIONS.CATEGORIES));
+    const branchId = getEffectiveBranchId();
+    const snap = await getDocs(query(collection(db, COLLECTIONS.CATEGORIES), where('branchId', '==', branchId)));
     const categories = snap.docs.map(d => ({ id: d.id, ...d.data() } as Category));
     categories.sort((a, b) => (a.order || 0) - (b.order || 0));
     return categories;

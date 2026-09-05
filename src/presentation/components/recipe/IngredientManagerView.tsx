@@ -1,7 +1,9 @@
+import { translations } from '../../../i18n/translations';
+import { translateRawUi } from '../../../i18n/rawUi';
 import React, { useState } from 'react';
 import { Ingredient, Recipe } from '../../../domain/entities/recipe';
 import { RecipeController } from '../../../controllers/RecipeController';
-import { recipeDict, RecipeLang } from './translations';
+import { recipeDict, RecipeLang } from '../../../i18n';
 import { UnitConversionEngine } from '../../../lib/unitConversionEngine';
 import {
   Package,
@@ -28,7 +30,7 @@ export const IngredientManagerView: React.FC<IngredientManagerViewProps> = ({
   recipes,
   lang
 }) => {
-  const t = recipeDict[lang] || recipeDict.en;
+  const t = { ...(recipeDict[lang] || recipeDict.en), legacyUi: translations[lang].legacyUi };
 
   const [showModal, setShowModal] = useState(false);
   const [editingIng, setEditingIng] = useState<Ingredient | null>(null);
@@ -42,22 +44,22 @@ export const IngredientManagerView: React.FC<IngredientManagerViewProps> = ({
   const [purchaseUnit, setPurchaseUnit] = useState('kg');
   const [usageUnit, setUsageUnit] = useState('g');
   const [conversionFactor, setConversionFactor] = useState<number>(1000);
-  const [currentStockUsageUnit, setCurrentStockUsageUnit] = useState<number>(10000);
-  const [minStockUsageUnit, setMinStockUsageUnit] = useState<number>(2000);
-  const [purchaseCost, setPurchaseCost] = useState<number>(10);
+  const [currentStockUsageUnit, setCurrentStockUsageUnit] = useState<number>(0);
+  const [minStockUsageUnit, setMinStockUsageUnit] = useState<number>(0);
+  const [purchaseCost, setPurchaseCost] = useState<number>(0);
   const [supplierName, setSupplierName] = useState('');
 
   const handleOpenCreate = () => {
     setEditingIng(null);
     setCode(`ING-${Math.floor(100 + Math.random() * 900)}`);
     setName('');
-    setCategory('Produce');
-    setPurchaseUnit('kg');
-    setUsageUnit('g');
-    setConversionFactor(1000);
-    setCurrentStockUsageUnit(10000);
-    setMinStockUsageUnit(2000);
-    setPurchaseCost(12);
+    setCategory('General');
+    setPurchaseUnit('unit');
+    setUsageUnit('unit');
+    setConversionFactor(1);
+    setCurrentStockUsageUnit(0);
+    setMinStockUsageUnit(0);
+    setPurchaseCost(0);
     setSupplierName('');
     setShowModal(true);
   };
@@ -71,7 +73,7 @@ export const IngredientManagerView: React.FC<IngredientManagerViewProps> = ({
     setUsageUnit(ing.usageUnit);
     setConversionFactor(ing.conversionFactor || 1);
     setCurrentStockUsageUnit(ing.currentStockUsageUnit || 0);
-    setMinStockUsageUnit(ing.minStockUsageUnit || 10);
+    setMinStockUsageUnit(ing.minStockUsageUnit ?? 0);
     setPurchaseCost(ing.purchaseCost || 0);
     setSupplierName(ing.supplierName || '');
     setShowModal(true);
@@ -144,7 +146,7 @@ export const IngredientManagerView: React.FC<IngredientManagerViewProps> = ({
             onChange={(e) => setCategoryFilter(e.target.value)}
             className="bg-slate-950 border border-slate-800 rounded-2xl px-3.5 py-2 text-xs text-white focus:outline-none"
           >
-            <option value="ALL">All Categories</option>
+            <option value="ALL">{t.legacyUi.allCategories}</option>
             {categories.map((c) => (
               <option key={c} value={c}>
                 {c}
@@ -232,14 +234,14 @@ export const IngredientManagerView: React.FC<IngredientManagerViewProps> = ({
                 {/* Stock Levels */}
                 <div className="p-3 bg-slate-950/60 rounded-2xl border border-slate-800/80 space-y-2">
                   <div className="flex items-center justify-between text-xs">
-                    <span className="text-slate-400 font-medium">Stock On Hand:</span>
+                    <span className="text-slate-400 font-medium">{t.legacyUi.stockOnHand}</span>
                     <span className="font-mono text-white font-bold">
                       {ing.currentStockUsageUnit?.toLocaleString()} {ing.usageUnit}
                     </span>
                   </div>
 
                   <div className="flex items-center justify-between text-xs">
-                    <span className="text-slate-400 font-medium">Conversion Factor:</span>
+                    <span className="text-slate-400 font-medium">{t.legacyUi.conversionFactor}</span>
                     <span className="font-mono text-slate-300">
                       1 {ing.purchaseUnit} = {ing.conversionFactor} {ing.usageUnit}
                     </span>
@@ -262,7 +264,7 @@ export const IngredientManagerView: React.FC<IngredientManagerViewProps> = ({
               {/* Actions */}
               <div className="pt-3 border-t border-slate-800 flex items-center justify-between">
                 <span className="text-[10px] text-slate-400 font-mono">
-                  {ing.supplierName || 'Primary Supplier'}
+                  {ing.supplierName || '—'}
                 </span>
                 <div className="flex items-center gap-2">
                   <button
@@ -339,13 +341,13 @@ export const IngredientManagerView: React.FC<IngredientManagerViewProps> = ({
                     onChange={(e) => setCategory(e.target.value)}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
                   >
-                    <option value="Meat">Meat</option>
-                    <option value="Produce">Produce</option>
-                    <option value="Dairy">Dairy</option>
-                    <option value="Bakery">Bakery</option>
-                    <option value="Liquids">Liquids</option>
-                    <option value="Spices">Spices</option>
-                    <option value="Packaging">Packaging</option>
+                    <option value="Meat">{translateRawUi('Meat')}</option>
+                    <option value="Produce">{translateRawUi('Produce')}</option>
+                    <option value="Dairy">{translateRawUi('Dairy')}</option>
+                    <option value="Bakery">{translateRawUi('Bakery')}</option>
+                    <option value="Liquids">{translateRawUi('Liquids')}</option>
+                    <option value="Spices">{translateRawUi('Spices')}</option>
+                    <option value="Packaging">{translateRawUi('Packaging')}</option>
                   </select>
                 </div>
 
@@ -358,13 +360,13 @@ export const IngredientManagerView: React.FC<IngredientManagerViewProps> = ({
                     onChange={(e) => setPurchaseUnit(e.target.value)}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
                   >
-                    <option value="kg">kg (Kilogram)</option>
-                    <option value="L">L (Liter)</option>
-                    <option value="box">Box</option>
-                    <option value="carton">Carton</option>
-                    <option value="bag">Bag</option>
-                    <option value="tray">Tray</option>
-                    <option value="pcs">Pieces</option>
+                    <option value="kg">{t.legacyUi.kgKilogram}</option>
+                    <option value="L">{t.legacyUi.liter}</option>
+                    <option value="box">{translateRawUi('Box')}</option>
+                    <option value="carton">{translateRawUi('Carton')}</option>
+                    <option value="bag">{translateRawUi('Bag')}</option>
+                    <option value="tray">{translateRawUi('Tray')}</option>
+                    <option value="pcs">{translateRawUi('Pieces')}</option>
                   </select>
                 </div>
 
@@ -377,9 +379,9 @@ export const IngredientManagerView: React.FC<IngredientManagerViewProps> = ({
                     onChange={(e) => setUsageUnit(e.target.value)}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
                   >
-                    <option value="g">g (Gram)</option>
-                    <option value="ml">ml (Milliliter)</option>
-                    <option value="pcs">pcs (Piece)</option>
+                    <option value="g">{t.legacyUi.gGram}</option>
+                    <option value="ml">{t.legacyUi.mlMilliliter}</option>
+                    <option value="pcs">{t.legacyUi.pcsPiece}</option>
                   </select>
                 </div>
               </div>

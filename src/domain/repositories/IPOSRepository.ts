@@ -3,5 +3,5 @@ import { Order } from '../../types';
 
 export interface IPOSRepository {
   createOrder(payload: POSCheckoutPayload): Promise<ReceiptData>;
-  fetchRecentOrders(): Promise<Order[]>;
+  fetchRecentOrders(branchId?: string): Promise<Order[]>;
 }

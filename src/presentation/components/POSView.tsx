@@ -1,3 +1,4 @@
+import { translateRawUi } from '../../i18n';
 import React, { useState, useEffect } from 'react';
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import { Product, Order, Customer, SelectedOptionChoice, OrderType, DeliveryZone } from '../../types';
@@ -61,7 +62,7 @@ export const POSView: React.FC<POSViewProps> = ({ products, onOrderCompleted }) 
   // Cart State
   const [cart, setCart] = useState<CartItem[]>([]);
   const [orderType, setOrderType] = useState<OrderType>('dine_in');
-  const [tableNumber, setTableNumber] = useState<string>('T-01');
+  const [tableNumber, setTableNumber] = useState<string>('');
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
 
   // Discount & Tax State (Starts in explicit loading state until authoritative tax config is retrieved)
@@ -101,13 +102,13 @@ export const POSView: React.FC<POSViewProps> = ({ products, onOrderCompleted }) 
     let isMounted = true;
     const loadDeliverySettings = async () => {
       try {
-        const effectiveBranch = currentBranchId || 'branch_hq_01';
+        const effectiveBranch = currentBranchId?.trim() || '';
         
         // Load branch settings
         const branchSnap = await getDocs(query(collection(db, COLLECTIONS.BRANCHES)));
         if (!branchSnap.empty && isMounted) {
           const branches = branchSnap.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
-          const b = branches.find(br => br.id === effectiveBranch || br.code === effectiveBranch || br.id === 'branch_hq_01');
+          const b = effectiveBranch ? branches.find(br => br.id === effectiveBranch || br.code === effectiveBranch) : undefined;
           if (b && typeof b.defaultDeliveryFee === 'number') {
             setBranchDeliveryFee(b.defaultDeliveryFee);
           } else if (b && typeof b.deliveryFee === 'number') {
@@ -121,7 +122,7 @@ export const POSView: React.FC<POSViewProps> = ({ products, onOrderCompleted }) 
           const allZones = zonesSnap.docs.map(d => ({ id: d.id, ...(d.data() as any) } as DeliveryZone));
           const filtered = isHQUser
             ? allZones
-            : allZones.filter(z => z.branchId === effectiveBranch || z.branchId === 'branch_hq_01' || !z.branchId);
+            : effectiveBranch ? allZones.filter(z => z.branchId === effectiveBranch) : [];
           setDeliveryZones(filtered);
         }
       } catch (err) {
@@ -139,13 +140,13 @@ export const POSView: React.FC<POSViewProps> = ({ products, onOrderCompleted }) 
       setIsTaxLoading(true);
       setTaxConfigError(null);
       try {
-        const effectiveBranch = isHQUser ? (currentBranchId || 'branch_hq_01') : (currentBranchId || 'branch_hq_01');
+        const effectiveBranch = currentBranchId?.trim() || '';
 
         // 1. First check branch document for tax configuration
         const branchSnap = await getDocs(query(collection(db, COLLECTIONS.BRANCHES)));
         if (!branchSnap.empty && isMounted) {
           const branches = branchSnap.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
-          const b = branches.find(br => br.id === effectiveBranch || br.code === effectiveBranch || br.id === 'branch_hq_01') || branches[0];
+          const b = effectiveBranch ? branches.find(br => br.id === effectiveBranch || br.code === effectiveBranch) : undefined;
           
           if (b) {
             if (b.taxEnabled === false || b.taxEnabled === 'false') {
@@ -167,26 +168,14 @@ export const POSView: React.FC<POSViewProps> = ({ products, onOrderCompleted }) 
           }
         }
 
-        // 2. Next check taxes collection
-        const taxesColl = collection(db, COLLECTIONS.TAXES);
-        const snap = await getDocs(taxesColl);
-        if (!snap.empty && isMounted) {
+        // 2. Next check only the current branch's active tax records.
+        if (currentBranchId && currentBranchId !== 'all') {
+          const taxesColl = collection(db, COLLECTIONS.TAXES);
+          const snap = await getDocs(query(taxesColl, where('branchId', '==', currentBranchId)));
           const activeTaxes = snap.docs
             .map(d => d.data() as any)
             .filter(t => t.isActive !== false && t.status !== 'Inactive');
-
-          let resolvedTax: any = null;
-
-          if (isHQUser) {
-            resolvedTax = activeTaxes.find(t => t.branchId === effectiveBranch) ||
-                          activeTaxes.find(t => t.branchId === 'all' || !t.branchId || t.isDefault) ||
-                          activeTaxes[0];
-          } else if (currentBranchId) {
-            resolvedTax = activeTaxes.find(t => t.branchId === currentBranchId) ||
-                          activeTaxes.find(t => t.branchId === 'all' || !t.branchId || t.isDefault) ||
-                          activeTaxes[0];
-          }
-
+          const resolvedTax = activeTaxes.find(t => t.isPrimary === true || t.isDefault === true) || activeTaxes[0];
           if (resolvedTax && typeof resolvedTax.rate === 'number' && Number.isFinite(resolvedTax.rate)) {
             if (isMounted) {
               setTaxRatePercent(resolvedTax.rate);
@@ -197,19 +186,18 @@ export const POSView: React.FC<POSViewProps> = ({ products, onOrderCompleted }) 
           }
         }
 
-        // 3. Authoritative standard default tax rate (5%)
+        // No branch tax means configuration is incomplete; do not invent a rate.
         if (isMounted) {
-          setTaxRatePercent(5.0);
+          setTaxRatePercent(0);
           setIsTaxLoading(false);
-          setTaxConfigError(null);
+          setTaxConfigError('No active tax configuration found for this branch. Checkout will be server-validated.');
         }
       } catch (err: any) {
         if (isMounted) {
           console.error('Failed to load authoritative tax configuration:', err);
-          // Fallback to standard 5% tax if network transient error
-          setTaxRatePercent(5.0);
+          setTaxRatePercent(0);
           setIsTaxLoading(false);
-          setTaxConfigError(null);
+          setTaxConfigError('Unable to load branch tax configuration. Checkout will be server-validated.');
         }
       }
     };
@@ -345,7 +333,7 @@ export const POSView: React.FC<POSViewProps> = ({ products, onOrderCompleted }) 
         tax: cartTotals.tax,
         discountAmount: cartTotals.discountAmount,
         totalAmount: cartTotals.grandTotal,
-        createdBy: user?.displayName || 'Cashier',
+        createdBy: user?.displayName || '',
         createdAt: new Date().toISOString()
       });
 
@@ -367,9 +355,9 @@ export const POSView: React.FC<POSViewProps> = ({ products, onOrderCompleted }) 
         name: i.productName,
         price: i.unitPrice,
         cost: i.unitCost,
-        stock: 99,
-        category: 'Main Course',
-        availabilityStatus: 'enabled',
+        stock: 0,
+        category: 'Unavailable',
+        availabilityStatus: 'disabled',
         salesCount: 0
       };
       return {
@@ -442,8 +430,8 @@ export const POSView: React.FC<POSViewProps> = ({ products, onOrderCompleted }) 
         changeDue: payload.changeDue || 0,
         cogs: calculatedCOGS,
         profit,
-        employeeId: user?.uid || 'emp-pos',
-        employeeName: user?.displayName || 'Senior Cashier',
+        employeeId: user?.uid || '',
+        employeeName: user?.displayName || '',
         status: 'pending',
         deliveryStatus: isDelivery ? 'unassigned' : undefined,
         paymentMethod: payload.paymentMethod,
@@ -459,7 +447,7 @@ export const POSView: React.FC<POSViewProps> = ({ products, onOrderCompleted }) 
         orderId: fullOrder.id,
         orderNumber: fullOrder.orderNumber || orderNumber,
         timestamp,
-        cashierName: user?.displayName || 'Cashier',
+        cashierName: user?.displayName || '',
         orderType: payload.orderType,
         tableNumber: payload.tableNumber,
         customerName: payload.customerName,
@@ -583,7 +571,7 @@ export const POSView: React.FC<POSViewProps> = ({ products, onOrderCompleted }) 
                       <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${
                         isOutOfStock
                           ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
-                          : p.stock <= (p.minStockAlert || 5)
+                          : p.stock <= (Number.isFinite(Number(p.minStockAlert)) ? Number(p.minStockAlert) : 0)
                           ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
                           : 'bg-emerald-500/10 text-emerald-400'
                       }`}>
@@ -685,24 +673,22 @@ export const POSView: React.FC<POSViewProps> = ({ products, onOrderCompleted }) 
                 <div className="bg-slate-950 p-2.5 rounded-2xl border border-slate-800 flex items-center justify-between">
                   <div>
                     <span className="text-[10px] text-slate-500 block uppercase font-bold">{t.pos.tableLabel}</span>
-                    <select
+                    <input
                       value={tableNumber}
                       onChange={e => setTableNumber(e.target.value)}
-                      className="bg-transparent text-emerald-400 font-extrabold focus:outline-none text-xs"
-                    >
-                      {['T-01', 'T-02', 'T-03', 'T-04', 'T-05', 'VIP-1', 'VIP-2', 'Patio-1'].map(tbl => (
-                        <option key={tbl} value={tbl} className="bg-slate-900 text-white">{tbl}</option>
-                      ))}
-                    </select>
+                      placeholder={t.pos.tableLabel}
+                      className="bg-transparent text-emerald-400 font-extrabold focus:outline-none text-xs w-28 placeholder:text-slate-600"
+                      maxLength={30}
+                    />
                   </div>
                   <Utensils className="w-4 h-4 text-emerald-400" />
                 </div>
               ) : orderType === 'delivery' ? (
                 <div className="bg-amber-500/10 border border-amber-500/30 p-2.5 rounded-2xl flex items-center justify-between text-amber-400">
                   <div className="truncate pr-1">
-                    <span className="text-[10px] text-amber-500 block uppercase font-bold">Delivery Address</span>
+                    <span className="text-[10px] text-amber-500 block uppercase font-bold">{t.ui.deliveryAddress}</span>
                     <span className="text-white text-[11px] font-bold truncate block">
-                      {selectedCustomer?.address || 'Set in Checkout'}
+                      {selectedCustomer?.address || t.ui.setInCheckout}
                     </span>
                   </div>
                   <Truck className="w-4 h-4 shrink-0" />
@@ -783,7 +769,7 @@ export const POSView: React.FC<POSViewProps> = ({ products, onOrderCompleted }) 
                   <div className="flex items-center gap-1">
                     <input
                       type="number"
-                      placeholder="0"
+                      placeholder={translateRawUi('0')}
                       value={discountValue || ''}
                       onChange={e => setDiscountValue(Number(e.target.value))}
                       className="w-16 bg-slate-950 border border-slate-800 rounded-xl px-2 py-1 text-white font-bold text-xs text-right focus:outline-none focus:border-emerald-500"
@@ -814,9 +800,9 @@ export const POSView: React.FC<POSViewProps> = ({ products, onOrderCompleted }) 
                 <span>
                   {t.pos.vat}{' '}
                   {isTaxLoading ? (
-                    <span className="text-slate-500 italic">(Loading...)</span>
+                    <span className="text-slate-500 italic">{t.legacyUi.loadingState}</span>
                   ) : taxConfigError ? (
-                    <span className="text-rose-400">(Config Error)</span>
+                    <span className="text-rose-400">{t.legacyUi.configError}</span>
                   ) : (
                     <span>({taxRatePercent}%)</span>
                   )}
@@ -845,7 +831,7 @@ export const POSView: React.FC<POSViewProps> = ({ products, onOrderCompleted }) 
             {/* Warning if branch is missing for branch user */}
             {!authLoading && !isBranchLoaded && (
               <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400 text-[11px] font-medium text-center">
-                User branch is not loaded. Please refresh or sign in again.
+                {translateRawUi('User branch is not loaded. Please refresh or sign in again.')}
               </div>
             )}
 
@@ -922,8 +908,8 @@ export const POSView: React.FC<POSViewProps> = ({ products, onOrderCompleted }) 
           discountAmount={cartTotals.discountAmount}
           grandTotal={cartTotals.grandTotal}
           selectedCustomer={selectedCustomer}
-          cashierName={user?.displayName || 'Senior Cashier'}
-          cashierUid={user?.uid || 'emp-pos'}
+          cashierName={user?.displayName || ''}
+          cashierUid={user?.uid || ''}
           deliveryZones={deliveryZones}
           branchDefaultDeliveryFee={branchDeliveryFee}
           onClose={() => setIsPaymentModalOpen(false)}

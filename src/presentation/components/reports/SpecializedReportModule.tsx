@@ -1,3 +1,4 @@
+import { translateRawUi } from '../../../i18n';
 import React, { useState } from 'react';
 import {
   FileText,
@@ -21,6 +22,7 @@ import {
 } from 'lucide-react';
 import { Order, Product, Ingredient, Expense, Employee, Supplier, Purchase, Customer } from '../../../types';
 import { downloadPDFReport, exportToExcel, exportToCSV, printReportWindow } from '../../../lib/reports';
+import { employeeMonthlyPayrollEquivalent } from '../../../lib/payroll';
 
 export type ReportType =
   | 'sales'
@@ -68,7 +70,17 @@ export const SpecializedReportModule: React.FC<SpecializedReportModuleProps> = (
   let columns: string[] = [];
   let rows: (string | number)[][] = [];
 
-  const completedOrders = orders.filter((o) => o.status === 'completed' || o.paymentStatus === 'paid');
+  // Semantic Order Classification
+  const completedOrders = orders.filter((o) => {
+    const status = String(o.status || '').toLowerCase();
+    const prepStatus = String(o.prepStatus || '').toLowerCase();
+    return status === 'completed' || prepStatus === 'delivered';
+  });
+  const paidOrders = orders.filter(
+    (o) => o.paymentStatus === 'paid' && (o.status as string) !== 'cancelled' && (o.status as string) !== 'void'
+  );
+  const cancelledOrders = orders.filter((o) => (o.status as string) === 'cancelled' || (o.status as string) === 'void');
+  const refundedOrders = orders.filter((o) => (o.status as string) === 'refunded' || o.paymentStatus === 'refunded');
 
   if (reportType === 'sales') {
     title = 'Sales Performance & Transaction Audit Report';
@@ -116,8 +128,8 @@ export const SpecializedReportModule: React.FC<SpecializedReportModuleProps> = (
       (o.orderType || 'dine_in').toUpperCase(),
       (o.status || 'completed').toUpperCase(),
       o.customerName || 'Walk-in',
-      o.employeeName || 'Cashier',
-      o.branch || 'Main Branch',
+      o.employeeName || '—',
+      o.branch || 'Unspecified',
       o.prepStatus || 'ready',
       `$${(o.totalAmount || 0).toFixed(2)}`,
     ]);
@@ -181,21 +193,22 @@ export const SpecializedReportModule: React.FC<SpecializedReportModuleProps> = (
     title = 'Employee Performance & Labor Cost Audit';
     subtitle = 'Staff sales contribution, total handled order volume, role rankings and salary disbursements';
     const totalStaff = employees.length;
-    const totalPayroll = employees.reduce((s, e) => s + e.salary, 0);
+    const totalPayroll = employees.reduce((s, e) => s + employeeMonthlyPayrollEquivalent(e), 0);
     const totalStaffSales = employees.reduce((s, e) => s + (e.totalSales || 0), 0);
 
     summaryCards = [
       { label: 'Total Employed Staff', value: `${totalStaff}`, color: 'text-white' },
-      { label: 'Total Monthly Payroll', value: `$${totalPayroll.toFixed(2)}`, color: 'text-rose-400' },
+      { label: 'Monthly Payroll Equivalent', value: `$${totalPayroll.toFixed(2)}`, color: 'text-rose-400' },
       { label: 'Total Staff Generated Sales', value: `$${totalStaffSales.toFixed(2)}`, color: 'text-emerald-400' },
     ];
 
-    columns = ['Employee Name', 'Role', 'Status', 'Monthly Salary ($)', 'Sales Generated ($)', 'Orders Handled'];
+    columns = ['Employee Name', 'Role', 'Status', 'Salary / Cycle ($)', 'Monthly Payroll Equivalent ($)', 'Sales Generated ($)', 'Orders Handled'];
     rows = employees.map((e) => [
       e.name || 'Employee',
       (e.role || 'Staff').toUpperCase(),
       (e.status || 'Active').toUpperCase(),
-      `$${(e.salary || 0).toFixed(2)}`,
+      `$${(e.salary || 0).toFixed(2)} / ${(e.payFrequency || 'monthly').toUpperCase()}`,
+      `$${employeeMonthlyPayrollEquivalent(e).toFixed(2)}`,
       `$${(e.totalSales || 0).toFixed(2)}`,
       e.ordersCount || 0,
     ]);
@@ -229,12 +242,15 @@ export const SpecializedReportModule: React.FC<SpecializedReportModuleProps> = (
     title = 'Kitchen Operations & Prep Velocity Audit';
     subtitle = 'Ticket prep speed, station assignments, dish prep efficiency and cooking status metrics';
     const totalTickets = orders.length;
-    const avgPrepMins = 12; // Standard avg prep time
+    const prepMeasured = orders.filter(o => Number(o.prepTimeMinutes) > 0);
+    const avgPrepMins = prepMeasured.length > 0 ? prepMeasured.reduce((sum,o)=>sum+Number(o.prepTimeMinutes||0),0)/prepMeasured.length : 0;
+    const prepTargetMeasured = orders.filter(o => Number(o.prepTimeMinutes) > 0 && Number(o.targetPrepTimeMinutes) > 0);
+    const prepSla = prepTargetMeasured.length > 0 ? (prepTargetMeasured.filter(o=>Number(o.prepTimeMinutes) <= Number(o.targetPrepTimeMinutes)).length / prepTargetMeasured.length)*100 : null;
 
     summaryCards = [
       { label: 'Kitchen Tickets Processed', value: `${totalTickets}`, color: 'text-white' },
-      { label: 'Avg Kitchen Prep Speed', value: `${avgPrepMins} mins`, color: 'text-emerald-400' },
-      { label: 'Target SLA Compliance', value: '96.4%', color: 'text-indigo-400' },
+      { label: 'Avg Kitchen Prep Speed', value: prepMeasured.length > 0 ? `${avgPrepMins.toFixed(1)} mins` : 'No data', color: 'text-emerald-400' },
+      { label: 'Target SLA Compliance', value: prepSla === null ? 'No data' : `${prepSla.toFixed(1)}%`, color: 'text-indigo-400' },
     ];
 
     columns = ['Ticket / Order #', 'Customer Name', 'Order Type', 'Items Count', 'Assigned Station', 'Prep Status', 'Est Time'];
@@ -245,28 +261,31 @@ export const SpecializedReportModule: React.FC<SpecializedReportModuleProps> = (
       (o.items || []).length,
       o.assignedChef || 'Main Kitchen Station',
       (o.prepStatus || 'ready').toUpperCase(),
-      `${o.prepTimeMinutes || 15} mins`,
+      Number(o.prepTimeMinutes) > 0 ? `${Number(o.prepTimeMinutes)} mins` : 'Not recorded',
     ]);
   } else if (reportType === 'delivery') {
     title = 'Delivery Logistics & Fleet Audit';
     subtitle = 'Outbound delivery orders, driver assignments, delivery fees and transit completion rates';
     const deliveryOrders = orders.filter((o) => o.orderType === 'delivery');
     const totalDeliveryRev = deliveryOrders.reduce((s, o) => s + o.totalAmount, 0);
+    const deliveryFeeValues = deliveryOrders.map(o => Number((o as any).deliveryFee)).filter(Number.isFinite);
+    const transitValues = deliveryOrders.map(o => Number((o as any).transitDurationMinutes)).filter(Number.isFinite);
+    const avgTransit = transitValues.length > 0 ? transitValues.reduce((a,b)=>a+b,0)/transitValues.length : null;
 
     summaryCards = [
       { label: 'Total Delivery Orders', value: `${deliveryOrders.length}`, color: 'text-amber-400' },
       { label: 'Delivery Revenue Generated', value: `$${totalDeliveryRev.toFixed(2)}`, color: 'text-emerald-400' },
-      { label: 'Avg Transit Duration', value: '24 mins', color: 'text-indigo-400' },
+      { label: 'Avg Transit Duration', value: avgTransit === null ? 'No data' : `${avgTransit.toFixed(1)} mins`, color: 'text-indigo-400' },
     ];
 
     columns = ['Order #', 'Customer Name', 'Address', 'Assigned Driver', 'Delivery Status', 'Delivery Fee ($)', 'Total Order ($)'];
     rows = deliveryOrders.map((o) => [
       o.orderNumber || o.id.slice(0, 6),
       o.customerName || 'Valued Guest',
-      o.customerAddress || 'City Center Area',
-      o.assignedDriver || 'Assigned Express Courier',
+      o.customerAddress || 'Address not recorded',
+      o.assignedDriver || 'Unassigned',
       (o.deliveryStatus || 'delivered').toUpperCase(),
-      '$2.50',
+      deliveryFeeValues.length > 0 && Number.isFinite(Number((o as any).deliveryFee)) ? `$${Number((o as any).deliveryFee).toFixed(2)}` : 'Not recorded',
       `$${o.totalAmount.toFixed(2)}`,
     ]);
   } else if (reportType === 'expenses') {
@@ -287,7 +306,7 @@ export const SpecializedReportModule: React.FC<SpecializedReportModuleProps> = (
       `$${e.amount.toFixed(2)}`,
       e.createdBy || 'Finance Mgr',
       new Date(e.createdAt).toLocaleDateString(),
-      'Main Branch',
+      'Unspecified',
     ]);
   } else if (reportType === 'revenue') {
     title = 'Gross Revenue & Tax Liability Audit';
@@ -441,25 +460,25 @@ export const SpecializedReportModule: React.FC<SpecializedReportModuleProps> = (
             onClick={handleExportPDF}
             className="bg-slate-800 hover:bg-emerald-500 hover:text-slate-950 text-emerald-400 font-bold px-3.5 py-2 rounded-2xl text-xs transition flex items-center gap-1.5 cursor-pointer border border-slate-700/60"
           >
-            <Download className="w-3.5 h-3.5" /> PDF
+            <Download className="w-3.5 h-3.5" /> {translateRawUi('PDF')}
           </button>
           <button
             onClick={handleExportExcel}
             className="bg-slate-800 hover:bg-emerald-500 hover:text-slate-950 text-emerald-400 font-bold px-3.5 py-2 rounded-2xl text-xs transition flex items-center gap-1.5 cursor-pointer border border-slate-700/60"
           >
-            <FileSpreadsheet className="w-3.5 h-3.5" /> Excel
+            <FileSpreadsheet className="w-3.5 h-3.5" /> {translateRawUi('Excel')}
           </button>
           <button
             onClick={handleExportCSV}
             className="bg-slate-800 hover:bg-emerald-500 hover:text-slate-950 text-emerald-400 font-bold px-3.5 py-2 rounded-2xl text-xs transition flex items-center gap-1.5 cursor-pointer border border-slate-700/60"
           >
-            <FileSpreadsheet className="w-3.5 h-3.5" /> CSV
+            <FileSpreadsheet className="w-3.5 h-3.5" /> {translateRawUi('CSV')}
           </button>
           <button
             onClick={handlePrint}
             className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold px-4 py-2 rounded-2xl text-xs transition flex items-center gap-1.5 cursor-pointer shadow-lg shadow-emerald-500/20"
           >
-            <Printer className="w-3.5 h-3.5" /> Print Report
+            <Printer className="w-3.5 h-3.5" /> {translateRawUi('Print Report')}
           </button>
         </div>
       </div>
@@ -481,15 +500,15 @@ export const SpecializedReportModule: React.FC<SpecializedReportModuleProps> = (
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
             <input
               type="text"
-              placeholder="Search in report..."
+              placeholder={translateRawUi('Search in report...')}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full bg-slate-950 border border-slate-800 rounded-2xl pl-9 pr-4 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
             />
           </div>
           <p className="text-xs text-slate-400">
-            Showing <strong className="text-white">{filteredRows.length}</strong> of{' '}
-            <strong className="text-white">{rows.length}</strong> entries
+            {translateRawUi('Showing')} <strong className="text-white">{filteredRows.length}</strong> of{' '}
+            <strong className="text-white">{rows.length}</strong> {translateRawUi('entries')}
           </p>
         </div>
 
@@ -509,7 +528,7 @@ export const SpecializedReportModule: React.FC<SpecializedReportModuleProps> = (
               {filteredRows.length === 0 ? (
                 <tr>
                   <td colSpan={columns.length} className="p-8 text-center text-slate-500">
-                    No matching records found for this report filter.
+                    {translateRawUi('No matching records found for this report filter.')}
                   </td>
                 </tr>
               ) : (

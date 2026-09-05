@@ -1,3 +1,5 @@
+import { translations } from '../../../i18n/translations';
+import { translateRawUi } from '../../../i18n/rawUi';
 import React, { useState } from 'react';
 import {
   PurchaseOrder,
@@ -5,7 +7,7 @@ import {
   InventoryItem,
   PurchaseOrderItem
 } from '../../../domain/entities/inventory';
-import { InventoryLang, inventoryDict } from './translations';
+import { InventoryLang, inventoryDict } from '../../../i18n';
 import { getMogadishuDateString } from '../../../lib/dateUtils';
 import {
   Truck,
@@ -43,7 +45,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
   onApprovePO,
   onNavigateToReceiving
 }) => {
-  const t = inventoryDict[lang] || inventoryDict.en;
+  const t = { ...(inventoryDict[lang] || inventoryDict.en), legacyUi: translations[lang].legacyUi };
   const isReadOnly = userRole === 'Kitchen' || userRole === 'Cashier';
   const canApprove = userRole === 'Owner' || userRole === 'Admin' || userRole === 'Manager';
 
@@ -82,9 +84,9 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
         itemId: item.id,
         itemName: item.itemName,
         itemCode: item.itemCode,
-        requestedQuantity: 10,
-        unitPrice: item.purchaseCost || 5.0,
-        totalAmount: 10 * (item.purchaseCost || 5.0),
+        requestedQuantity: 0,
+        unitPrice: item.purchaseCost || 0,
+        totalAmount: 10 * (item.purchaseCost || 0),
         unit: item.unit
       }
     ]);
@@ -98,6 +100,10 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
     e.preventDefault();
     if (poItems.length === 0) {
       alert('Please add at least one item to the purchase order.');
+      return;
+    }
+    if (poItems.some((item) => item.requestedQuantity <= 0 || item.unitPrice <= 0)) {
+      alert('Each purchase-order line must have a positive quantity and unit price.');
       return;
     }
 
@@ -139,8 +145,8 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
       {/* Controls Bar */}
       <div className="bg-slate-900 border border-slate-800 p-4 rounded-3xl shadow-xl flex flex-col md:flex-row items-center justify-between gap-4">
         <div>
-          <h3 className="text-sm font-extrabold text-white">Purchase Orders & Procurement Workflow</h3>
-          <p className="text-xs text-slate-400">Manage supplier purchase requests, approvals, and order tracking</p>
+          <h3 className="text-sm font-extrabold text-white">{t.legacyUi.purchaseProcurementWorkflow}</h3>
+          <p className="text-xs text-slate-400">{t.legacyUi.manageSupplierPurchases}</p>
         </div>
 
         <div className="flex items-center gap-3">
@@ -149,11 +155,11 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
             onChange={(e) => setFilterStatus(e.target.value)}
             className="bg-slate-950 border border-slate-800 text-xs text-white rounded-2xl px-3 py-2.5 focus:outline-none focus:border-amber-500"
           >
-            <option value="all">All Statuses</option>
-            <option value="pending_approval">Pending Approval</option>
-            <option value="approved">Approved</option>
-            <option value="ordered">Ordered</option>
-            <option value="completed">Completed / Received</option>
+            <option value="all">{t.legacyUi.allStatuses}</option>
+            <option value="pending_approval">{t.legacyUi.pendingApproval}</option>
+            <option value="approved">{translateRawUi('Approved')}</option>
+            <option value="ordered">{translateRawUi('Ordered')}</option>
+            <option value="completed">{t.legacyUi.completedReceived}</option>
           </select>
 
           {!isReadOnly && (
@@ -172,7 +178,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
         {filteredPOs.length === 0 ? (
           <div className="col-span-full bg-slate-900 border border-slate-800 p-12 rounded-3xl text-center text-slate-500 text-xs">
             <Truck className="w-10 h-10 mx-auto text-slate-700 mb-2" />
-            No purchase orders found. Click "New Purchase Order" to create one.
+            {translateRawUi('No purchase orders found. Click "New Purchase Order" to create one.')}
           </div>
         ) : (
           filteredPOs.map((po) => {
@@ -204,17 +210,17 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
                   </div>
 
                   <div className="flex items-center justify-between text-xs">
-                    <span className="text-slate-400">Supplier:</span>
+                    <span className="text-slate-400">{translateRawUi('Supplier:')}</span>
                     <span className="font-bold text-white">{po.supplierName}</span>
                   </div>
 
                   <div className="flex items-center justify-between text-xs">
-                    <span className="text-slate-400">Total Items:</span>
+                    <span className="text-slate-400">{t.legacyUi.totalItemsColon}</span>
                     <span className="font-mono font-bold text-white">{po.items?.length || 0} line items</span>
                   </div>
 
                   <div className="flex items-center justify-between text-xs">
-                    <span className="text-slate-400">Total Amount:</span>
+                    <span className="text-slate-400">{t.legacyUi.totalAmountColon}</span>
                     <span className="font-mono font-black text-emerald-400 text-base">
                       ${po.totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                     </span>
@@ -250,7 +256,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
                       onClick={() => onApprovePO(po.id, 'Store Manager')}
                       className="w-full py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-2xl text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-lg shadow-emerald-500/20"
                     >
-                      <CheckCircle2 className="w-4 h-4" /> Approve PO
+                      <CheckCircle2 className="w-4 h-4" /> {translateRawUi('Approve PO')}
                     </button>
                   )}
 
@@ -259,13 +265,13 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
                       onClick={() => onNavigateToReceiving(po.id)}
                       className="w-full py-2 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black rounded-2xl text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-lg shadow-cyan-500/20"
                     >
-                      <Truck className="w-4 h-4" /> Receive Goods <ChevronRight className="w-3.5 h-3.5" />
+                      <Truck className="w-4 h-4" /> {t.legacyUi.receiveGoods} <ChevronRight className="w-3.5 h-3.5" />
                     </button>
                   )}
 
                   {isCompleted && (
                     <span className="text-center w-full text-[11px] text-emerald-400 font-bold flex items-center justify-center gap-1">
-                      <CheckCircle2 className="w-4 h-4" /> Goods Fully Received
+                      <CheckCircle2 className="w-4 h-4" /> {translateRawUi('Goods Fully Received')}
                     </span>
                   )}
 
@@ -283,7 +289,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 w-full max-w-2xl shadow-2xl space-y-5">
             
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="text-base font-extrabold text-white">Create New Purchase Order</h3>
+              <h3 className="text-base font-extrabold text-white">{t.legacyUi.createNewPurchaseOrder}</h3>
               <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-white">
                 <X className="w-4 h-4" />
               </button>
@@ -293,7 +299,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-slate-400 font-bold mb-1">Supplier *</label>
+                  <label className="block text-slate-400 font-bold mb-1">{t.legacyUi.supplierRequired}</label>
                   <select
                     required
                     value={selectedSupplierId}
@@ -309,7 +315,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-slate-400 font-bold mb-1">Expected Delivery Date</label>
+                  <label className="block text-slate-400 font-bold mb-1">{t.legacyUi.expectedDeliveryDate}</label>
                   <input
                     type="date"
                     value={expectedDeliveryDate}
@@ -322,19 +328,19 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
               {/* Items Table in PO */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <label className="text-slate-300 font-extrabold">Line Items *</label>
+                  <label className="text-slate-300 font-extrabold">{t.legacyUi.lineItemsRequired}</label>
                   <button
                     type="button"
                     onClick={handleAddItemRow}
                     className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-amber-400 rounded-xl text-[11px] font-bold flex items-center gap-1"
                   >
-                    <Plus className="w-3.5 h-3.5" /> Add Line Item
+                    <Plus className="w-3.5 h-3.5" /> {translateRawUi('Add Line Item')}
                   </button>
                 </div>
 
                 {poItems.length === 0 ? (
                   <div className="p-6 bg-slate-950 border border-dashed border-slate-800 rounded-2xl text-center text-slate-500">
-                    No items added yet. Click "+ Add Line Item".
+                    {translateRawUi('No items added yet. Click "+ Add Line Item".')}
                   </div>
                 ) : (
                   <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
@@ -352,7 +358,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
                                   itemId: match.id,
                                   itemName: match.itemName,
                                   itemCode: match.itemCode,
-                                  unitPrice: match.purchaseCost || 5.0,
+                                  unitPrice: match.purchaseCost || 0,
                                   unit: match.unit
                                 };
                                 setPoItems(newItems);
@@ -379,7 +385,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
                               setPoItems(newItems);
                             }}
                             className="w-full bg-slate-900 border border-slate-800 rounded-xl p-2 text-white font-mono"
-                            placeholder="Qty"
+                            placeholder={translateRawUi('Qty')}
                           />
                         </div>
 
@@ -394,7 +400,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
                               setPoItems(newItems);
                             }}
                             className="w-full bg-slate-900 border border-slate-800 rounded-xl p-2 text-white font-mono"
-                            placeholder="Unit Cost $"
+                            placeholder={translateRawUi('Unit Cost $')}
                           />
                         </div>
 
@@ -417,7 +423,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
 
               {/* Total Summary */}
               <div className="p-4 bg-slate-950 rounded-2xl border border-slate-800 flex items-center justify-between">
-                <span className="font-extrabold text-slate-300">Estimated PO Total:</span>
+                <span className="font-extrabold text-slate-300">{t.legacyUi.estimatedPoTotal}</span>
                 <span className="text-xl font-black font-mono text-emerald-400">
                   ${totalPOAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </span>
@@ -429,13 +435,13 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
                   onClick={() => setIsModalOpen(false)}
                   className="px-4 py-2 rounded-2xl bg-slate-800 text-slate-300 font-bold"
                 >
-                  Cancel
+                  {translateRawUi('Cancel')}
                 </button>
                 <button
                   type="submit"
                   className="px-6 py-2 rounded-2xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black cursor-pointer shadow-lg shadow-amber-500/20"
                 >
-                  Submit Purchase Order
+                  {translateRawUi('Submit Purchase Order')}
                 </button>
               </div>
 

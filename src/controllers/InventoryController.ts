@@ -63,17 +63,14 @@ export class InventoryController {
     if (!item) throw new Error('Inventory item not found');
 
     const prevQty = item.currentQuantity;
-    const qtyDiff = Math.abs(newQuantity - prevQty);
-    const movementType = newQuantity >= prevQty ? 'stock_in' : 'stock_out';
-
-    await this.repo.updateInventoryItem(itemId, { currentQuantity: newQuantity });
-
     await this.repo.recordMovement({
       type: 'adjustment',
+      itemType: 'inventory',
+      mode: 'set',
       itemId,
       itemName: item.itemName,
       itemCode: item.itemCode,
-      quantity: qtyDiff,
+      quantity: newQuantity,
       unit: item.unit,
       previousQuantity: prevQty,
       newQuantity: newQuantity,
@@ -105,7 +102,8 @@ export class InventoryController {
       fromLocation,
       toLocation,
       reason: `Stock Transfer from ${fromLocation} to ${toLocation}`,
-      createdBy: transferredBy
+      createdBy: transferredBy,
+      itemType: 'inventory'
     });
   }
 
@@ -120,10 +118,10 @@ export class InventoryController {
     if (!item) throw new Error('Inventory item not found');
 
     const newQty = Math.max(0, item.currentQuantity - quantity);
-    await this.repo.updateInventoryItem(itemId, { currentQuantity: newQty });
 
     await this.repo.recordMovement({
       type: 'waste',
+      itemType: 'inventory',
       itemId,
       itemName: item.itemName,
       itemCode: item.itemCode,

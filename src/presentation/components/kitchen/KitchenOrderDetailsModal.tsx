@@ -1,6 +1,8 @@
+import { translations } from '../../../i18n/translations';
+import { translateRawUi } from '../../../i18n/rawUi';
 import React, { useState } from 'react';
 import { KitchenTicket, KitchenPrepStatus, KitchenOrderPriority } from '../../../domain/entities/kitchen';
-import { kdsDict, KitchenLang } from './translations';
+import { kdsDict, KitchenLang } from '../../../i18n';
 import {
   X,
   Clock,
@@ -36,13 +38,14 @@ export const KitchenOrderDetailsModal: React.FC<KitchenOrderDetailsModalProps> =
   onLogWaste
 }) => {
   const t = kdsDict[lang] || kdsDict.en;
+  const legacyUi = translations[lang].legacyUi;
   const isRtl = lang === 'ar';
 
   const [showWasteForm, setShowWasteForm] = useState(false);
   const [wasteItem, setWasteItem] = useState('');
-  const [wasteQty, setWasteQty] = useState<number>(1);
+  const [wasteQty, setWasteQty] = useState<number>(0);
   const [wasteReason, setWasteReason] = useState('Burned / Damaged during preparation');
-  const [wasteCost, setWasteCost] = useState<number>(5.00);
+  const [wasteCost, setWasteCost] = useState<number>(0);
   const [submittingWaste, setSubmittingWaste] = useState(false);
 
   const handleWasteSubmit = async (e: React.FormEvent) => {
@@ -109,7 +112,7 @@ export const KitchenOrderDetailsModal: React.FC<KitchenOrderDetailsModalProps> =
         {/* Priority Selector */}
         <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 flex items-center justify-between gap-4">
           <span className="text-xs font-bold text-slate-400 flex items-center gap-1.5">
-            <Tag className="w-4 h-4 text-amber-400" /> Ticket Priority:
+            <Tag className="w-4 h-4 text-amber-400" /> {translateRawUi('Ticket Priority:')}
           </span>
           <div className="flex items-center gap-2">
             {(['normal', 'priority', 'urgent'] as KitchenOrderPriority[]).map((p) => {
@@ -138,7 +141,7 @@ export const KitchenOrderDetailsModal: React.FC<KitchenOrderDetailsModalProps> =
         {/* Ticket Items Breakdown */}
         <div className="space-y-3">
           <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
-            <Utensils className="w-4 h-4 text-emerald-400" /> Dish Items & Station Routing
+            <Utensils className="w-4 h-4 text-emerald-400" /> {translateRawUi('Dish Items & Station Routing')}
           </h4>
 
           <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
@@ -188,7 +191,7 @@ export const KitchenOrderDetailsModal: React.FC<KitchenOrderDetailsModalProps> =
                         onClick={() => onUpdateItemStatus(ticket.id, item.productId, 'cooking')}
                         className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs px-3 py-1.5 rounded-xl transition cursor-pointer flex items-center gap-1"
                       >
-                        <Flame className="w-3.5 h-3.5" /> Cook
+                        <Flame className="w-3.5 h-3.5" /> {translateRawUi('Cook')}
                       </button>
                     )}
 
@@ -197,13 +200,13 @@ export const KitchenOrderDetailsModal: React.FC<KitchenOrderDetailsModalProps> =
                         onClick={() => onUpdateItemStatus(ticket.id, item.productId, 'ready_for_pickup')}
                         className="bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold text-xs px-3 py-1.5 rounded-xl transition cursor-pointer flex items-center gap-1"
                       >
-                        <CheckCircle2 className="w-3.5 h-3.5" /> Ready
+                        <CheckCircle2 className="w-3.5 h-3.5" /> {translateRawUi('Ready')}
                       </button>
                     )}
 
                     {isItemReady && (
                       <span className="text-xs font-bold text-emerald-400 flex items-center gap-1 bg-emerald-500/10 px-2.5 py-1 rounded-xl border border-emerald-500/20">
-                        <CheckCheck className="w-3.5 h-3.5" /> Ready
+                        <CheckCheck className="w-3.5 h-3.5" /> {translateRawUi('Ready')}
                       </span>
                     )}
 
@@ -212,7 +215,7 @@ export const KitchenOrderDetailsModal: React.FC<KitchenOrderDetailsModalProps> =
                         setWasteItem(item.productName);
                         setShowWasteForm(true);
                       }}
-                      title="Report waste/spill for this dish"
+                      title={translateRawUi('Report waste/spill for this dish')}
                       className="p-2 rounded-xl bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 border border-slate-700 transition cursor-pointer text-xs"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
@@ -243,7 +246,7 @@ export const KitchenOrderDetailsModal: React.FC<KitchenOrderDetailsModalProps> =
                 onClick={() => setShowWasteForm(false)}
                 className="text-slate-500 hover:text-white text-xs cursor-pointer"
               >
-                Cancel
+                {translateRawUi('Cancel')}
               </button>
             </div>
 
@@ -278,11 +281,11 @@ export const KitchenOrderDetailsModal: React.FC<KitchenOrderDetailsModalProps> =
                   onChange={(e) => setWasteReason(e.target.value)}
                   className="w-full bg-slate-900 border border-slate-800 rounded-xl p-2 text-white font-medium focus:outline-none focus:border-rose-500"
                 >
-                  <option value="Burned during preparation">Burned during preparation</option>
-                  <option value="Dropped / Spilled dish">Dropped / Spilled dish</option>
-                  <option value="Customer order cancellation">Customer order cancellation</option>
-                  <option value="Quality check rejection">Quality check rejection</option>
-                  <option value="Expired ingredient">Expired ingredient</option>
+                  <option value="Burned during preparation">{legacyUi.burnedDuringPreparation}</option>
+                  <option value="Dropped / Spilled dish">{legacyUi.droppedSpilledDish}</option>
+                  <option value="Customer order cancellation">{legacyUi.customerOrderCancellation}</option>
+                  <option value="Quality check rejection">{translateRawUi('Quality check rejection')}</option>
+                  <option value="Expired ingredient">{legacyUi.expiredIngredient}</option>
                 </select>
               </div>
 
@@ -319,7 +322,7 @@ export const KitchenOrderDetailsModal: React.FC<KitchenOrderDetailsModalProps> =
             }}
             className="px-4 py-2.5 rounded-2xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-bold transition cursor-pointer"
           >
-            Cancel Order
+            {translateRawUi('Cancel Order')}
           </button>
 
           <div className="flex items-center gap-2">

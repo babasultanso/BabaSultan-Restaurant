@@ -20,7 +20,7 @@ export type EmployeeRole =
 
 export type EmploymentStatus = 'Active' | 'On Leave' | 'Probation' | 'Terminated' | 'Suspended';
 
-export type GenderType = 'Male' | 'Female' | 'Other';
+export type GenderType = 'Male' | 'Female' | 'Other' | '';
 
 export interface BankAccountDetails {
   bankName: string;
@@ -59,6 +59,7 @@ export interface Employee {
   status?: string; // Legacy status compatibility
   role: EmployeeRole;
   salary: number;
+  payFrequency: PayFrequency;
   totalSales?: number; // Legacy analytics compatibility
   ordersCount?: number; // Legacy analytics compatibility
   bankAccount?: BankAccountDetails;
@@ -68,7 +69,8 @@ export interface Employee {
   updatedAt?: string;
 }
 
-export type AttendanceStatus = 'present' | 'absent' | 'half_day' | 'on_leave';
+import type { AttendanceStatus } from '../contracts';
+export type { AttendanceStatus };
 
 export interface AttendanceRecord {
   id: string;
@@ -107,6 +109,7 @@ export interface Shift {
 }
 
 export type PayrollStatus = 'pending' | 'processed' | 'paid';
+export type PayFrequency = 'daily' | 'weekly' | 'monthly';
 
 export interface PayrollRecord {
   id: string;
@@ -117,7 +120,10 @@ export interface PayrollRecord {
   department?: string;
   branchId?: string;
   branch?: string;
-  month: string; // YYYY-MM
+  month: string; // YYYY-MM (period anchor for filtering/reporting)
+  payFrequency: PayFrequency;
+  periodStart: string; // YYYY-MM-DD
+  periodEnd: string; // YYYY-MM-DD
   basicSalary: number;
   overtimePay: number;
   bonuses: number;

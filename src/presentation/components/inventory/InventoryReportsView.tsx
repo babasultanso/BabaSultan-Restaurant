@@ -1,3 +1,5 @@
+import { translations } from '../../../i18n/translations';
+import { translateRawUi } from '../../../i18n/rawUi';
 import React, { useState } from 'react';
 import {
   InventoryItem,
@@ -6,7 +8,7 @@ import {
   Supplier,
   InventoryValuationReport
 } from '../../../domain/entities/inventory';
-import { InventoryLang, inventoryDict } from './translations';
+import { InventoryLang, inventoryDict } from '../../../i18n';
 import { inventoryService } from '../../../domain/services/inventoryService';
 import {
   BarChart2,
@@ -37,7 +39,7 @@ export const InventoryReportsView: React.FC<InventoryReportsViewProps> = ({
   suppliers,
   lang
 }) => {
-  const t = inventoryDict[lang] || inventoryDict.en;
+  const t = { ...(inventoryDict[lang] || inventoryDict.en), legacyUi: translations[lang].legacyUi };
 
   const [activeReport, setActiveReport] = useState<
     'valuation' | 'movements' | 'purchases' | 'suppliers' | 'waste' | 'expiry'
@@ -136,7 +138,7 @@ export const InventoryReportsView: React.FC<InventoryReportsViewProps> = ({
                 : 'bg-slate-950 text-slate-400 hover:text-white'
             }`}
           >
-            <BarChart2 className="w-4 h-4" /> Valuation & Stock
+            <BarChart2 className="w-4 h-4" /> {translateRawUi('Valuation & Stock')}
           </button>
 
           <button
@@ -147,7 +149,7 @@ export const InventoryReportsView: React.FC<InventoryReportsViewProps> = ({
                 : 'bg-slate-950 text-slate-400 hover:text-white'
             }`}
           >
-            <Clock className="w-4 h-4" /> Movement Audit
+            <Clock className="w-4 h-4" /> {translateRawUi('Movement Audit')}
           </button>
 
           <button
@@ -158,7 +160,7 @@ export const InventoryReportsView: React.FC<InventoryReportsViewProps> = ({
                 : 'bg-slate-950 text-slate-400 hover:text-white'
             }`}
           >
-            <DollarSign className="w-4 h-4" /> Supplier Balances
+            <DollarSign className="w-4 h-4" /> {translateRawUi('Supplier Balances')}
           </button>
 
           <button
@@ -169,7 +171,7 @@ export const InventoryReportsView: React.FC<InventoryReportsViewProps> = ({
                 : 'bg-slate-950 text-slate-400 hover:text-white'
             }`}
           >
-            <AlertTriangle className="w-4 h-4" /> Waste & Spoilage
+            <AlertTriangle className="w-4 h-4" /> {translateRawUi('Waste & Spoilage')}
           </button>
         </div>
 
@@ -198,19 +200,19 @@ export const InventoryReportsView: React.FC<InventoryReportsViewProps> = ({
           
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="bg-slate-900 border border-slate-800 p-5 rounded-3xl shadow-xl space-y-1">
-              <span className="text-xs text-slate-400 font-bold">Total Items Cataloged</span>
+              <span className="text-xs text-slate-400 font-bold">{t.legacyUi.totalItemsCataloged}</span>
               <h4 className="text-2xl font-black text-white">{valuationData.totalItemsCount}</h4>
             </div>
 
             <div className="bg-slate-900 border border-slate-800 p-5 rounded-3xl shadow-xl space-y-1">
-              <span className="text-xs text-slate-400 font-bold">Total Purchase Cost Valuation</span>
+              <span className="text-xs text-slate-400 font-bold">{t.legacyUi.totalPurchaseCostValuation}</span>
               <h4 className="text-2xl font-black text-emerald-400">
                 ${valuationData.totalPurchaseValuation.toLocaleString('en-US', { minimumFractionDigits: 2 })}
               </h4>
             </div>
 
             <div className="bg-slate-900 border border-slate-800 p-5 rounded-3xl shadow-xl space-y-1">
-              <span className="text-xs text-slate-400 font-bold">Potential Selling Value</span>
+              <span className="text-xs text-slate-400 font-bold">{t.legacyUi.potentialSellingValue}</span>
               <h4 className="text-2xl font-black text-amber-400">
                 ${valuationData.totalSellingValuation.toLocaleString('en-US', { minimumFractionDigits: 2 })}
               </h4>
@@ -219,15 +221,15 @@ export const InventoryReportsView: React.FC<InventoryReportsViewProps> = ({
 
           {/* Category Breakdown Table */}
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
-            <h4 className="text-sm font-extrabold text-white">Inventory Valuation by Category</h4>
+            <h4 className="text-sm font-extrabold text-white">{t.legacyUi.inventoryValuationByCategory}</h4>
 
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] font-extrabold tracking-wider border-b border-slate-800">
                   <tr>
-                    <th className="p-3">Category</th>
-                    <th className="p-3 text-center">Item Count</th>
-                    <th className="p-3 text-right">Category Cost Valuation ($)</th>
+                    <th className="p-3">{translateRawUi('Category')}</th>
+                    <th className="p-3 text-center">{t.legacyUi.itemCount}</th>
+                    <th className="p-3 text-right">{t.legacyUi.categoryCostValuation}</th>
                   </tr>
                 </thead>
 
@@ -258,12 +260,12 @@ export const InventoryReportsView: React.FC<InventoryReportsViewProps> = ({
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] font-extrabold tracking-wider border-b border-slate-800">
                 <tr>
-                  <th className="p-3">Type</th>
-                  <th className="p-3">Item Name</th>
-                  <th className="p-3 text-center">Qty</th>
-                  <th className="p-3">Reason</th>
-                  <th className="p-3">User</th>
-                  <th className="p-3 text-right">Date</th>
+                  <th className="p-3">{translateRawUi('Type')}</th>
+                  <th className="p-3">{t.legacyUi.itemName}</th>
+                  <th className="p-3 text-center">{translateRawUi('Qty')}</th>
+                  <th className="p-3">{t.legacyUi.reasonLabel}</th>
+                  <th className="p-3">{translateRawUi('User')}</th>
+                  <th className="p-3 text-right">{t.legacyUi.dateLabel}</th>
                 </tr>
               </thead>
 
@@ -289,16 +291,16 @@ export const InventoryReportsView: React.FC<InventoryReportsViewProps> = ({
       {/* Supplier Balances Section */}
       {activeReport === 'suppliers' && (
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
-          <h4 className="text-sm font-extrabold text-white">Supplier Outstanding Payables Summary</h4>
+          <h4 className="text-sm font-extrabold text-white">{t.legacyUi.supplierOutstandingSummary}</h4>
 
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] font-extrabold tracking-wider border-b border-slate-800">
                 <tr>
-                  <th className="p-3">Supplier Name</th>
-                  <th className="p-3">Contact</th>
-                  <th className="p-3">Payment Terms</th>
-                  <th className="p-3 text-right">Outstanding Balance ($)</th>
+                  <th className="p-3">{t.legacyUi.supplierName}</th>
+                  <th className="p-3">{translateRawUi('Contact')}</th>
+                  <th className="p-3">{t.legacyUi.paymentTerms}</th>
+                  <th className="p-3 text-right">{t.legacyUi.outstandingBalanceUsd}</th>
                 </tr>
               </thead>
 
@@ -322,17 +324,17 @@ export const InventoryReportsView: React.FC<InventoryReportsViewProps> = ({
       {/* Waste Section */}
       {activeReport === 'waste' && (
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
-          <h4 className="text-sm font-extrabold text-white">Waste & Spoilage Log</h4>
+          <h4 className="text-sm font-extrabold text-white">{t.legacyUi.wasteSpoilageLog}</h4>
 
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] font-extrabold tracking-wider border-b border-slate-800">
                 <tr>
-                  <th className="p-3">Item Name</th>
-                  <th className="p-3 text-center">Wasted Qty</th>
-                  <th className="p-3">Reason</th>
-                  <th className="p-3">Logged By</th>
-                  <th className="p-3 text-right">Date</th>
+                  <th className="p-3">{t.legacyUi.itemName}</th>
+                  <th className="p-3 text-center">{t.legacyUi.wastedQty}</th>
+                  <th className="p-3">{t.legacyUi.reasonLabel}</th>
+                  <th className="p-3">{t.legacyUi.loggedByLabel}</th>
+                  <th className="p-3 text-right">{t.legacyUi.dateLabel}</th>
                 </tr>
               </thead>
 
@@ -340,7 +342,7 @@ export const InventoryReportsView: React.FC<InventoryReportsViewProps> = ({
                 {wasteMovements.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="p-8 text-center text-slate-500">
-                      No waste or spoilage records found.
+                      {translateRawUi('No waste or spoilage records found.')}
                     </td>
                   </tr>
                 ) : (

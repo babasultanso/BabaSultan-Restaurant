@@ -1,6 +1,8 @@
+import { translations } from '../../../i18n/translations';
+import { translateRawUi } from '../../../i18n/rawUi';
 import React, { useState } from 'react';
 import { Supplier, SupplierPayment } from '../../../domain/entities/inventory';
-import { InventoryLang, inventoryDict } from './translations';
+import { InventoryLang, inventoryDict } from '../../../i18n';
 import {
   Users,
   Plus,
@@ -37,7 +39,7 @@ export const SupplierListView: React.FC<SupplierListViewProps> = ({
   onDeleteSupplier,
   onRecordPayment
 }) => {
-  const t = inventoryDict[lang] || inventoryDict.en;
+  const t = { ...(inventoryDict[lang] || inventoryDict.en), legacyUi: translations[lang].legacyUi };
   const isReadOnly = userRole === 'Kitchen' || userRole === 'Cashier';
 
   // Modals
@@ -59,9 +61,9 @@ export const SupplierListView: React.FC<SupplierListViewProps> = ({
     email: '',
     address: '',
     taxNumber: '',
-    paymentTerms: 'Net 30',
+    paymentTerms: '',
     outstandingBalance: 0,
-    rating: 5,
+    rating: 0,
     notes: '',
     productsSupplied: [] as string[]
   });
@@ -72,15 +74,15 @@ export const SupplierListView: React.FC<SupplierListViewProps> = ({
     setFormData({
       companyName: '',
       contactPerson: '',
-      phone: '+252 61 ',
+      phone: '',
       email: '',
-      address: 'Mogadishu, Somalia',
-      taxNumber: 'TAX-9001',
-      paymentTerms: 'Net 30',
+      address: '',
+      taxNumber: '',
+      paymentTerms: '',
       outstandingBalance: 0,
-      rating: 5,
-      notes: 'Reliable supplier for fresh ingredients',
-      productsSupplied: ['Raw Materials', 'Beverages']
+      rating: 0,
+      notes: '',
+      productsSupplied: []
     });
     setIsFormOpen(true);
   };
@@ -95,9 +97,9 @@ export const SupplierListView: React.FC<SupplierListViewProps> = ({
       email: s.email || '',
       address: s.address || '',
       taxNumber: s.taxNumber || '',
-      paymentTerms: s.paymentTerms || 'Net 30',
+      paymentTerms: s.paymentTerms || '',
       outstandingBalance: s.outstandingBalance || 0,
-      rating: s.rating || 5,
+      rating: typeof s.rating === 'number' ? s.rating : 0,
       notes: s.notes || '',
       productsSupplied: s.productsSupplied || []
     });
@@ -152,9 +154,9 @@ export const SupplierListView: React.FC<SupplierListViewProps> = ({
       <div className="bg-slate-900 border border-slate-800 p-5 rounded-3xl shadow-xl flex items-center justify-between">
         <div>
           <h3 className="text-sm font-extrabold text-white flex items-center gap-2">
-            <Building className="w-5 h-5 text-amber-400" /> Suppliers & Vendor Management
+            <Building className="w-5 h-5 text-amber-400" /> {translateRawUi('Suppliers & Vendor Management')}
           </h3>
-          <p className="text-xs text-slate-400">Directory of approved food, beverage, and packaging suppliers</p>
+          <p className="text-xs text-slate-400">{t.legacyUi.approvedSupplierDirectory}</p>
         </div>
 
         {!isReadOnly && (
@@ -172,7 +174,7 @@ export const SupplierListView: React.FC<SupplierListViewProps> = ({
         {suppliers.length === 0 ? (
           <div className="col-span-full bg-slate-900 border border-slate-800 p-12 rounded-3xl text-center text-slate-500 text-xs">
             <Users className="w-10 h-10 mx-auto text-slate-700 mb-2" />
-            No suppliers registered yet. Click "Add Supplier" to register one.
+            {translateRawUi('No suppliers registered yet. Click "Add Supplier" to register one.')}
           </div>
         ) : (
           suppliers.map((s) => {
@@ -198,7 +200,7 @@ export const SupplierListView: React.FC<SupplierListViewProps> = ({
                         <Star
                           key={i}
                           className={`w-3.5 h-3.5 ${
-                            i < (s.rating || 5) ? 'fill-amber-400 text-amber-400' : 'text-slate-700'
+                            i < (typeof s.rating === 'number' ? s.rating : 0) ? 'fill-amber-400 text-amber-400' : 'text-slate-700'
                           }`}
                         />
                       ))}
@@ -230,12 +232,12 @@ export const SupplierListView: React.FC<SupplierListViewProps> = ({
                   {/* Payment Terms & Balance */}
                   <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800 flex items-center justify-between text-xs">
                     <div>
-                      <span className="text-[10px] text-slate-500 font-bold block">Payment Terms</span>
+                      <span className="text-[10px] text-slate-500 font-bold block">{t.legacyUi.paymentTerms}</span>
                       <span className="font-semibold text-slate-300">{s.paymentTerms}</span>
                     </div>
 
                     <div className="text-right">
-                      <span className="text-[10px] text-slate-500 font-bold block">Payable Balance</span>
+                      <span className="text-[10px] text-slate-500 font-bold block">{t.legacyUi.payableBalance}</span>
                       <span className={`font-mono font-black ${hasBalance ? 'text-rose-400' : 'text-emerald-400'}`}>
                         ${(s.outstandingBalance || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                       </span>
@@ -254,7 +256,7 @@ export const SupplierListView: React.FC<SupplierListViewProps> = ({
                       }}
                       className="px-3 py-1.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold text-xs flex items-center gap-1 cursor-pointer"
                     >
-                      <CreditCard className="w-3.5 h-3.5" /> Pay Supplier
+                      <CreditCard className="w-3.5 h-3.5" /> {translateRawUi('Pay Supplier')}
                     </button>
                   )}
 
@@ -262,7 +264,7 @@ export const SupplierListView: React.FC<SupplierListViewProps> = ({
                     onClick={() => setDetailsSupplier(s)}
                     className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs cursor-pointer"
                   >
-                    Details
+                    {translateRawUi('Details')}
                   </button>
 
                   {!isReadOnly && (
@@ -314,20 +316,20 @@ export const SupplierListView: React.FC<SupplierListViewProps> = ({
             <form onSubmit={handleSubmitForm} className="space-y-4 text-xs">
               
               <div>
-                <label className="block text-slate-400 font-bold mb-1">Company Name *</label>
+                <label className="block text-slate-400 font-bold mb-1">{t.legacyUi.companyNameRequired}</label>
                 <input
                   type="text"
                   required
                   value={formData.companyName}
                   onChange={(e) => setFormData({ ...formData, companyName: e.target.value })}
                   className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-3 text-white focus:border-amber-500 focus:outline-none"
-                  placeholder="e.g., Prime Meat & Poultry Distributors"
+                  placeholder={translateRawUi('e.g., Prime Meat & Poultry Distributors')}
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-slate-400 font-bold mb-1">Contact Person *</label>
+                  <label className="block text-slate-400 font-bold mb-1">{t.legacyUi.contactPersonRequired}</label>
                   <input
                     type="text"
                     required
@@ -338,7 +340,7 @@ export const SupplierListView: React.FC<SupplierListViewProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-slate-400 font-bold mb-1">Phone Number *</label>
+                  <label className="block text-slate-400 font-bold mb-1">{t.legacyUi.phoneNumberRequired}</label>
                   <input
                     type="text"
                     required
@@ -351,7 +353,7 @@ export const SupplierListView: React.FC<SupplierListViewProps> = ({
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-slate-400 font-bold mb-1">Email</label>
+                  <label className="block text-slate-400 font-bold mb-1">{t.legacyUi.emailLabel}</label>
                   <input
                     type="email"
                     value={formData.email}
@@ -361,22 +363,22 @@ export const SupplierListView: React.FC<SupplierListViewProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-slate-400 font-bold mb-1">Payment Terms</label>
+                  <label className="block text-slate-400 font-bold mb-1">{t.legacyUi.paymentTerms}</label>
                   <select
                     value={formData.paymentTerms}
                     onChange={(e) => setFormData({ ...formData, paymentTerms: e.target.value })}
                     className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-2.5 text-white"
                   >
-                    <option value="Cash on Delivery">Cash on Delivery (COD)</option>
-                    <option value="Net 15">Net 15 Days</option>
-                    <option value="Net 30">Net 30 Days</option>
-                    <option value="Net 60">Net 60 Days</option>
+                    <option value="Cash on Delivery">{t.legacyUi.cashOnDelivery}</option>
+                    <option value="Net 15">{t.legacyUi.net15Days}</option>
+                    <option value="Net 30">{t.legacyUi.net30Days}</option>
+                    <option value="Net 60">{t.legacyUi.net60Days}</option>
                   </select>
                 </div>
               </div>
 
               <div>
-                <label className="block text-slate-400 font-bold mb-1">Address</label>
+                <label className="block text-slate-400 font-bold mb-1">{translateRawUi('Address')}</label>
                 <input
                   type="text"
                   value={formData.address}
@@ -391,7 +393,7 @@ export const SupplierListView: React.FC<SupplierListViewProps> = ({
                   onClick={() => setIsFormOpen(false)}
                   className="px-4 py-2 rounded-2xl bg-slate-800 text-slate-300 font-bold"
                 >
-                  Cancel
+                  {translateRawUi('Cancel')}
                 </button>
                 <button
                   type="submit"
@@ -420,9 +422,9 @@ export const SupplierListView: React.FC<SupplierListViewProps> = ({
             <form onSubmit={handleSubmitPayment} className="space-y-4 text-xs">
               <div>
                 <label className="block text-slate-400 font-bold mb-1">
-                  Outstanding Balance: <span className="text-rose-400 font-mono font-bold">${payingSupplier.outstandingBalance}</span>
+                  {translateRawUi('Outstanding Balance:')} <span className="text-rose-400 font-mono font-bold">${payingSupplier.outstandingBalance}</span>
                 </label>
-                <label className="block text-slate-400 font-bold mb-1">Payment Amount ($) *</label>
+                <label className="block text-slate-400 font-bold mb-1">{t.legacyUi.paymentAmountRequired}</label>
                 <input
                   type="number"
                   required
@@ -435,16 +437,16 @@ export const SupplierListView: React.FC<SupplierListViewProps> = ({
               </div>
 
               <div>
-                <label className="block text-slate-400 font-bold mb-1">Payment Method</label>
+                <label className="block text-slate-400 font-bold mb-1">{t.legacyUi.paymentMethod}</label>
                 <select
                   value={payMethod}
                   onChange={(e) => setPayMethod(e.target.value)}
                   className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-3 text-white"
                 >
-                  <option value="Bank Transfer">Bank Wire Transfer</option>
-                  <option value="EVC Plus">EVC Plus Mobile Money</option>
-                  <option value="Cash">Cash</option>
-                  <option value="Check">Company Check</option>
+                  <option value="Bank Transfer">{t.legacyUi.bankWireTransfer}</option>
+                  <option value="EVC Plus">{t.legacyUi.evcPlusMobileMoney}</option>
+                  <option value="Cash">{translateRawUi('Cash')}</option>
+                  <option value="Check">{t.legacyUi.companyCheck}</option>
                 </select>
               </div>
 
@@ -454,13 +456,13 @@ export const SupplierListView: React.FC<SupplierListViewProps> = ({
                   onClick={() => setPayingSupplier(null)}
                   className="px-4 py-2 rounded-2xl bg-slate-800 text-slate-300 font-bold"
                 >
-                  Cancel
+                  {translateRawUi('Cancel')}
                 </button>
                 <button
                   type="submit"
                   className="px-5 py-2 rounded-2xl bg-emerald-500 text-slate-950 font-black"
                 >
-                  Confirm Payment
+                  {translateRawUi('Confirm Payment')}
                 </button>
               </div>
             </form>

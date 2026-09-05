@@ -1,3 +1,4 @@
+import { translateRawUi } from '../../../i18n';
 import React from 'react';
 import { ShieldAlert, RefreshCw, Home } from 'lucide-react';
 
@@ -28,7 +29,7 @@ export const ErrorPage: React.FC<ErrorPageProps> = ({
             onClick={onRetry}
             className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs transition flex items-center gap-2 cursor-pointer"
           >
-            <RefreshCw className="w-4 h-4" /> Retry Action
+            <RefreshCw className="w-4 h-4" /> {translateRawUi('Retry Action')}
           </button>
         )}
       </div>

@@ -1,3 +1,4 @@
+import { translateRawUi } from '../../i18n/rawUi';
 import React, { useState } from 'react';
 import { 
   Settings, 
@@ -28,8 +29,10 @@ import {
   Wand2,
   Activity
 } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 import { exportToExcel } from '../../lib/reports';
-import { db, COLLECTIONS } from '../../lib/firebase';
+import { db, COLLECTIONS, getAuthToken, getEffectiveBranchId } from '../../lib/firebase';
+import { getApiUrl } from '../../lib/apiConfig';
 import { collection, getDocs } from 'firebase/firestore';
 import { DeveloperSystemDiagnosticsView } from './diagnostics/DeveloperSystemDiagnosticsView';
 
@@ -40,47 +43,48 @@ interface SystemSettingsViewProps {
 }
 
 export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({ language = 'en', onOpenSetupWizard, defaultTab }) => {
+  const { t } = useAuth();
   const [activeTab, setActiveTab] = useState<
     'general' | 'restaurant' | 'tax_currency' | 'localization' | 'printers_payment' | 'backup_recovery' | 'docs' | 'readiness' | 'developer_tools'
   >((defaultTab as any) || 'general');
 
   // General Settings State
   const [generalSettings, setGeneralSettings] = useState({
-    restaurantName: 'Somali Golden Feast HQ',
-    branchCode: 'HQ-MOG-01',
-    address: 'KM4 Junction, Maka Al Mukarama Road, Mogadishu',
-    phone: '+252 61 555 0000',
-    email: 'operations@somaligoldenfeast.so',
+    restaurantName: '',
+    branchCode: '',
+    address: '',
+    phone: '',
+    email: '',
     timezone: 'Africa/Mogadishu (UTC+3)',
-    operatingHours: '06:00 AM - 11:30 PM'
+    operatingHours: ''
   });
 
   // Restaurant & Kitchen Settings State
   const [restaurantSettings, setRestaurantSettings] = useState({
-    tableCount: 45,
-    kitchenPrepBufferMinutes: 15,
+    tableCount: 0,
+    kitchenPrepBufferMinutes: 0,
     kdsRefreshIntervalSec: 5,
-    enableAutoKDSStatus: true,
-    allowTableSplitting: true,
-    requireWaiterPinForDiscount: true
+    enableAutoKDSStatus: false,
+    allowTableSplitting: false,
+    requireWaiterPinForDiscount: false
   });
 
   // Tax & Currency Settings State
   const [taxCurrencySettings, setTaxCurrencySettings] = useState({
-    defaultTaxRate: 5.0,
-    serviceChargeRate: 2.5,
+    defaultTaxRate: 0,
+    serviceChargeRate: 0,
     taxExemptTakeout: false,
-    primaryCurrency: 'USD ($)',
-    secondaryCurrency: 'SLSH / SOS',
-    evcExchangeRate: 1.0,
-    zaadExchangeRate: 1.0,
-    allowMultiCurrencyPOS: true
+    primaryCurrency: '',
+    secondaryCurrency: '',
+    evcExchangeRate: 0,
+    zaadExchangeRate: 0,
+    allowMultiCurrencyPOS: false
   });
 
   // Printers & Hardware State
   const [printerSettings, setPrinterSettings] = useState({
-    posReceiptPrinterIP: '192.168.1.120',
-    kitchenStationPrinterIP: '192.168.1.121',
+    posReceiptPrinterIP: '',
+    kitchenStationPrinterIP: '',
     autoPrintReceiptOnPayment: true,
     printKitchenTicketsOnSubmit: true,
     cashDrawerOpenTrigger: 'payment_completed'
@@ -88,21 +92,22 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({ language
 
   // Payment Gateway Settings
   const [paymentSettings, setPaymentSettings] = useState({
-    evcMerchantId: 'MERCHANT-EVC-8842',
-    zaadMerchantId: 'MERCHANT-ZAAD-9921',
-    enableCreditCardTerminal: true,
-    allowSplitPayment: true,
-    maxCashDrawerLimitUSD: 1000
+    evcMerchantId: '',
+    zaadMerchantId: '',
+    enableCreditCardTerminal: false,
+    allowSplitPayment: false,
+    maxCashDrawerLimitUSD: 0
   });
 
   // Backup & Recovery State
-  const [autoBackupEnabled, setAutoBackupEnabled] = useState(true);
-  const [backupSchedule, setBackupSchedule] = useState('Daily at 02:00 AM UTC');
-  const [lastBackupTime, setLastBackupTime] = useState(new Date().toISOString());
+  const [autoBackupEnabled, setAutoBackupEnabled] = useState(false);
+  const [backupSchedule, setBackupSchedule] = useState('Not configured');
+  const [lastBackupTime, setLastBackupTime] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
 
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [copiedDoc, setCopiedDoc] = useState<string | null>(null);
 
   const showToast = (msg: string) => {
@@ -110,8 +115,59 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({ language
     setTimeout(() => setToastMsg(null), 4000);
   };
 
-  const handleSaveSettings = () => {
-    showToast('System configuration successfully saved to cloud storage & local cache.');
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getAuthToken();
+        const branchId = getEffectiveBranchId();
+        if (!branchId || branchId === 'all') return;
+        const res = await fetch(getApiUrl(`/api/settings/branch?branchId=${encodeURIComponent(branchId)}`), {
+          headers: token ? { Authorization: `Bearer ${token}` } : undefined
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (cancelled) return;
+        const restaurant = data.restaurant || {};
+        const tax = data.tax || {};
+        const payments = data.payments || {};
+        setGeneralSettings((prev) => ({ ...prev, restaurantName: restaurant.name || prev.restaurantName, branchCode: data.branchId || prev.branchCode, address: restaurant.address || prev.address, phone: restaurant.phone || prev.phone, email: restaurant.email || prev.email, operatingHours: restaurant.workingHours || prev.operatingHours }));
+        setRestaurantSettings((prev) => ({ ...prev, tableCount: Number(restaurant.tableCount ?? prev.tableCount), kitchenPrepBufferMinutes: Number(restaurant.kitchenPrepBufferMinutes ?? prev.kitchenPrepBufferMinutes), kdsRefreshIntervalSec: Number(restaurant.kdsRefreshIntervalSec ?? prev.kdsRefreshIntervalSec), enableAutoKDSStatus: Boolean(restaurant.enableAutoKDSStatus ?? prev.enableAutoKDSStatus), allowTableSplitting: Boolean(restaurant.allowTableSplitting ?? prev.allowTableSplitting), requireWaiterPinForDiscount: Boolean(restaurant.requireWaiterPinForDiscount ?? prev.requireWaiterPinForDiscount) }));
+        setTaxCurrencySettings((prev) => ({ ...prev, defaultTaxRate: Number(tax.defaultTaxRate ?? tax.taxRate ?? prev.defaultTaxRate), serviceChargeRate: Number(tax.serviceChargeRate ?? prev.serviceChargeRate), taxExemptTakeout: Boolean(tax.taxExemptTakeout ?? prev.taxExemptTakeout), primaryCurrency: restaurant.currency || prev.primaryCurrency, allowMultiCurrencyPOS: Boolean(payments.allowMultiCurrencyPOS ?? prev.allowMultiCurrencyPOS) }));
+        setPaymentSettings((prev) => ({ ...prev, evcMerchantId: payments.evcMerchantId || prev.evcMerchantId, zaadMerchantId: payments.zaadMerchantId || prev.zaadMerchantId, maxCashDrawerLimitUSD: Number(payments.maxCashDrawerLimitUSD ?? prev.maxCashDrawerLimitUSD) }));
+        setPrinterSettings((prev) => ({ ...prev, posReceiptPrinterIP: payments.posReceiptPrinterIP || prev.posReceiptPrinterIP, kitchenStationPrinterIP: payments.kitchenStationPrinterIP || prev.kitchenStationPrinterIP, autoPrintReceiptOnPayment: Boolean(payments.autoPrintReceiptOnPayment ?? prev.autoPrintReceiptOnPayment), printKitchenTicketsOnSubmit: Boolean(payments.printKitchenTicketsOnSubmit ?? prev.printKitchenTicketsOnSubmit), cashDrawerOpenTrigger: payments.cashDrawerOpenTrigger || prev.cashDrawerOpenTrigger }));
+      } catch (err) {
+        console.warn('Unable to load branch settings:', err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const handleSaveSettings = async () => {
+    setIsSavingSettings(true);
+    try {
+      const token = await getAuthToken();
+      const branchId = getEffectiveBranchId();
+      if (!branchId || branchId === 'all') throw new Error('Select a concrete branch before saving settings.');
+      if (!generalSettings.restaurantName.trim()) throw new Error('Restaurant name is required.');
+      if (!taxCurrencySettings.primaryCurrency.trim()) throw new Error('Primary currency is required.');
+      const res = await fetch(getApiUrl('/api/settings/branch'), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({
+          branchId,
+          restaurant: { name: generalSettings.restaurantName, address: generalSettings.address, phone: generalSettings.phone, email: generalSettings.email, currency: taxCurrencySettings.primaryCurrency, workingHours: generalSettings.operatingHours, ...restaurantSettings },
+          tax: { defaultTaxRate: taxCurrencySettings.defaultTaxRate, serviceChargeRate: taxCurrencySettings.serviceChargeRate, taxExemptTakeout: taxCurrencySettings.taxExemptTakeout },
+          payments: { evcMerchantId: paymentSettings.evcMerchantId, zaadMerchantId: paymentSettings.zaadMerchantId, allowMultiCurrencyPOS: taxCurrencySettings.allowMultiCurrencyPOS, maxCashDrawerLimitUSD: paymentSettings.maxCashDrawerLimitUSD, posReceiptPrinterIP: printerSettings.posReceiptPrinterIP, kitchenStationPrinterIP: printerSettings.kitchenStationPrinterIP, autoPrintReceiptOnPayment: printerSettings.autoPrintReceiptOnPayment, printKitchenTicketsOnSubmit: printerSettings.printKitchenTicketsOnSubmit, cashDrawerOpenTrigger: printerSettings.cashDrawerOpenTrigger }
+        })
+      });
+      if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error(err.error || `Save failed (${res.status})`); }
+      showToast('Branch settings saved to the trusted backend.');
+    } catch (err: any) {
+      showToast(err?.message || 'Unable to save settings.');
+    } finally {
+      setIsSavingSettings(false);
+    }
   };
 
   // Full Database JSON Export
@@ -194,19 +250,19 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({ language
           <div>
             <div className="flex items-center gap-2 mb-2">
               <span className="bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-wider flex items-center gap-1.5 shadow-sm">
-                <ShieldCheck className="w-3.5 h-3.5 text-indigo-400" /> Phase 15 Production Release & Security
+                <ShieldCheck className="w-3.5 h-3.5 text-indigo-400" /> {translateRawUi('Branch Configuration & Security')}
               </span>
               <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-bold px-3 py-1 rounded-full flex items-center gap-1.5">
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> System Verification 100%
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> {translateRawUi('Production Configuration Center')}
               </span>
             </div>
 
             <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white flex items-center gap-3">
               <Settings className="w-8 h-8 text-indigo-400" />
-              System Settings & Enterprise Deployment HQ
+              {translateRawUi('System Settings & Enterprise Deployment HQ')}
             </h1>
             <p className="text-slate-300 text-xs sm:text-sm mt-1 max-w-3xl leading-relaxed">
-              Global system configuration, tax rates, multi-currency controls, thermal printer hardware profiles, automated database backups, system documentation, and security rules verification.
+              {translateRawUi('Global system configuration, tax rates, multi-currency controls, thermal printer hardware profiles, automated database backups, system documentation, and security rules verification.')}
             </p>
           </div>
 
@@ -216,15 +272,16 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({ language
                 onClick={onOpenSetupWizard}
                 className="bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-black px-5 py-3 rounded-2xl text-xs transition flex items-center gap-2 cursor-pointer shadow-lg shadow-emerald-500/25"
               >
-                <Wand2 className="w-4 h-4 text-slate-950" /> Initial Setup Wizard
+                <Wand2 className="w-4 h-4 text-slate-950" /> {translateRawUi('Initial Setup Wizard')}
               </button>
             )}
 
             <button
-              onClick={handleSaveSettings}
+              onClick={() => { void handleSaveSettings(); }}
+              disabled={isSavingSettings}
               className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold px-5 py-3 rounded-2xl text-xs transition flex items-center gap-2 cursor-pointer shadow-lg shadow-emerald-500/20"
             >
-              <Save className="w-4 h-4" /> Save System Settings
+              <Save className="w-4 h-4" /> {isSavingSettings ? 'Saving...' : 'Save System Settings'}
             </button>
 
             <button
@@ -249,7 +306,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({ language
                 : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800/80'
             }`}
           >
-            <Building2 className="w-4 h-4" /> General Info
+            <Building2 className="w-4 h-4" /> {translateRawUi('General Info')}
           </button>
 
           <button
@@ -260,7 +317,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({ language
                 : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800/80'
             }`}
           >
-            <Sliders className="w-4 h-4" /> Kitchen & POS Operations
+            <Sliders className="w-4 h-4" /> {translateRawUi('Kitchen & POS Operations')}
           </button>
 
           <button
@@ -271,7 +328,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({ language
                 : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800/80'
             }`}
           >
-            <DollarSign className="w-4 h-4" /> Tax & Currency
+            <DollarSign className="w-4 h-4" /> {translateRawUi('Tax & Currency')}
           </button>
 
           <button
@@ -282,7 +339,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({ language
                 : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800/80'
             }`}
           >
-            <Printer className="w-4 h-4" /> Hardware & Gateways
+            <Printer className="w-4 h-4" /> {translateRawUi('Hardware & Gateways')}
           </button>
 
           <button
@@ -293,7 +350,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({ language
                 : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800/80'
             }`}
           >
-            <Database className="w-4 h-4" /> Backup & Disaster Recovery
+            <Database className="w-4 h-4" /> {translateRawUi('Backup & Disaster Recovery')}
           </button>
 
           <button
@@ -304,7 +361,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({ language
                 : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800/80'
             }`}
           >
-            <ShieldCheck className="w-4 h-4 text-indigo-400" /> Security & Production Checklist
+            <ShieldCheck className="w-4 h-4 text-indigo-400" /> {translateRawUi('Security & Production Checklist')}
           </button>
 
           <button
@@ -315,7 +372,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({ language
                 : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800/80'
             }`}
           >
-            <BookOpen className="w-4 h-4" /> System Manuals & Docs
+            <BookOpen className="w-4 h-4" /> {translateRawUi('System Manuals & Docs')}
           </button>
 
           <button
@@ -326,7 +383,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({ language
                 : 'bg-indigo-950/60 text-indigo-300 hover:text-white border border-indigo-700/60'
             }`}
           >
-            <Activity className="w-4 h-4 text-emerald-400 fill-emerald-400/20 animate-pulse" /> Developer Tools & Diagnostics
+            <Activity className="w-4 h-4 text-emerald-400 fill-emerald-400/20 animate-pulse" /> {translateRawUi('Developer Tools & Diagnostics')}
           </button>
         </div>
       </div>
@@ -340,12 +397,12 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({ language
       {activeTab === 'general' && (
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-6">
           <h3 className="text-base font-bold text-white flex items-center gap-2 border-b border-slate-800 pb-4">
-            <Building2 className="w-5 h-5 text-emerald-400" /> Restaurant Profile & Business Identity
+            <Building2 className="w-5 h-5 text-emerald-400" /> {translateRawUi('Restaurant Profile & Business Identity')}
           </h3>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs">
             <div className="space-y-2">
-              <label className="text-slate-400 font-bold block">Restaurant Enterprise Name</label>
+              <label className="text-slate-400 font-bold block">{t.legacyUi.restaurantEnterpriseName}</label>
               <input
                 type="text"
                 value={generalSettings.restaurantName}
@@ -355,7 +412,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({ language
             </div>
 
             <div className="space-y-2">
-              <label className="text-slate-400 font-bold block">Branch Identifier Code</label>
+              <label className="text-slate-400 font-bold block">{t.legacyUi.branchIdentifierCode}</label>
               <input
                 type="text"
                 value={generalSettings.branchCode}
@@ -365,7 +422,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({ language
             </div>
 
             <div className="space-y-2 md:col-span-2">
-              <label className="text-slate-400 font-bold block">Physical Address & Headquarters Location</label>
+              <label className="text-slate-400 font-bold block">{t.legacyUi.physicalAddressHeadquarters}</label>
               <input
                 type="text"
                 value={generalSettings.address}
@@ -375,7 +432,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({ language
             </div>
 
             <div className="space-y-2">
-              <label className="text-slate-400 font-bold block">Primary Hotline Phone</label>
+              <label className="text-slate-400 font-bold block">{t.legacyUi.primaryHotlinePhone}</label>
               <input
                 type="text"
                 value={generalSettings.phone}
@@ -385,7 +442,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({ language
             </div>
 
             <div className="space-y-2">
-              <label className="text-slate-400 font-bold block">Corporate Email Address</label>
+              <label className="text-slate-400 font-bold block">{t.legacyUi.corporateEmailAddress}</label>
               <input
                 type="email"
                 value={generalSettings.email}
@@ -395,7 +452,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({ language
             </div>
 
             <div className="space-y-2">
-              <label className="text-slate-400 font-bold block">System Timezone</label>
+              <label className="text-slate-400 font-bold block">{t.legacyUi.systemTimezone}</label>
               <input
                 type="text"
                 value={generalSettings.timezone}
@@ -405,7 +462,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({ language
             </div>
 
             <div className="space-y-2">
-              <label className="text-slate-400 font-bold block">Daily Operating Hours</label>
+              <label className="text-slate-400 font-bold block">{t.legacyUi.dailyOperatingHours}</label>
               <input
                 type="text"
                 value={generalSettings.operatingHours}
@@ -421,12 +478,12 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({ language
       {activeTab === 'restaurant' && (
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-6">
           <h3 className="text-base font-bold text-white flex items-center gap-2 border-b border-slate-800 pb-4">
-            <Sliders className="w-5 h-5 text-emerald-400" /> Operational Rules & Kitchen Display System (KDS)
+            <Sliders className="w-5 h-5 text-emerald-400" /> {translateRawUi('Operational Rules & Kitchen Display System (KDS)')}
           </h3>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs">
             <div className="space-y-2">
-              <label className="text-slate-400 font-bold block">Total Dining Table Capacity</label>
+              <label className="text-slate-400 font-bold block">{t.legacyUi.totalDiningTableCapacity}</label>
               <input
                 type="number"
                 value={restaurantSettings.tableCount}
@@ -436,7 +493,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({ language
             </div>
 
             <div className="space-y-2">
-              <label className="text-slate-400 font-bold block">Kitchen Prep Buffer Warning (Minutes)</label>
+              <label className="text-slate-400 font-bold block">{t.legacyUi.kitchenPrepBufferWarning}</label>
               <input
                 type="number"
                 value={restaurantSettings.kitchenPrepBufferMinutes}
@@ -446,7 +503,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({ language
             </div>
 
             <div className="space-y-2">
-              <label className="text-slate-400 font-bold block">KDS Screen Auto-Refresh Rate (Seconds)</label>
+              <label className="text-slate-400 font-bold block">{t.legacyUi.kdsRefreshRate}</label>
               <input
                 type="number"
                 value={restaurantSettings.kdsRefreshIntervalSec}
@@ -463,7 +520,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({ language
                   onChange={(e) => setRestaurantSettings({ ...restaurantSettings, enableAutoKDSStatus: e.target.checked })}
                   className="w-4 h-4 rounded text-emerald-500 focus:ring-0 bg-slate-950 border-slate-800"
                 />
-                <span className="font-bold text-slate-200">Auto-transition order to "Ready" when all station tickets complete</span>
+                <span className="font-bold text-slate-200">{t.legacyUi.autoReadyWhenComplete}</span>
               </label>
 
               <label className="flex items-center gap-3 cursor-pointer">
@@ -473,7 +530,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({ language
                   onChange={(e) => setRestaurantSettings({ ...restaurantSettings, requireWaiterPinForDiscount: e.target.checked })}
                   className="w-4 h-4 rounded text-emerald-500 focus:ring-0 bg-slate-950 border-slate-800"
                 />
-                <span className="font-bold text-slate-200">Require Manager PIN approval for POS order discounts & split bill</span>
+                <span className="font-bold text-slate-200">{t.legacyUi.requireManagerPin}</span>
               </label>
             </div>
           </div>
@@ -484,12 +541,12 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({ language
       {activeTab === 'tax_currency' && (
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-6">
           <h3 className="text-base font-bold text-white flex items-center gap-2 border-b border-slate-800 pb-4">
-            <DollarSign className="w-5 h-5 text-emerald-400" /> Tax Rates & Multi-Currency Exchange Controls
+            <DollarSign className="w-5 h-5 text-emerald-400" /> {translateRawUi('Tax Rates & Multi-Currency Exchange Controls')}
           </h3>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs">
             <div className="space-y-2">
-              <label className="text-slate-400 font-bold block">Standard Value-Added Tax (VAT %)</label>
+              <label className="text-slate-400 font-bold block">{t.legacyUi.standardVat}</label>
               <input
                 type="number"
                 step="0.1"
@@ -500,7 +557,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({ language
             </div>
 
             <div className="space-y-2">
-              <label className="text-slate-400 font-bold block">Restaurant Service Charge (%)</label>
+              <label className="text-slate-400 font-bold block">{t.legacyUi.restaurantServiceCharge}</label>
               <input
                 type="number"
                 step="0.1"
@@ -511,7 +568,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({ language
             </div>
 
             <div className="space-y-2">
-              <label className="text-slate-400 font-bold block">Primary Operating Currency</label>
+              <label className="text-slate-400 font-bold block">{t.legacyUi.primaryOperatingCurrency}</label>
               <input
                 type="text"
                 value={taxCurrencySettings.primaryCurrency}
@@ -521,7 +578,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({ language
             </div>
 
             <div className="space-y-2">
-              <label className="text-slate-400 font-bold block">Secondary Local Currency</label>
+              <label className="text-slate-400 font-bold block">{t.legacyUi.secondaryLocalCurrency}</label>
               <input
                 type="text"
                 value={taxCurrencySettings.secondaryCurrency}
@@ -537,12 +594,12 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({ language
       {activeTab === 'printers_payment' && (
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-6">
           <h3 className="text-base font-bold text-white flex items-center gap-2 border-b border-slate-800 pb-4">
-            <Printer className="w-5 h-5 text-emerald-400" /> Thermal Receipt Printers & Payment Gateway Integration
+            <Printer className="w-5 h-5 text-emerald-400" /> {translateRawUi('Thermal Receipt Printers & Payment Gateway Integration')}
           </h3>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs">
             <div className="space-y-2">
-              <label className="text-slate-400 font-bold block">POS Thermal Receipt Printer IP Address</label>
+              <label className="text-slate-400 font-bold block">{t.legacyUi.posPrinterIp}</label>
               <input
                 type="text"
                 value={printerSettings.posReceiptPrinterIP}
@@ -552,7 +609,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({ language
             </div>
 
             <div className="space-y-2">
-              <label className="text-slate-400 font-bold block">Kitchen Ticket Printer IP Address</label>
+              <label className="text-slate-400 font-bold block">{t.legacyUi.kitchenPrinterIp}</label>
               <input
                 type="text"
                 value={printerSettings.kitchenStationPrinterIP}
@@ -562,7 +619,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({ language
             </div>
 
             <div className="space-y-2">
-              <label className="text-slate-400 font-bold block">EVC Plus Merchant Gateway ID</label>
+              <label className="text-slate-400 font-bold block">{t.legacyUi.evcMerchantGatewayId}</label>
               <input
                 type="text"
                 value={paymentSettings.evcMerchantId}
@@ -572,7 +629,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({ language
             </div>
 
             <div className="space-y-2">
-              <label className="text-slate-400 font-bold block">ZAAD Merchant Gateway ID</label>
+              <label className="text-slate-400 font-bold block">{t.legacyUi.zaadMerchantGatewayId}</label>
               <input
                 type="text"
                 value={paymentSettings.zaadMerchantId}
@@ -589,26 +646,26 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({ language
         <div className="space-y-6">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-6">
             <h3 className="text-base font-bold text-white flex items-center gap-2 border-b border-slate-800 pb-4">
-              <Database className="w-5 h-5 text-indigo-400" /> Automatic Backup & Snapshot Restore Hub
+              <Database className="w-5 h-5 text-indigo-400" /> {translateRawUi('Backup & Snapshot Validation')}
             </h3>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-xs">
               <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
-                <span className="text-slate-400 font-bold block uppercase text-[10px]">Cloud Backup Schedule</span>
+                <span className="text-slate-400 font-bold block uppercase text-[10px]">{t.legacyUi.serverBackupSchedule}</span>
                 <p className="text-emerald-400 font-extrabold text-sm">{backupSchedule}</p>
-                <p className="text-slate-500 text-[10px]">Automated daily Firestore backup to GCP bucket.</p>
+                <p className="text-slate-500 text-[10px]">{translateRawUi('Server-side scheduled backups must be configured separately; this screen does not claim an automated backup has run.')}</p>
               </div>
 
               <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
-                <span className="text-slate-400 font-bold block uppercase text-[10px]">Last Successful Snapshot</span>
-                <p className="text-white font-bold text-sm">{new Date(lastBackupTime).toLocaleString()}</p>
-                <p className="text-slate-500 text-[10px]">100% integrity check passed across all collections.</p>
+                <span className="text-slate-400 font-bold block uppercase text-[10px]">{t.legacyUi.lastClientExport}</span>
+                <p className="text-white font-bold text-sm">{lastBackupTime ? new Date(lastBackupTime).toLocaleString() : 'No backup exported in this session'}</p>
+                <p className="text-slate-500 text-[10px]">{t.legacyUi.browserExportScope}</p>
               </div>
 
               <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
-                <span className="text-slate-400 font-bold block uppercase text-[10px]">Offline Sync Cache</span>
-                <p className="text-teal-400 font-bold text-sm">Active (IndexedDB Persistence)</p>
-                <p className="text-slate-500 text-[10px]">POS transactions queue locally when network drops.</p>
+                <span className="text-slate-400 font-bold block uppercase text-[10px]">{t.legacyUi.offlineSyncCache}</span>
+                <p className="text-teal-400 font-bold text-sm">{t.legacyUi.activeIndexedDb}</p>
+                <p className="text-slate-500 text-[10px]">{t.legacyUi.posOfflineQueue}</p>
               </div>
             </div>
 
@@ -618,12 +675,12 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({ language
                 disabled={isExporting}
                 className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold px-5 py-3 rounded-2xl text-xs flex items-center gap-2 cursor-pointer shadow-lg shadow-emerald-500/20"
               >
-                <Download className="w-4 h-4" /> Export Complete Database JSON
+                <Download className="w-4 h-4" /> {translateRawUi('Export Accessible Data JSON')}
               </button>
 
               <label className="bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold px-5 py-3 rounded-2xl text-xs flex items-center gap-2 cursor-pointer border border-slate-700">
                 <Upload className="w-4 h-4 text-indigo-400" />
-                <span>{isRestoring ? 'Validating File...' : 'Restore Backup (.JSON)'}</span>
+                <span>{isRestoring ? 'Validating File...' : 'Validate Backup File (.JSON)'}</span>
                 <input
                   type="file"
                   accept=".json"
@@ -640,40 +697,40 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({ language
       {activeTab === 'readiness' && (
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-6">
           <h3 className="text-base font-bold text-white flex items-center gap-2 border-b border-slate-800 pb-4">
-            <ShieldCheck className="w-5 h-5 text-indigo-400" /> Enterprise Production Readiness Audit
+            <ShieldCheck className="w-5 h-5 text-indigo-400" /> {translateRawUi('Enterprise Production Readiness Audit')}
           </h3>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
             <div className="p-4 rounded-2xl bg-slate-950 border border-emerald-500/30 space-y-2">
               <div className="flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                <span className="font-extrabold text-white text-sm">TypeScript Strict Type Compilation</span>
+                <span className="font-extrabold text-white text-sm">{t.legacyUi.typescriptStrict}</span>
               </div>
-              <p className="text-slate-400 text-xs">Zero `tsc` errors across all modules, types, and repositories.</p>
+              <p className="text-slate-400 text-xs">{t.legacyUi.zeroTscErrors}</p>
             </div>
 
             <div className="p-4 rounded-2xl bg-slate-950 border border-emerald-500/30 space-y-2">
               <div className="flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                <span className="font-extrabold text-white text-sm">ESLint & Linter Rules</span>
+                <span className="font-extrabold text-white text-sm">{t.legacyUi.eslintRules}</span>
               </div>
-              <p className="text-slate-400 text-xs">Zero linter warnings or syntax errors in build pipeline.</p>
+              <p className="text-slate-400 text-xs">{t.legacyUi.zeroLintWarnings}</p>
             </div>
 
             <div className="p-4 rounded-2xl bg-slate-950 border border-emerald-500/30 space-y-2">
               <div className="flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                <span className="font-extrabold text-white text-sm">Firestore Security Rules v2</span>
+                <span className="font-extrabold text-white text-sm">{t.legacyUi.firestoreRulesV2}</span>
               </div>
-              <p className="text-slate-400 text-xs">Hardened collection access matching Phase 1 through 15 schemas.</p>
+              <p className="text-slate-400 text-xs">{t.legacyUi.hardenedCollectionAccess}</p>
             </div>
 
             <div className="p-4 rounded-2xl bg-slate-950 border border-emerald-500/30 space-y-2">
               <div className="flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                <span className="font-extrabold text-white text-sm">Production Bundle Optimization</span>
+                <span className="font-extrabold text-white text-sm">{t.legacyUi.productionBundleOptimization}</span>
               </div>
-              <p className="text-slate-400 text-xs">Minified Vite production build with lazy-loaded route chunking.</p>
+              <p className="text-slate-400 text-xs">{t.legacyUi.viteProductionOptimization}</p>
             </div>
           </div>
         </div>
@@ -683,7 +740,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({ language
       {activeTab === 'docs' && (
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-6">
           <h3 className="text-base font-bold text-white flex items-center gap-2 border-b border-slate-800 pb-4">
-            <BookOpen className="w-5 h-5 text-emerald-400" /> Official Enterprise System Documentation
+            <BookOpen className="w-5 h-5 text-emerald-400" /> {translateRawUi('Official Enterprise System Documentation')}
           </h3>
 
           <div className="space-y-6 text-xs text-slate-300">
@@ -691,7 +748,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({ language
             <div className="p-5 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
               <div className="flex items-center justify-between">
                 <h4 className="font-extrabold text-white text-sm flex items-center gap-2">
-                  <Terminal className="w-4 h-4 text-emerald-400" /> Installation & Deployment Guide
+                  <Terminal className="w-4 h-4 text-emerald-400" /> {translateRawUi('Installation & Deployment Guide')}
                 </h4>
                 <button
                   onClick={() => copyToClipboard('npm install && npm run build && npm run start', 'guide1')}
@@ -702,7 +759,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({ language
                 </button>
               </div>
               <p className="text-slate-400">
-                To deploy to Cloud Run or Node.js server: run `npm install`, compile via `npm run build`, and launch using `npm start`. Ensure environment variables `GEMINI_API_KEY` are populated in `.env`.
+                {translateRawUi('To deploy to Cloud Run or Node.js server: run `npm install`, compile via `npm run build`, and launch using `npm start`. Ensure environment variables `GEMINI_API_KEY` are populated in `.env`.')}
               </p>
             </div>
 
@@ -710,11 +767,11 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({ language
             <div className="p-5 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
               <div className="flex items-center justify-between">
                 <h4 className="font-extrabold text-white text-sm flex items-center gap-2">
-                  <ShieldCheck className="w-4 h-4 text-indigo-400" /> Administrator & RBAC Guide
+                  <ShieldCheck className="w-4 h-4 text-indigo-400" /> {translateRawUi('Administrator & RBAC Guide')}
                 </h4>
               </div>
               <p className="text-slate-400">
-                Role Matrix supports 10 specialized roles (CEO, CFO, Operations Manager, Branch Manager, Head Chef, Cashier, Waiter, Inventory Manager, Delivery Driver, System Admin) with fine-grained permission attributes.
+                {translateRawUi('Role Matrix supports 10 specialized roles (CEO, CFO, Operations Manager, Branch Manager, Head Chef, Cashier, Waiter, Inventory Manager, Delivery Driver, System Admin) with fine-grained permission attributes.')}
               </p>
             </div>
 
@@ -722,11 +779,11 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({ language
             <div className="p-5 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
               <div className="flex items-center justify-between">
                 <h4 className="font-extrabold text-white text-sm flex items-center gap-2">
-                  <Database className="w-4 h-4 text-teal-400" /> Firestore Database Schema Documentation
+                  <Database className="w-4 h-4 text-teal-400" /> {translateRawUi('Firestore Database Schema Documentation')}
                 </h4>
               </div>
               <p className="text-slate-400">
-                Collections: `users`, `products`, `orders`, `ingredients`, `inventory`, `suppliers`, `purchases`, `expenses`, `employees`, `branches`, `branch_transfers`, `drivers`, `deliveries`, `delivery_zones`, `delivery_notifications`.
+                {translateRawUi('Collections: `users`, `products`, `orders`, `ingredients`, `inventory`, `suppliers`, `purchases`, `expenses`, `employees`, `branches`, `branch_transfers`, `drivers`, `deliveries`, `delivery_zones`, `delivery_notifications`.')}
               </p>
             </div>
           </div>

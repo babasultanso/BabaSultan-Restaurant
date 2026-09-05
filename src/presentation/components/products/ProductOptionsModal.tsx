@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+import { translateRawUi } from '../../../i18n';
+import { useAuth } from '../../context/AuthContext';
+import React, { useEffect, useState } from 'react';
 import { ProductOption, ProductOptionChoice } from '../../../types';
 import { validateOptionForm, ValidationError } from '../../../lib/validation/productValidation';
 import {
@@ -23,17 +25,25 @@ export const ProductOptionsModal: React.FC<ProductOptionsModalProps> = ({
   options,
   onSaveOptions
 }) => {
+  const { t } = useAuth();
   const [optionList, setOptionList] = useState<ProductOption[]>(options || []);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editingOption, setEditingOption] = useState<Partial<ProductOption> | null>(null);
   const [errors, setErrors] = useState<ValidationError[]>([]);
   const [loading, setLoading] = useState(false);
 
+  useEffect(() => {
+    setOptionList(options || []);
+    setEditingIndex(null);
+    setEditingOption(null);
+    setErrors([]);
+  }, [options, isOpen]);
+
   if (!isOpen) return null;
 
   const handleStartAddOption = () => {
     setEditingOption({
-      id: `opt_${Date.now()}`,
+      id: `opt_${globalThis.crypto?.randomUUID?.() || Date.now().toString(36)}`,
       nameEn: '',
       nameAr: '',
       nameSo: '',
@@ -58,7 +68,7 @@ export const ProductOptionsModal: React.FC<ProductOptionsModalProps> = ({
     if (!editingOption) return;
     const choices = editingOption.choices || [];
     const newChoice: ProductOptionChoice = {
-      id: `c_${Date.now()}_${choices.length + 1}`,
+      id: `c_${globalThis.crypto?.randomUUID?.() || `${Date.now()}_${choices.length + 1}`}`,
       nameEn: 'New Choice',
       nameAr: '',
       nameSo: '',
@@ -128,8 +138,8 @@ export const ProductOptionsModal: React.FC<ProductOptionsModalProps> = ({
               <Sliders className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-white">Product Options & Custom Variants</h2>
-              <p className="text-xs text-slate-400">Configure Sizes, Add-ons, Variants, and Price Modifiers</p>
+              <h2 className="text-base font-bold text-white">{t.legacyUi.productOptionsVariants}</h2>
+              <p className="text-xs text-slate-400">{t.legacyUi.configureSizesAddons}</p>
             </div>
           </div>
           <button onClick={onClose} className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition">
@@ -151,7 +161,7 @@ export const ProductOptionsModal: React.FC<ProductOptionsModalProps> = ({
                   onClick={() => setEditingOption(null)}
                   className="text-xs text-slate-400 hover:text-white"
                 >
-                  Back to List
+                  {translateRawUi('Back to List')}
                 </button>
               </div>
 
@@ -159,20 +169,20 @@ export const ProductOptionsModal: React.FC<ProductOptionsModalProps> = ({
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Option Name (English) *
+                    {translateRawUi('Option Name (English) *')}
                   </label>
                   <input
                     type="text"
                     value={editingOption.nameEn || ''}
                     onChange={(e) => setEditingOption({ ...editingOption, nameEn: e.target.value })}
                     className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
-                    placeholder="e.g. Size or Extra Cheese"
+                    placeholder={translateRawUi('e.g. Size or Extra Cheese')}
                   />
                 </div>
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Arabic Name (اسم الخيار)
+                    {translateRawUi('Arabic Name (اسم الخيار)')}
                   </label>
                   <input
                     type="text"
@@ -180,20 +190,20 @@ export const ProductOptionsModal: React.FC<ProductOptionsModalProps> = ({
                     value={editingOption.nameAr || ''}
                     onChange={(e) => setEditingOption({ ...editingOption, nameAr: e.target.value })}
                     className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
-                    placeholder="مثال: الحجم"
+                    placeholder={translateRawUi('مثال: الحجم')}
                   />
                 </div>
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Somali Name
+                    {translateRawUi('Somali Name')}
                   </label>
                   <input
                     type="text"
                     value={editingOption.nameSo || ''}
                     onChange={(e) => setEditingOption({ ...editingOption, nameSo: e.target.value })}
                     className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
-                    placeholder="e.g. Cabbirka"
+                    placeholder={translateRawUi('e.g. Cabbirka')}
                   />
                 </div>
               </div>
@@ -202,31 +212,31 @@ export const ProductOptionsModal: React.FC<ProductOptionsModalProps> = ({
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Option Group Type
+                    {translateRawUi('Option Group Type')}
                   </label>
                   <select
                     value={editingOption.type || 'addon'}
                     onChange={(e) => setEditingOption({ ...editingOption, type: e.target.value as any })}
                     className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
                   >
-                    <option value="size">Size (Small, Medium, Large)</option>
-                    <option value="addon">Add-on (Extra topping, sauce)</option>
-                    <option value="variant">Variant (Chicken, Beef, Veg)</option>
-                    <option value="custom">Custom Option Group</option>
+                    <option value="size">{t.legacyUi.sizeVariants}</option>
+                    <option value="addon">{t.legacyUi.addOnExtra}</option>
+                    <option value="variant">{t.legacyUi.variantExamples}</option>
+                    <option value="custom">{t.legacyUi.customOptionGroup}</option>
                   </select>
                 </div>
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Selection Rule
+                    {translateRawUi('Selection Rule')}
                   </label>
                   <select
                     value={editingOption.selectionType || 'single'}
                     onChange={(e) => setEditingOption({ ...editingOption, selectionType: e.target.value as any })}
                     className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
                   >
-                    <option value="single">Single Select (Radio button)</option>
-                    <option value="multiple">Multiple Select (Checkboxes)</option>
+                    <option value="single">{t.legacyUi.singleSelect}</option>
+                    <option value="multiple">{t.legacyUi.multipleSelect}</option>
                   </select>
                 </div>
 
@@ -238,7 +248,7 @@ export const ProductOptionsModal: React.FC<ProductOptionsModalProps> = ({
                       onChange={(e) => setEditingOption({ ...editingOption, isRequired: e.target.checked })}
                       className="w-4 h-4 rounded text-emerald-500 bg-slate-900 border-slate-800 focus:ring-0"
                     />
-                    <span>Selection Mandatory (Required)</span>
+                    <span>{t.legacyUi.selectionMandatory}</span>
                   </label>
                 </div>
               </div>
@@ -247,7 +257,7 @@ export const ProductOptionsModal: React.FC<ProductOptionsModalProps> = ({
               <div className="space-y-3 pt-2">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-bold text-slate-300">
-                    Choices & Price Modifiers (+/- $)
+                    {translateRawUi('Choices & Price Modifiers (+/- $)')}
                   </label>
                   <button
                     type="button"
@@ -255,7 +265,7 @@ export const ProductOptionsModal: React.FC<ProductOptionsModalProps> = ({
                     className="px-2.5 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs font-bold rounded-lg flex items-center gap-1"
                   >
                     <Plus className="w-3.5 h-3.5" />
-                    <span>Add Choice</span>
+                    <span>{t.legacyUi.addChoice}</span>
                   </button>
                 </div>
 
@@ -268,7 +278,7 @@ export const ProductOptionsModal: React.FC<ProductOptionsModalProps> = ({
                           value={c.nameEn || ''}
                           onChange={(e) => handleUpdateChoice(cIdx, 'nameEn', e.target.value)}
                           className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-800 rounded-lg text-xs text-white"
-                          placeholder="English Name"
+                          placeholder={t.legacyUi.englishName}
                         />
                       </div>
                       <div className="md:col-span-3">
@@ -278,7 +288,7 @@ export const ProductOptionsModal: React.FC<ProductOptionsModalProps> = ({
                           value={c.nameAr || ''}
                           onChange={(e) => handleUpdateChoice(cIdx, 'nameAr', e.target.value)}
                           className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-800 rounded-lg text-xs text-white"
-                          placeholder="الاسم بالعربية"
+                          placeholder={translateRawUi('الاسم بالعربية')}
                         />
                       </div>
                       <div className="md:col-span-3">
@@ -313,14 +323,14 @@ export const ProductOptionsModal: React.FC<ProductOptionsModalProps> = ({
                   onClick={() => setEditingOption(null)}
                   className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl"
                 >
-                  Cancel
+                  {translateRawUi('Cancel')}
                 </button>
                 <button
                   type="button"
                   onClick={handleSaveCurrentOption}
                   className="px-5 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold rounded-xl transition"
                 >
-                  Confirm Option Group
+                  {translateRawUi('Confirm Option Group')}
                 </button>
               </div>
             </div>
@@ -336,13 +346,13 @@ export const ProductOptionsModal: React.FC<ProductOptionsModalProps> = ({
                   className="px-3.5 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 text-xs font-bold rounded-xl flex items-center gap-2 transition"
                 >
                   <Plus className="w-4 h-4" />
-                  <span>Add Option Group</span>
+                  <span>{t.legacyUi.addOptionGroup}</span>
                 </button>
               </div>
 
               {optionList.length === 0 ? (
                 <div className="p-8 text-center bg-slate-950/60 rounded-2xl border border-slate-800 text-slate-500 text-xs">
-                  No custom options added yet. Click "Add Option Group" to set up Sizes, Add-ons, or Variants.
+                  {translateRawUi('No custom options added yet. Click "Add Option Group" to set up Sizes, Add-ons, or Variants.')}
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -367,7 +377,7 @@ export const ProductOptionsModal: React.FC<ProductOptionsModalProps> = ({
                             onClick={() => handleStartEditOption(idx)}
                             className="px-3 py-1 bg-slate-900 border border-slate-800 hover:text-white text-xs text-slate-300 rounded-xl"
                           >
-                            Edit
+                            {translateRawUi('Edit')}
                           </button>
                           <button
                             onClick={() => handleDeleteOption(idx)}
@@ -403,7 +413,7 @@ export const ProductOptionsModal: React.FC<ProductOptionsModalProps> = ({
             onClick={onClose}
             className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl"
           >
-            Cancel
+            {translateRawUi('Cancel')}
           </button>
           <button
             onClick={handleFinalSave}

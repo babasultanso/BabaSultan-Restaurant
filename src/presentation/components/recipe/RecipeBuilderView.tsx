@@ -1,8 +1,10 @@
+import { translateRawUi } from '../../../i18n';
+import { translations } from '../../../i18n/translations';
 import React, { useState } from 'react';
 import { Recipe, RecipeItem, Ingredient } from '../../../domain/entities/recipe';
 import { Product } from '../../../types';
 import { RecipeController } from '../../../controllers/RecipeController';
-import { recipeDict, RecipeLang } from './translations';
+import { recipeDict, RecipeLang } from '../../../i18n';
 import {
   ChefHat,
   Plus,
@@ -34,7 +36,7 @@ export const RecipeBuilderView: React.FC<RecipeBuilderViewProps> = ({
   lang,
   currentUser = 'Executive Chef'
 }) => {
-  const t = recipeDict[lang] || recipeDict.en;
+  const t = { ...(recipeDict[lang] || recipeDict.en), legacyUi: translations[lang].legacyUi };
 
   const [showModal, setShowModal] = useState(false);
   const [editingRecipe, setEditingRecipe] = useState<Recipe | null>(null);
@@ -44,7 +46,7 @@ export const RecipeBuilderView: React.FC<RecipeBuilderViewProps> = ({
   // Form State
   const [recipeName, setRecipeName] = useState('');
   const [selectedProductId, setSelectedProductId] = useState('');
-  const [sellingPrice, setSellingPrice] = useState<number>(10);
+  const [sellingPrice, setSellingPrice] = useState<number>(0);
   const [yieldQuantity, setYieldQuantity] = useState<number>(1);
   const [notes, setNotes] = useState('');
   const [changeReason, setChangeReason] = useState('');
@@ -56,21 +58,11 @@ export const RecipeBuilderView: React.FC<RecipeBuilderViewProps> = ({
     setRecipeName('');
     setSelectedProductId(products[0]?.id || '');
     const firstProd = products[0];
-    setSellingPrice(firstProd?.price || 12);
+    setSellingPrice(Number(firstProd?.price) || 0);
     setYieldQuantity(1);
     setNotes('');
     setChangeReason('');
-    setRecipeItems([
-      {
-        id: 'item_1',
-        ingredientId: ingredients[0]?.id || '',
-        ingredientName: ingredients[0]?.name || '',
-        quantity: 100,
-        unit: ingredients[0]?.usageUnit || 'g',
-        costPerUnit: ingredients[0]?.costPerUsageUnit || 0.01,
-        totalCost: (100 * (ingredients[0]?.costPerUsageUnit || 0.01))
-      }
-    ]);
+    setRecipeItems([]);
     setShowModal(true);
   };
 
@@ -93,7 +85,7 @@ export const RecipeBuilderView: React.FC<RecipeBuilderViewProps> = ({
     const prod = products.find((p) => p.id === prodId);
     if (prod) {
       if (!recipeName) setRecipeName(`${prod.name} Recipe`);
-      setSellingPrice(prod.price || 12);
+      setSellingPrice(Number(prod.price) || 0);
     }
   };
 
@@ -105,10 +97,10 @@ export const RecipeBuilderView: React.FC<RecipeBuilderViewProps> = ({
       id: `item_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
       ingredientId: defaultIng.id,
       ingredientName: defaultIng.name,
-      quantity: 50,
+      quantity: 0,
       unit: defaultIng.usageUnit || 'g',
-      costPerUnit: defaultIng.costPerUsageUnit || 0.01,
-      totalCost: 50 * (defaultIng.costPerUsageUnit || 0.01)
+      costPerUnit: defaultIng.costPerUsageUnit || 0,
+      totalCost: 0
     };
     setRecipeItems([...recipeItems, newItem]);
   };
@@ -126,7 +118,7 @@ export const RecipeBuilderView: React.FC<RecipeBuilderViewProps> = ({
       const ing = ingredients.find((i) => i.id === fields.ingredientId);
       if (ing) {
         ingName = ing.name;
-        costPerUnit = ing.costPerUsageUnit || 0.01;
+        costPerUnit = ing.costPerUsageUnit || 0;
         unit = ing.usageUnit || 'g';
       }
     }
@@ -226,7 +218,7 @@ export const RecipeBuilderView: React.FC<RecipeBuilderViewProps> = ({
             {t.tabs.recipes}
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            Build recipes with unlimited ingredients, calculate exact food cost %, and track versions.
+            {translateRawUi('Build recipes with unlimited ingredients, calculate exact food cost %, and track versions.')}
           </p>
         </div>
 
@@ -257,7 +249,7 @@ export const RecipeBuilderView: React.FC<RecipeBuilderViewProps> = ({
                 </div>
                 <button
                   onClick={() => handleOpenHistory(recipe)}
-                  title="Version History"
+                  title={translateRawUi('Version History')}
                   className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 cursor-pointer transition"
                 >
                   <History className="w-4 h-4" />
@@ -333,9 +325,9 @@ export const RecipeBuilderView: React.FC<RecipeBuilderViewProps> = ({
         {recipes.length === 0 && (
           <div className="col-span-full p-12 text-center bg-slate-900 border border-slate-800 rounded-3xl space-y-3">
             <ChefHat className="w-10 h-10 text-slate-600 mx-auto" />
-            <h3 className="text-sm font-bold text-white">No Recipes Created Yet</h3>
+            <h3 className="text-sm font-bold text-white">{t.legacyUi.noRecipesCreated}</h3>
             <p className="text-xs text-slate-400 max-w-sm mx-auto">
-              Click &quot;Create New Recipe&quot; above to link a menu dish with its ingredients and compute food costs.
+              {translateRawUi('Click &quot;Create New Recipe&quot; above to link a menu dish with its ingredients and compute food costs.')}
             </p>
           </div>
         )}
@@ -370,7 +362,7 @@ export const RecipeBuilderView: React.FC<RecipeBuilderViewProps> = ({
                     required
                     value={recipeName}
                     onChange={(e) => setRecipeName(e.target.value)}
-                    placeholder="e.g. Gourmet Cheeseburger Recipe"
+                    placeholder={translateRawUi('e.g. Gourmet Cheeseburger Recipe')}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
                   />
                 </div>
@@ -533,13 +525,13 @@ export const RecipeBuilderView: React.FC<RecipeBuilderViewProps> = ({
               {editingRecipe && (
                 <div>
                   <label className="block text-xs font-bold text-slate-300 mb-1.5">
-                    Reason for Recipe Change (Version Log)
+                    {translateRawUi('Reason for Recipe Change (Version Log)')}
                   </label>
                   <input
                     type="text"
                     value={changeReason}
                     onChange={(e) => setChangeReason(e.target.value)}
-                    placeholder="e.g. Adjusted beef patty portion from 140g to 150g"
+                    placeholder={translateRawUi('e.g. Adjusted beef patty portion from 140g to 150g')}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none"
                   />
                 </div>
@@ -597,7 +589,7 @@ export const RecipeBuilderView: React.FC<RecipeBuilderViewProps> = ({
                   <div className="flex items-center justify-between text-slate-300 font-medium">
                     <span>Changed By: {hist.changedBy || 'Admin'}</span>
                     <span>
-                      Food Cost: <strong className="text-amber-400">{hist.foodCostPercentage?.toFixed(1)}%</strong>
+                      {translateRawUi('Food Cost:')} <strong className="text-amber-400">{hist.foodCostPercentage?.toFixed(1)}%</strong>
                     </span>
                   </div>
 
@@ -608,7 +600,7 @@ export const RecipeBuilderView: React.FC<RecipeBuilderViewProps> = ({
               ))}
 
               {historyList.length === 0 && (
-                <p className="text-center text-slate-400 text-xs py-6">No historical versions recorded yet.</p>
+                <p className="text-center text-slate-400 text-xs py-6">{t.legacyUi.noHistoricalVersions}</p>
               )}
             </div>
           </div>

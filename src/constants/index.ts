@@ -187,8 +187,8 @@ export const LANGUAGES = [
 export type SupportedLanguage = 'en' | 'ar' | 'so';
 
 export const SYSTEM_CONFIG = {
-  APP_NAME: 'Commercial Restaurant ERP System',
-  VERSION: '1.0.0-PROD',
+  APP_NAME: 'Baba Sultan Restaurant ERP',
+  VERSION: '1.0.1',
   CURRENCY: 'USD',
   CURRENCY_SYMBOL: '$'
 };

@@ -23,11 +23,13 @@ steps:
       - 'europe-west2'
       - '--platform'
       - 'managed'
+      - '--port'
+      - '8080'
       - '--allow-unauthenticated'
       - '--service-account'
       - 'babasultan-api-sa@$PROJECT_ID.iam.gserviceaccount.com'
       - '--set-env-vars'
-      - 'NODE_ENV=production,FRONTEND_URL=https://baba-sultan-restaurant.vercel.app'
+      - 'NODE_ENV=production,FRONTEND_URL=https://baba-sultan-restaurant.vercel.app,FIREBASE_PROJECT_ID=$PROJECT_ID'
 
 images:
   - 'gcr.io/$PROJECT_ID/babasultan-api:$COMMIT_SHA'

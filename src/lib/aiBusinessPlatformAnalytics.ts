@@ -1,3 +1,4 @@
+import { getMogadishuHour } from './dateUtils';
 import { 
   Order, 
   Product, 
@@ -197,8 +198,7 @@ export function calculateAIBusinessPlatformAnalytics(data: AIPlatformDataPackage
   const hourlySales = Array.from({ length: 24 }, (_, hour) => {
     const hourOrders = completedOrders.filter(o => {
       if (!o.createdAt) return false;
-      const d = new Date(o.createdAt);
-      return d.getHours() === hour;
+      return getMogadishuHour(o.createdAt) === hour;
     });
     const rev = hourOrders.reduce((sum, o) => sum + o.totalAmount, 0);
     return {
@@ -213,21 +213,22 @@ export function calculateAIBusinessPlatformAnalytics(data: AIPlatformDataPackage
   const slowHourItem = activeHours.length > 0 ? [...activeHours].sort((a, b) => a.revenue - b.revenue)[0] : null;
 
   // 5. INVENTORY ANALYST
-  const lowStockIngredients = ingredients.filter(i => i.stock <= (i.minStockAlert || 5));
-  const overstockedIngredients = ingredients.filter(i => i.stock > (i.minStockAlert || 5) * 4);
+  const configuredMinStock = (value: unknown) => Number.isFinite(Number(value)) ? Math.max(0, Number(value)) : 0;
+  const lowStockIngredients = ingredients.filter(i => i.stock <= configuredMinStock(i.minStockAlert));
+  const overstockedIngredients = ingredients.filter(i => i.stock > configuredMinStock(i.minStockAlert) * 4);
   const totalInventoryValuation = ingredients.reduce((sum, i) => sum + (i.stock * (i.costPerUnit || 0)), 0) +
-                                   products.reduce((sum, p) => sum + ((p.stock || 0) * (p.cost || (p.price || 0) * 0.5)), 0);
+                                   products.reduce((sum, p) => sum + ((p.stock || 0) * (Number.isFinite(Number(p.cost)) ? Number(p.cost) : 0)), 0);
 
   const purchasingRecommendations = suppliers.map(s => {
     const suppIngs = ingredients.filter(i => i.supplierName === s.name || i.supplierId === s.id);
-    const lowCount = suppIngs.filter(i => i.stock <= (i.minStockAlert || 5)).length;
+    const lowCount = suppIngs.filter(i => i.stock <= configuredMinStock(i.minStockAlert)).length;
     return {
       supplierId: s.id,
       supplierName: s.name,
       contactPerson: s.contactPerson || 'N/A',
       phone: s.phone || 'N/A',
       lowItemsCount: lowCount,
-      suggestedOrderValuation: suppIngs.reduce((sum, i) => sum + (Math.max(0, (i.minStockAlert || 5) * 2 - i.stock) * (i.costPerUnit || 0)), 0)
+      suggestedOrderValuation: suppIngs.reduce((sum, i) => sum + (Math.max(0, (Number.isFinite(Number(i.minStockAlert)) ? Number(i.minStockAlert) : 0) * 2 - i.stock) * (i.costPerUnit || 0)), 0)
     };
   }).filter(r => r.suggestedOrderValuation > 0 || r.lowItemsCount > 0);
 

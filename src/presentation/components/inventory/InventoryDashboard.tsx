@@ -1,3 +1,5 @@
+import { translateRawUi } from '../../../i18n';
+import { translations } from '../../../i18n/translations';
 import React, { useState } from 'react';
 import {
   InventoryItem,
@@ -6,7 +8,7 @@ import {
   InventoryAlert,
   InventoryMovement
 } from '../../../domain/entities/inventory';
-import { InventoryLang, inventoryDict } from './translations';
+import { InventoryLang, inventoryDict } from '../../../i18n';
 import {
   Package,
   AlertTriangle,
@@ -50,7 +52,7 @@ export const InventoryDashboard: React.FC<InventoryDashboardProps> = ({
   onNavigateTab,
   userRole
 }) => {
-  const t = inventoryDict[lang] || inventoryDict.en;
+  const t = { ...(inventoryDict[lang] || inventoryDict.en), legacyUi: translations[lang].legacyUi };
 
   // Calculate Metrics
   const totalItemsCount = items.length;
@@ -96,7 +98,7 @@ export const InventoryDashboard: React.FC<InventoryDashboardProps> = ({
               onClick={() => onNavigateTab('list')}
               className="px-3.5 py-1.5 rounded-xl bg-amber-500 text-slate-950 font-black text-xs hover:bg-amber-400 transition cursor-pointer"
             >
-              Resolve in Catalog
+              {translateRawUi('Resolve in Catalog')}
             </button>
           </div>
 
@@ -131,7 +133,7 @@ export const InventoryDashboard: React.FC<InventoryDashboardProps> = ({
           <div className="space-y-1">
             <span className="text-xs font-semibold text-slate-400">{t.totalItems}</span>
             <h4 className="text-2xl font-black text-white">{totalItemsCount}</h4>
-            <span className="text-[10px] text-slate-500">Across 5 Categories</span>
+            <span className="text-[10px] text-slate-500">{t.legacyUi.acrossFiveCategories}</span>
           </div>
           <div className="p-3.5 bg-cyan-500/10 text-cyan-400 rounded-2xl border border-cyan-500/20">
             <Package className="w-6 h-6" />
@@ -145,7 +147,7 @@ export const InventoryDashboard: React.FC<InventoryDashboardProps> = ({
             <h4 className="text-2xl font-black text-emerald-400">
               ${totalValuation.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </h4>
-            <span className="text-[10px] text-emerald-500 font-bold">Total Cost Value</span>
+            <span className="text-[10px] text-emerald-500 font-bold">{t.legacyUi.totalCostValue}</span>
           </div>
           <div className="p-3.5 bg-emerald-500/10 text-emerald-400 rounded-2xl border border-emerald-500/20">
             <DollarSign className="w-6 h-6" />
@@ -160,7 +162,7 @@ export const InventoryDashboard: React.FC<InventoryDashboardProps> = ({
               <h4 className="text-2xl font-black text-amber-400">{lowStockItems.length}</h4>
               <span className="text-xs font-bold text-rose-400">({outOfStockItems.length} Out)</span>
             </div>
-            <span className="text-[10px] text-amber-500 font-bold">Requires Restocking</span>
+            <span className="text-[10px] text-amber-500 font-bold">{t.legacyUi.requiresRestocking}</span>
           </div>
           <div className="p-3.5 bg-amber-500/10 text-amber-400 rounded-2xl border border-amber-500/20">
             <AlertTriangle className="w-6 h-6" />
@@ -187,7 +189,7 @@ export const InventoryDashboard: React.FC<InventoryDashboardProps> = ({
       {userRole !== 'Kitchen' && userRole !== 'Cashier' && (
         <div className="bg-slate-900 border border-slate-800 p-5 rounded-3xl shadow-xl space-y-3">
           <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-400 flex items-center gap-2">
-            <Zap className="w-4 h-4 text-amber-400" /> Quick Stock Operations
+            <Zap className="w-4 h-4 text-amber-400" /> {translateRawUi('Quick Stock Operations')}
           </h4>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
             <button
@@ -222,7 +224,7 @@ export const InventoryDashboard: React.FC<InventoryDashboardProps> = ({
               onClick={() => onOpenQuickMovement('waste')}
               className="p-3 rounded-2xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 font-bold text-xs flex items-center justify-center gap-2 transition cursor-pointer"
             >
-              <XCircle className="w-4 h-4 text-rose-400" /> Log Waste
+              <XCircle className="w-4 h-4 text-rose-400" /> {translateRawUi('Log Waste')}
             </button>
           </div>
         </div>
@@ -235,19 +237,19 @@ export const InventoryDashboard: React.FC<InventoryDashboardProps> = ({
         <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl shadow-xl space-y-4 col-span-1">
           <div className="flex items-center justify-between border-b border-slate-800 pb-3">
             <h4 className="text-sm font-extrabold text-white flex items-center gap-2">
-              <TrendingDown className="w-4 h-4 text-amber-400" /> Critical Stock Levels
+              <TrendingDown className="w-4 h-4 text-amber-400" /> {translateRawUi('Critical Stock Levels')}
             </h4>
             <button
               onClick={() => onNavigateTab('list')}
               className="text-xs text-amber-400 hover:underline font-bold"
             >
-              View All
+              {translateRawUi('View All')}
             </button>
           </div>
 
           {lowStockItems.length === 0 && outOfStockItems.length === 0 ? (
             <div className="text-center py-8 text-slate-500 text-xs">
-              All inventory items are well-stocked above reorder thresholds!
+              {translateRawUi('All inventory items are well-stocked above reorder thresholds!')}
             </div>
           ) : (
             <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
@@ -280,19 +282,19 @@ export const InventoryDashboard: React.FC<InventoryDashboardProps> = ({
         <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl shadow-xl space-y-4 col-span-2">
           <div className="flex items-center justify-between border-b border-slate-800 pb-3">
             <h4 className="text-sm font-extrabold text-white flex items-center gap-2">
-              <Clock className="w-4 h-4 text-cyan-400" /> Recent Stock Movements
+              <Clock className="w-4 h-4 text-cyan-400" /> {translateRawUi('Recent Stock Movements')}
             </h4>
             <button
               onClick={() => onNavigateTab('movements')}
               className="text-xs text-cyan-400 hover:underline font-bold"
             >
-              Movement Log
+              {translateRawUi('Movement Log')}
             </button>
           </div>
 
           {movements.length === 0 ? (
             <div className="text-center py-8 text-slate-500 text-xs">
-              No stock movements recorded yet.
+              {translateRawUi('No stock movements recorded yet.')}
             </div>
           ) : (
             <div className="space-y-2.5 max-h-80 overflow-y-auto pr-1">

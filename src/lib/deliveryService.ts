@@ -38,7 +38,7 @@ export async function createDriver(driverData: Omit<DeliveryDriver, 'id' | 'crea
     branchId: canonicalBranch,
     branchName: canonicalBranchName,
     id: newRef.id,
-    rating: driverData.rating ?? 5.0,
+    rating: driverData.rating ?? 0,
     totalDeliveries: driverData.totalDeliveries ?? 0,
     completedDeliveries: driverData.completedDeliveries ?? 0,
     failedDeliveries: driverData.failedDeliveries ?? 0,
@@ -62,7 +62,11 @@ export async function updateDriver(driverId: string, updates: Partial<DeliveryDr
 }
 
 export async function deleteDriver(driverId: string): Promise<void> {
-  await deleteDoc(doc(db, COLLECTIONS.DRIVERS, driverId));
+  await updateDriver(driverId, {
+    status: 'inactive',
+    availability: 'offline',
+    isDeleted: true
+  } as any);
 }
 
 export async function updateDriverLocation(
@@ -326,7 +330,7 @@ export function calculateDeliveryAnalytics(deliveries: DeliveryOrder[], drivers:
   // On Time Rate %
   const onTimeCount = completed.filter((d) => {
     if (!d.actualDeliveryTimeMinutes) return false;
-    return d.actualDeliveryTimeMinutes <= (d.estimatedDeliveryTimeMinutes || 30);
+    return Number.isFinite(Number(d.actualDeliveryTimeMinutes)) && Number.isFinite(Number(d.estimatedDeliveryTimeMinutes)) && d.actualDeliveryTimeMinutes <= d.estimatedDeliveryTimeMinutes;
   }).length;
   const onTimeRate = completed.length > 0 ? Math.round((onTimeCount / completed.length) * 100) : 0;
 
@@ -335,7 +339,7 @@ export function calculateDeliveryAnalytics(deliveries: DeliveryOrder[], drivers:
     const drvDeliveries = deliveries.filter((d) => d.driverId === drv.id);
     const drvCompleted = drvDeliveries.filter((d) => d.status === 'delivered');
     const drvFailed = drvDeliveries.filter((d) => d.status === 'failed' || d.status === 'returned');
-    const totalFeesEarned = drvCompleted.reduce((sum, d) => sum + ((d.deliveryFee || 0) * 0.7), 0); // 70% to driver
+    const totalFeesEarned = drvCompleted.reduce((sum, d) => sum + (d.deliveryFee || 0), 0); // Gross delivery fees collected; driver commission must come from configured payroll/contract data.
     const ratings = drvCompleted.filter((d) => typeof d.customerRating === 'number' && d.customerRating > 0).map((d) => d.customerRating!);
     const avgRating = ratings.length > 0 ? (ratings.reduce((a, b) => a + b, 0) / ratings.length).toFixed(1) : (drv.rating ? drv.rating.toFixed(1) : '0.0');
 

@@ -1,11 +1,12 @@
-import { collection, getDocs, doc, getDoc } from 'firebase/firestore';
-import { db, COLLECTIONS, addProductFirestore, updateProductFirestore, deleteProductFirestore, toggleProductAvailabilityFirestore, deductProductIngredientsStockFirestore } from '../../lib/firebase';
+import { collection, getDocs, doc, getDoc, query, where } from 'firebase/firestore';
+import { db, COLLECTIONS, getEffectiveBranchId, addProductFirestore, updateProductFirestore, deleteProductFirestore, toggleProductAvailabilityFirestore, deductProductIngredientsStockFirestore } from '../../lib/firebase';
 import { IProductRepository } from '../../domain/repositories/IProductRepository';
 import { Product, ProductOption } from '../../types';
 
 export class ProductRepository implements IProductRepository {
   async fetchProducts(): Promise<Product[]> {
-    const snap = await getDocs(collection(db, COLLECTIONS.PRODUCTS));
+    const branchId = getEffectiveBranchId();
+    const snap = await getDocs(query(collection(db, COLLECTIONS.PRODUCTS), where('branchId', '==', branchId)));
     return snap.docs.map(d => ({ id: d.id, ...d.data() } as Product));
   }
 

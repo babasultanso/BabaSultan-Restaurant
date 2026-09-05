@@ -1,5 +1,5 @@
 import { collection, addDoc, getDocs, query, where } from 'firebase/firestore';
-import { db, COLLECTIONS, addSalaryFirestore } from '../../lib/firebase';
+import { db, COLLECTIONS, addSalaryFirestore, getEffectiveBranchId } from '../../lib/firebase';
 import { getMogadishuDateString } from '../../lib/dateUtils';
 import { IStaffRepository } from '../../domain/repositories/IStaffRepository';
 import { NewEmployeePayload, NewSupplierPayload, SalaryPaymentPayload } from '../../domain/entities/staff';
@@ -8,9 +8,10 @@ import { Employee, Supplier, Salary } from '../../types';
 export class StaffRepositoryImpl implements IStaffRepository {
   async fetchEmployees(branchId?: string): Promise<Employee[]> {
     try {
-      const q = branchId && branchId !== 'all'
-        ? query(collection(db, COLLECTIONS.EMPLOYEES), where('branchId', '==', branchId))
-        : collection(db, COLLECTIONS.EMPLOYEES);
+      const effectiveBranch = branchId && branchId !== 'all' ? branchId : getEffectiveBranchId();
+      const q = effectiveBranch === 'all'
+        ? collection(db, COLLECTIONS.EMPLOYEES)
+        : query(collection(db, COLLECTIONS.EMPLOYEES), where('branchId', '==', effectiveBranch));
       const snap = await getDocs(q);
       const list: Employee[] = [];
       snap.forEach(d => {
@@ -26,19 +27,20 @@ export class StaffRepositoryImpl implements IStaffRepository {
           phone: data.phone || '',
           role: empRole as any,
           jobTitle: empRole,
-          salary: Number(data.salary) || 500,
+          salary: Number(data.salary) || 0,
+          payFrequency: ['daily', 'weekly', 'monthly'].includes(String(data.payFrequency || '').toLowerCase()) ? String(data.payFrequency).toLowerCase() : 'monthly',
           status: data.status || 'active',
           employmentStatus: data.employmentStatus || 'Active',
           department: data.department || 'Operations',
-          branch: data.branch || 'Main Branch',
+          branch: data.branch || data.branchId || '',
           branchId: data.branchId || data.branch || '',
-          nationalIdOrPassport: data.nationalIdOrPassport || 'N/A',
+          nationalIdOrPassport: data.nationalIdOrPassport || '',
           address: data.address || '',
-          dateOfBirth: data.dateOfBirth || '1990-01-01',
-          gender: data.gender || 'Male',
-          nationality: data.nationality || 'Somali',
+          dateOfBirth: data.dateOfBirth || '',
+          gender: data.gender || '',
+          nationality: data.nationality || '',
           hireDate: data.hireDate || getMogadishuDateString(),
-          emergencyContact: data.emergencyContact || { name: 'Emergency', relationship: 'Family', phone: '' },
+          emergencyContact: data.emergencyContact || { name: '', relationship: '', phone: '' },
           createdAt: data.createdAt || new Date().toISOString(),
           ...data
         } as Employee);
@@ -52,7 +54,11 @@ export class StaffRepositoryImpl implements IStaffRepository {
 
   async fetchSuppliers(): Promise<Supplier[]> {
     try {
-      const snap = await getDocs(collection(db, COLLECTIONS.SUPPLIERS));
+      const branchId = getEffectiveBranchId();
+      const suppliersQuery = branchId === 'all'
+        ? collection(db, COLLECTIONS.SUPPLIERS)
+        : query(collection(db, COLLECTIONS.SUPPLIERS), where('branchId', '==', branchId));
+      const snap = await getDocs(suppliersQuery);
       const list: Supplier[] = [];
       snap.forEach(d => {
         const data = d.data();
@@ -78,9 +84,10 @@ export class StaffRepositoryImpl implements IStaffRepository {
 
   async fetchSalaries(branchId?: string): Promise<Salary[]> {
     try {
-      const q = branchId && branchId !== 'all'
-        ? query(collection(db, COLLECTIONS.SALARIES), where('branchId', '==', branchId))
-        : collection(db, COLLECTIONS.SALARIES);
+      const effectiveBranch = branchId || getEffectiveBranchId();
+      const q = effectiveBranch === 'all'
+        ? collection(db, COLLECTIONS.SALARIES)
+        : query(collection(db, COLLECTIONS.SALARIES), where('branchId', '==', effectiveBranch));
       const snap = await getDocs(q);
       const list: Salary[] = [];
       snap.forEach(d => list.push({ id: d.id, ...d.data() } as Salary));
@@ -98,23 +105,25 @@ export class StaffRepositoryImpl implements IStaffRepository {
       name: payload.name,
       employeeId: `EMP-${Math.floor(1000 + Math.random() * 9000)}`,
       email: payload.email || '',
-      phone: '+252 61 000 0000',
-      address: 'Mogadishu',
-      nationalIdOrPassport: 'N/A',
-      dateOfBirth: '1995-01-01',
-      gender: 'Male' as const,
-      nationality: 'Somali',
+      phone: '',
+      address: '',
+      nationalIdOrPassport: '',
+      dateOfBirth: '',
+      gender: '' as const,
+      nationality: '',
       hireDate: now.split('T')[0],
       jobTitle: payload.role || 'Staff',
       department: 'Operations',
-      branch: 'Main Branch',
+      branch: getEffectiveBranchId(),
+      branchId: getEffectiveBranchId(),
       employmentStatus: 'Active' as const,
       status: 'active',
       role: (payload.role as any) || 'Employee',
-      salary: Number(payload.salary) || 500,
+      salary: Number(payload.salary) || 0,
+      payFrequency: payload.payFrequency || 'monthly',
       totalSales: 0,
       ordersCount: 0,
-      emergencyContact: { name: 'Emergency', relationship: 'Family', phone: '' },
+      emergencyContact: { name: '', relationship: '', phone: '' },
       createdAt: now
     };
     const docRef = await addDoc(collection(db, COLLECTIONS.EMPLOYEES), data);
@@ -122,8 +131,16 @@ export class StaffRepositoryImpl implements IStaffRepository {
   }
 
   async createSupplier(payload: NewSupplierPayload): Promise<Supplier> {
+    const branchId = getEffectiveBranchId(payload.branchId || (payload as any).branch);
     const data = {
-      ...payload,
+      // Supplier balances are server-derived from purchases/payments, never client-provided.
+      name: payload.name,
+      contactPerson: payload.contactPerson,
+      phone: payload.phone,
+      itemsSupplied: payload.itemsSupplied,
+      branchId,
+      branch: (payload as any).branch || branchId,
+      pendingAmount: 0,
       overdueAmount: 0,
       createdAt: new Date().toISOString()
     };

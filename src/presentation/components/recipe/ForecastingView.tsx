@@ -1,7 +1,9 @@
+import { translateRawUi } from '../../../i18n';
+import { translations } from '../../../i18n/translations';
 import React, { useState, useEffect } from 'react';
 import { IngredientForecast } from '../../../domain/entities/recipe';
 import { RecipeController } from '../../../controllers/RecipeController';
-import { recipeDict, RecipeLang } from './translations';
+import { recipeDict, RecipeLang } from '../../../i18n';
 import { TrendingUp, AlertTriangle, CheckCircle2, ShoppingCart, Calendar, ArrowRight } from 'lucide-react';
 
 interface ForecastingViewProps {
@@ -10,7 +12,7 @@ interface ForecastingViewProps {
 }
 
 export const ForecastingView: React.FC<ForecastingViewProps> = ({ controller, lang }) => {
-  const t = recipeDict[lang] || recipeDict.en;
+  const t = { ...(recipeDict[lang] || recipeDict.en), legacyUi: translations[lang].legacyUi };
 
   const [forecasts, setForecasts] = useState<IngredientForecast[]>([]);
 
@@ -31,7 +33,7 @@ export const ForecastingView: React.FC<ForecastingViewProps> = ({ controller, la
             {t.forecasting.title}
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            Predict inventory stock depletion dates based on order velocity and auto-generate purchase order quantities.
+            {translateRawUi('Predict inventory stock depletion dates based on order velocity and auto-generate purchase order quantities.')}
           </p>
         </div>
 
@@ -132,7 +134,7 @@ export const ForecastingView: React.FC<ForecastingViewProps> = ({ controller, la
               </span>
               <button className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-[11px] flex items-center gap-1 cursor-pointer transition">
                 <ShoppingCart className="w-3.5 h-3.5" />
-                Auto PO
+                {translateRawUi('Auto PO')}
               </button>
             </div>
           </div>

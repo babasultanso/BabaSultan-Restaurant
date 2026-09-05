@@ -3,59 +3,54 @@ service firebase.storage {
   match /b/{bucket}/o {
     
     function isSignedIn() {
-      return request.auth != null && request.auth.token.firebase.sign_in_provider != 'anonymous';
+      return request.auth != null;
+    }
+
+    function hasUserData() {
+      return isSignedIn() && firestore.exists(/databases/(default)/documents/users/$(request.auth.uid));
     }
 
     function getUserData() {
-      return firestore.exists(/databases/(default)/documents/users/$(request.auth.uid))
+      return hasUserData()
         ? firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data
         : {};
     }
 
     function getUserRole() {
-      return getUserData().get('role', request.auth.token.get('role', ''));
+      return getUserData().get('role', '');
     }
 
     function getUserBranch() {
-      return getUserData().get('branchId', request.auth.token.get('branchId', ''));
+      return getUserData().get('branchId', '');
     }
 
     function isHQ() {
-      return isSignedIn() && (
+      return isSignedIn() && hasUserData() && (
         getUserRole() in ['Owner', 'owner'] ||
         getUserData().get('isOwner', false) == true ||
-        request.auth.token.get('isOwner', false) == true ||
-        (
-          (getUserRole() in ['Admin', 'admin'] || getUserData().get('isAdmin', false) == true || request.auth.token.get('isAdmin', false) == true) &&
-          (getUserData().get('isHQ', false) == true || request.auth.token.get('isHQ', false) == true)
-        )
+        (getUserRole() in ['Admin', 'admin'] && getUserData().get('isHQ', false) == true)
       );
     }
 
     function isManagement() {
-      return isSignedIn() && (
+      return isSignedIn() && hasUserData() && (
         getUserRole() in ['Owner', 'owner', 'Admin', 'admin', 'Manager', 'manager'] ||
         getUserData().get('isAdmin', false) == true ||
-        getUserData().get('isOwner', false) == true ||
-        request.auth.token.get('isAdmin', false) == true ||
-        request.auth.token.get('isOwner', false) == true
+        getUserData().get('isOwner', false) == true
       );
     }
 
     function isManagementOrAccountant() {
-      return isSignedIn() && (
+      return isSignedIn() && hasUserData() && (
         getUserRole() in ['Owner', 'owner', 'Admin', 'admin', 'Manager', 'manager', 'Accountant', 'accountant'] ||
         getUserData().get('isAdmin', false) == true ||
-        getUserData().get('isOwner', false) == true ||
-        request.auth.token.get('isAdmin', false) == true ||
-        request.auth.token.get('isOwner', false) == true
+        getUserData().get('isOwner', false) == true
       );
     }
 
     function isBranchAuthorized(branchId) {
-      return isSignedIn() && (
-        isHQ() ||
-        getUserBranch() == branchId
+      return isSignedIn() && hasUserData() && branchId != null && branchId != '' && (
+        isHQ() || getUserBranch() == branchId
       );
     }
 
@@ -76,10 +71,12 @@ service firebase.storage {
     }
 
     match /branches/{branchId}/financial_attachments/{attachmentId} {
+      // Financial attachments are branch-scoped and limited to trusted finance/management roles.
+      // Keep this rule deliberately direct to avoid nested helper evaluation differences in the Storage emulator.
       allow read: if isBranchAuthorized(branchId) && isManagementOrAccountant();
-      allow write: if isBranchAuthorized(branchId) && isManagementOrAccountant()
-                   && request.resource.size < 15 * 1024 * 1024
-                   && request.resource.contentType.matches('(image/.*|application/pdf|text/csv|application/vnd.ms-excel|application/vnd.openxmlformats-officedocument.spreadsheetml.sheet)');
+      allow write: if isBranchAuthorized(branchId) && isManagementOrAccountant() &&
+                   request.resource.size < 15 * 1024 * 1024 &&
+                   request.resource.contentType.matches('(image/.*|application/pdf|text/csv|application/vnd.ms-excel|application/vnd.openxmlformats-officedocument.spreadsheetml.sheet)');
     }
 
     match /branches/{branchId}/attachments/{attachmentId} {

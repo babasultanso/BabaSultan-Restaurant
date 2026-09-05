@@ -79,23 +79,37 @@ export const OwnerView: React.FC<OwnerViewProps> = ({
   const monthlyProfit = totalSales - totalCogs - totalExpenses;
 
   // Liquidity & Cash Flow
-  const cashAccount = accounts.find(a => a.type === 'cash')?.balance ?? 0;
-  const bankAccount = accounts.find(a => a.type === 'bank')?.balance ?? 0;
+  const cashAccount = accounts.find(a => String(a.type || '').toLowerCase() === 'cash' || String((a as any).accountType || '').toLowerCase() === 'cash' || String((a as any).code || '').startsWith('101'))?.balance ?? 0;
+  const bankAccount = accounts.find(a => String(a.type || '').toLowerCase() === 'bank' || String((a as any).accountType || '').toLowerCase() === 'bank' || String((a as any).code || '').startsWith('102'))?.balance ?? 0;
   const totalCashFlow = cashAccount + bankAccount;
 
   // Metrics
-  const totalOrdersCount = orders.length;
+  const totalOrdersCount = orders.filter(o => String(o.status || '').toLowerCase() === 'completed' || String(o.prepStatus || '').toLowerCase() === 'delivered').length;
   const lowStockIngredients = ingredients.filter(i => i.stock <= i.minStockAlert);
   const lowStockProducts = products.filter(p => p.stock <= p.minStockAlert);
   const totalLowStock = lowStockIngredients.length + lowStockProducts.length;
 
   // Business Health Index (0 - 100)
-  const marginPct = totalSales > 0 ? (monthlyProfit / totalSales) * 100 : 35;
-  const cogsPct = totalSales > 0 ? (totalCogs / totalSales) * 100 : 38;
-  const healthScore = Math.min(100, Math.max(40, Math.round(50 + marginPct * 0.8 - (totalLowStock * 3))));
+  const marginPct = totalSales > 0 ? (monthlyProfit / totalSales) * 100 : null;
+  const cogsPct = totalSales > 0 ? (totalCogs / totalSales) * 100 : null;
+  const healthScore = totalSales > 0
+    ? Math.min(100, Math.max(0, Math.round(50 + (marginPct as number) * 0.8 - (totalLowStock * 3))))
+    : null;
 
   // Employee Performance Ranking
   const employeePerformance = [...employees].sort((a, b) => (b.totalSales || 0) - (a.totalSales || 0));
+  const current30Start = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const prior30Start = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
+  const current30Profit = orders.filter(o => { const d = new Date(o.createdAt || ''); return d >= current30Start && d <= new Date(); }).reduce((s,o)=>s + (Number(o.profit)||0),0);
+  const current30Revenue = orders.filter(o => { const d = new Date(o.createdAt || ''); return d >= current30Start && d <= new Date(); }).reduce((s,o)=>s + (Number(o.totalAmount)||0),0);
+  const prior30Revenue = orders.filter(o => { const d = new Date(o.createdAt || ''); return d >= prior30Start && d < current30Start; }).reduce((s,o)=>s + (Number(o.totalAmount)||0),0);
+  const revenueGrowth30 = prior30Revenue > 0 ? ((current30Revenue - prior30Revenue) / prior30Revenue) * 100 : null;
+  const current30Customers = new Set(orders.filter(o => { const d = new Date(o.createdAt || ''); return d >= current30Start && d <= new Date(); }).map(o => String(o.customerId || o.customerName || '').trim()).filter(Boolean));
+  const prior30Customers = new Set(orders.filter(o => { const d = new Date(o.createdAt || ''); return d >= prior30Start && d < current30Start; }).map(o => String(o.customerId || o.customerName || '').trim()).filter(Boolean));
+  const customerGrowth30 = prior30Customers.size > 0 ? ((current30Customers.size - prior30Customers.size) / prior30Customers.size) * 100 : null;
+  const prior30Profit = orders.filter(o => { const d = new Date(o.createdAt || ''); return d >= prior30Start && d < current30Start; }).reduce((s,o)=>s + (Number(o.profit)||0),0);
+  const monthlyProfitChange30 = prior30Profit > 0 ? ((current30Profit - prior30Profit) / prior30Profit) * 100 : null;
+
 
   return (
     <div className="space-y-6">
@@ -126,11 +140,11 @@ export const OwnerView: React.FC<OwnerViewProps> = ({
             <div className="flex items-center gap-2">
               <span className="text-xs font-bold text-white">{d.healthScore || 'Business Health Score'}</span>
               <span className="text-[10px] font-extrabold text-emerald-400 bg-emerald-500/20 px-2 py-0.5 rounded-full">
-                {healthScore}/100
+                {healthScore === null ? 'No baseline' : `${healthScore}/100`}
               </span>
             </div>
             <p className="text-[10px] text-slate-400 mt-0.5">
-              {d.netProfitMargin || 'Net Profit Margin'}: <strong className="text-emerald-400">{marginPct.toFixed(1)}%</strong> | {d.foodCogs || 'Food COGS'}: <strong className="text-amber-400">{cogsPct.toFixed(1)}%</strong>
+              {d.netProfitMargin || 'Net Profit Margin'}: <strong className="text-emerald-400">{marginPct === null ? 'No data' : `${marginPct.toFixed(1)}%`}</strong> | {d.foodCogs || 'Food COGS'}: <strong className="text-amber-400">{cogsPct === null ? 'No data' : `${cogsPct.toFixed(1)}%`}</strong>
             </p>
           </div>
         </div>
@@ -142,8 +156,8 @@ export const OwnerView: React.FC<OwnerViewProps> = ({
         <KPICard
           title={d.totalSales || 'Total Sales'}
           value={`$${totalSales.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-          change={14.8}
-          changeLabel="vs last month"
+          change={revenueGrowth30 === null ? 0 : revenueGrowth30}
+          changeLabel={revenueGrowth30 === null ? 'No prior-period baseline' : '30-day revenue change'}
           icon={DollarSign}
           iconColor="emerald"
         />
@@ -171,7 +185,8 @@ export const OwnerView: React.FC<OwnerViewProps> = ({
         <KPICard
           title={d.monthlyProfit || 'Monthly Profit'}
           value={`$${monthlyProfit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-          change={18.2}
+          change={monthlyProfitChange30 === null ? 0 : monthlyProfitChange30}
+          changeLabel={monthlyProfitChange30 === null ? 'No prior-period baseline' : '30-day profit change'}
           icon={Award}
           iconColor="purple"
         />
@@ -202,8 +217,8 @@ export const OwnerView: React.FC<OwnerViewProps> = ({
 
         <KPICard
           title={d.customerGrowth || 'Customer Growth'}
-          value="+24.6%"
-          sublabel="88.4% Customer Retention Rate"
+          value={customerGrowth30 === null ? 'No baseline' : `${customerGrowth30 >= 0 ? '+' : ''}${customerGrowth30.toFixed(1)}%`}
+          sublabel={customerGrowth30 === null ? 'Insufficient prior-period customer data' : '30-day customer growth'}
           icon={Users}
           iconColor="teal"
         />
@@ -260,7 +275,7 @@ export const OwnerView: React.FC<OwnerViewProps> = ({
 
           <div className="space-y-2">
             {lowStockIngredients.length === 0 && lowStockProducts.length === 0 ? (
-              <p className="text-xs text-slate-500 text-center py-4">All ingredients and products are currently well-stocked!</p>
+              <p className="text-xs text-slate-500 text-center py-4">{t.legacyUi.allStocked}</p>
             ) : (
               [...lowStockIngredients, ...lowStockProducts].slice(0, 4).map((item: any) => (
                 <div key={item.id} className="flex items-center justify-between bg-slate-950 p-3 rounded-2xl border border-slate-800 text-xs">

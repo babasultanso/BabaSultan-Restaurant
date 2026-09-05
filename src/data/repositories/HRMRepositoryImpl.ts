@@ -2,14 +2,14 @@ import {
   collection,
   doc,
   getDocs,
-  getDoc,
   setDoc,
+  getDoc,
   addDoc,
   updateDoc,
-  deleteDoc,
   query,
   where,
-  orderBy
+  orderBy,
+  deleteDoc
 } from 'firebase/firestore';
 import { db, COLLECTIONS, getAuthToken, getEffectiveBranchId } from '../../lib/firebase';
 import { getApiUrl } from '../../lib/apiConfig';
@@ -20,6 +20,7 @@ import {
   AttendanceRecord,
   Shift,
   PayrollRecord,
+  PayFrequency,
   LeaveRequest,
   PerformanceRecord,
   EmployeeDocument,
@@ -34,9 +35,10 @@ export class HRMRepositoryImpl implements IHRMRepository {
 
   async getAllEmployees(branchId?: string): Promise<Employee[]> {
     try {
-      const q = branchId && branchId !== 'all'
-        ? query(collection(db, COLLECTIONS.EMPLOYEES), where('branchId', '==', branchId))
-        : collection(db, COLLECTIONS.EMPLOYEES);
+      const effectiveBranch = branchId && branchId !== 'all' ? branchId : getEffectiveBranchId();
+      const q = effectiveBranch === 'all'
+        ? collection(db, COLLECTIONS.EMPLOYEES)
+        : query(collection(db, COLLECTIONS.EMPLOYEES), where('branchId', '==', effectiveBranch));
       const snap = await getDocs(q);
       const employees: Employee[] = snap.docs.map((d) => {
         const data = d.data();
@@ -50,9 +52,9 @@ export class HRMRepositoryImpl implements IHRMRepository {
           phone: data.phone || '',
           email: data.email || '',
           address: data.address || '',
-          dateOfBirth: data.dateOfBirth || '1995-01-01',
-          gender: data.gender || 'Male',
-          nationality: data.nationality || 'Somali',
+          dateOfBirth: data.dateOfBirth || '',
+          gender: data.gender || '',
+          nationality: data.nationality || '',
           hireDate: data.hireDate || getMogadishuDateString(),
           jobTitle: data.jobTitle || data.role || 'Staff Member',
           department: data.department || 'General Operations',
@@ -61,14 +63,15 @@ export class HRMRepositoryImpl implements IHRMRepository {
           employmentStatus: data.employmentStatus || 'Active',
           status: data.status || (data.employmentStatus === 'Active' ? 'active' : 'on_leave'),
           role: data.role || 'Employee',
-          salary: Number(data.salary) || 500,
+          salary: Number.isFinite(Number(data.salary)) ? Number(data.salary) : 0,
+          payFrequency: ['daily', 'weekly', 'monthly'].includes(String(data.payFrequency || '').toLowerCase()) ? String(data.payFrequency).toLowerCase() : 'monthly',
           totalSales: Number(data.totalSales) || 0,
           ordersCount: Number(data.ordersCount) || 0,
           bankAccount: data.bankAccount,
           emergencyContact: data.emergencyContact || {
-            name: 'Emergency Contact',
-            relationship: 'Family',
-            phone: data.phone || '+252 61 000 0000'
+            name: '',
+            relationship: '',
+            phone: data.phone || ''
           },
           notes: data.notes || '',
           createdAt: data.createdAt || new Date().toISOString(),
@@ -98,9 +101,9 @@ export class HRMRepositoryImpl implements IHRMRepository {
       phone: data.phone || '',
       email: data.email || '',
       address: data.address || '',
-      dateOfBirth: data.dateOfBirth || '1995-01-01',
-      gender: data.gender || 'Male',
-      nationality: data.nationality || 'Somali',
+      dateOfBirth: data.dateOfBirth || '',
+      gender: data.gender || '',
+      nationality: data.nationality || '',
       hireDate: data.hireDate || getMogadishuDateString(),
       jobTitle: data.jobTitle || data.role || 'Staff Member',
       department: data.department || 'General Operations',
@@ -109,7 +112,7 @@ export class HRMRepositoryImpl implements IHRMRepository {
       employmentStatus: data.employmentStatus || 'Active',
       status: data.status || (data.employmentStatus === 'Active' ? 'active' : 'on_leave'),
       role: data.role || 'Employee',
-      salary: Number(data.salary) || 500,
+      salary: Number.isFinite(Number(data.salary)) ? Number(data.salary) : 0,
       totalSales: Number(data.totalSales) || 0,
       ordersCount: Number(data.ordersCount) || 0,
       bankAccount: data.bankAccount,
@@ -159,7 +162,7 @@ export class HRMRepositoryImpl implements IHRMRepository {
 
   async deleteEmployee(id: string): Promise<boolean> {
     const ref = doc(db, COLLECTIONS.EMPLOYEES, id);
-    await deleteDoc(ref);
+    await updateDoc(ref, { isDeleted: true, isArchived: true, employmentStatus: 'Inactive', status: 'inactive', deletedAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
     return true;
   }
 
@@ -167,8 +170,12 @@ export class HRMRepositoryImpl implements IHRMRepository {
   // ATTENDANCE
   // ==========================================
 
-  async getAttendanceRecords(filter?: { employeeId?: string; date?: string; month?: string }): Promise<AttendanceRecord[]> {
-    const snap = await getDocs(collection(db, COLLECTIONS.HRM_ATTENDANCE));
+  async getAttendanceRecords(filter?: { employeeId?: string; date?: string; month?: string; branchId?: string }): Promise<AttendanceRecord[]> {
+    const effectiveBranch = filter?.branchId && filter.branchId !== 'all' ? filter.branchId : getEffectiveBranchId();
+    const q = effectiveBranch === 'all'
+      ? collection(db, COLLECTIONS.HRM_ATTENDANCE)
+      : query(collection(db, COLLECTIONS.HRM_ATTENDANCE), where('branchId', '==', effectiveBranch));
+    const snap = await getDocs(q);
     let records: AttendanceRecord[] = snap.docs.map((d) => ({
       id: d.id,
       ...d.data()
@@ -188,143 +195,36 @@ export class HRMRepositoryImpl implements IHRMRepository {
   }
 
   async clockIn(employeeId: string, employeeName: string, notes?: string): Promise<AttendanceRecord> {
-    const today = getMogadishuDateString();
-    const existing = await this.getAttendanceRecords({ employeeId, date: today });
-    const active = existing.find((r) => !r.clockOut);
-    if (active) return active;
-
-    const docRef = doc(collection(db, COLLECTIONS.HRM_ATTENDANCE));
-    const now = new Date();
-    const clockInTimeStr = now.toISOString();
-
-    // Determine if late (after 08:30 AM)
-    const scheduledHour = 8;
-    const scheduledMinute = 30;
-    const isLate = now.getHours() > scheduledHour || (now.getHours() === scheduledHour && now.getMinutes() > scheduledMinute);
-
-    const empDoc = await this.getEmployeeById(employeeId);
-    const effectiveBranchId = getEffectiveBranchId(empDoc?.branchId || empDoc?.branch);
-
-    const record: AttendanceRecord = {
-      id: docRef.id,
-      employeeId,
-      employeeName,
-      branchId: effectiveBranchId,
-      branch: empDoc?.branch || effectiveBranchId,
-      date: today,
-      clockIn: clockInTimeStr,
-      breakTimeMinutes: 0,
-      workingHours: 0,
-      overtimeHours: 0,
-      isLate,
-      isEarlyLeave: false,
-      status: 'present',
-      notes: notes || '',
-      createdAt: clockInTimeStr
-    };
-
-    await setDoc(docRef, record);
-    return record;
+    const token = await getAuthToken();
+    const response = await fetch(getApiUrl('/api/hrm/attendance/clock-in'), { method:'POST', headers:{'Content-Type':'application/json', ...(token?{'Authorization':`Bearer ${token}`}:{})}, body:JSON.stringify({employeeId, employeeName, notes}) });
+    const data = await response.json().catch(()=>({}));
+    if (!response.ok) throw new Error(data.error || `Attendance clock-in failed (${response.status})`);
+    return data.attendance as AttendanceRecord;
   }
 
   async clockOut(attendanceId: string, notes?: string): Promise<AttendanceRecord> {
-    const ref = doc(db, COLLECTIONS.HRM_ATTENDANCE, attendanceId);
-    const snap = await getDoc(ref);
-    if (!snap.exists()) throw new Error('Attendance record not found');
-
-    const data = snap.data() as AttendanceRecord;
-    const now = new Date();
-    const clockOutTimeStr = now.toISOString();
-
-    const start = new Date(data.clockIn).getTime();
-    const end = now.getTime();
-    const diffMs = end - start;
-    const diffHours = Math.max(0, diffMs / (1000 * 60 * 60) - (data.breakTimeMinutes || 0) / 60);
-
-    const workingHours = Number(diffHours.toFixed(2));
-    const overtimeHours = Number(Math.max(0, workingHours - 8).toFixed(2));
-    const isEarlyLeave = now.getHours() < 16; // Leaving before 4:00 PM
-
-    const updated: Partial<AttendanceRecord> = {
-      clockOut: clockOutTimeStr,
-      workingHours,
-      overtimeHours,
-      isEarlyLeave,
-      notes: notes ? (data.notes ? `${data.notes} | ${notes}` : notes) : data.notes
-    };
-
-    await updateDoc(ref, updated);
-    return { ...data, ...updated } as AttendanceRecord;
+    const token = await getAuthToken();
+    const response = await fetch(getApiUrl(`/api/hrm/attendance/${attendanceId}/clock-out`), { method:'POST', headers:{'Content-Type':'application/json', ...(token?{'Authorization':`Bearer ${token}`}:{})}, body:JSON.stringify({notes}) });
+    const data = await response.json().catch(()=>({}));
+    if (!response.ok) throw new Error(data.error || `Attendance clock-out failed (${response.status})`);
+    return data.attendance as AttendanceRecord;
   }
 
   async recordAttendanceManually(record: Omit<AttendanceRecord, 'id' | 'createdAt'>): Promise<AttendanceRecord> {
-    const docRef = doc(collection(db, COLLECTIONS.HRM_ATTENDANCE));
-    const now = new Date().toISOString();
-    const effectiveBranchId = getEffectiveBranchId(record.branchId || (record as any).branch);
-    const newRecord: AttendanceRecord = {
-      ...record,
-      branchId: effectiveBranchId,
-      branch: record.branch || effectiveBranchId,
-      id: docRef.id,
-      createdAt: now
-    };
-    await setDoc(docRef, newRecord);
-    return newRecord;
+    const token = await getAuthToken();
+    const response = await fetch(getApiUrl('/api/hrm/attendance/manual'), { method:'POST', headers:{'Content-Type':'application/json', ...(token?{'Authorization':`Bearer ${token}`}:{})}, body:JSON.stringify({record}) });
+    const data = await response.json().catch(()=>({}));
+    if (!response.ok) throw new Error(data.error || `Manual attendance failed (${response.status})`);
+    return data.attendance as AttendanceRecord;
   }
 
-  // ==========================================
-  // SHIFT MANAGEMENT
-  // ==========================================
-
   async getAllShifts(): Promise<Shift[]> {
-    const snap = await getDocs(collection(db, COLLECTIONS.HRM_SHIFTS));
-    if (snap.empty) {
-      // Create default standard shifts if empty
-      const defaultShifts: Omit<Shift, 'id' | 'createdAt'>[] = [
-        {
-          name: 'Morning Shift',
-          type: 'morning',
-          startTime: '08:00',
-          endTime: '16:00',
-          workingHours: 8,
-          department: 'Operations',
-          assignedEmployeeIds: [],
-          status: 'active'
-        },
-        {
-          name: 'Evening Shift',
-          type: 'evening',
-          startTime: '16:00',
-          endTime: '00:00',
-          workingHours: 8,
-          department: 'Kitchen & Dining',
-          assignedEmployeeIds: [],
-          status: 'active'
-        },
-        {
-          name: 'Night Shift',
-          type: 'night',
-          startTime: '00:00',
-          endTime: '08:00',
-          workingHours: 8,
-          department: 'Security & Sanitation',
-          assignedEmployeeIds: [],
-          status: 'active'
-        }
-      ];
-
-      const created: Shift[] = [];
-      for (const s of defaultShifts) {
-        const item = await this.createShift(s);
-        created.push(item);
-      }
-      return created;
-    }
-
-    return snap.docs.map((d) => ({
-      id: d.id,
-      ...d.data()
-    } as Shift));
+    const branchId = getEffectiveBranchId();
+    const shiftsQuery = branchId === 'all'
+      ? query(collection(db, COLLECTIONS.HRM_SHIFTS))
+      : query(collection(db, COLLECTIONS.HRM_SHIFTS), where('branchId', '==', branchId));
+    const snap = await getDocs(shiftsQuery);
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Shift));
   }
 
   async createShift(shift: Omit<Shift, 'id' | 'createdAt'>): Promise<Shift> {
@@ -362,7 +262,11 @@ export class HRMRepositoryImpl implements IHRMRepository {
   // ==========================================
 
   async getPayrollRecords(filter?: { month?: string; employeeId?: string; status?: string }): Promise<PayrollRecord[]> {
-    const snap = await getDocs(collection(db, COLLECTIONS.HRM_PAYROLL));
+    const branchId = getEffectiveBranchId();
+    const payrollQuery = branchId === 'all'
+      ? query(collection(db, COLLECTIONS.HRM_PAYROLL))
+      : query(collection(db, COLLECTIONS.HRM_PAYROLL), where('branchId', '==', branchId));
+    const snap = await getDocs(payrollQuery);
     let records: PayrollRecord[] = snap.docs.map((d) => ({
       id: d.id,
       ...d.data()
@@ -381,94 +285,76 @@ export class HRMRepositoryImpl implements IHRMRepository {
     return records.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }
 
-  async generateMonthlyPayroll(month: string): Promise<PayrollRecord[]> {
-    const employees = await this.getAllEmployees();
-    const attendance = await this.getAttendanceRecords({ month });
-    const generated: PayrollRecord[] = [];
-
-    for (const emp of employees) {
-      // Calculate total overtime hours worked in month
-      const empAttendance = attendance.filter((a) => a.employeeId === emp.id);
-      const totalOvertimeHours = empAttendance.reduce((acc, a) => acc + (a.overtimeHours || 0), 0);
-
-      const hourlyRate = (emp.salary || 500) / 160;
-      const overtimePay = Number((totalOvertimeHours * hourlyRate * 1.5).toFixed(2));
-      const bonuses = 0;
-      const deductions = 0;
-      const advances = 0;
-
-      const netSalary = Number((emp.salary + overtimePay + bonuses - deductions - advances).toFixed(2));
-
-      const payrollNumber = `PAY-${month}-${emp.employeeId || emp.id.substring(0, 5)}`;
-      const docRef = doc(db, COLLECTIONS.HRM_PAYROLL, `${month}_${emp.id}`);
-
-      const effectiveBranchId = getEffectiveBranchId(emp.branchId || emp.branch);
-      const record: PayrollRecord = {
-        id: docRef.id,
-        payrollNumber,
-        employeeId: emp.id,
-        employeeName: emp.fullName,
-        jobTitle: emp.jobTitle,
-        department: emp.department,
-        branchId: effectiveBranchId,
-        branch: emp.branch || effectiveBranchId,
-        month,
-        basicSalary: emp.salary,
-        overtimePay,
-        bonuses,
-        deductions,
-        advances,
-        netSalary,
-        paymentStatus: 'pending',
-        createdAt: new Date().toISOString()
-      };
-
-      await setDoc(docRef, record, { merge: true });
-      generated.push(record);
+  async generatePayroll(frequency: PayFrequency, period: string): Promise<PayrollRecord[]> {
+    const branchId = getEffectiveBranchId();
+    const token = await getAuthToken();
+    const idempotencyKey = `payroll-process:${branchId}:${frequency}:${period}`;
+    const response = await fetch(getApiUrl('/api/payroll/process'), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': idempotencyKey,
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify({ frequency, period, branchId })
+    });
+    if (!response.ok) {
+      let message = 'Payroll processing failed';
+      try { message = (await response.json())?.error || message; } catch {}
+      throw new Error(message);
     }
-
-    return generated;
+    const result = await response.json();
+    return Array.isArray(result?.payroll) ? result.payroll as PayrollRecord[] : [];
   }
 
-  async updatePayrollRecord(id: string, data: Partial<PayrollRecord>): Promise<PayrollRecord> {
-    const ref = doc(db, COLLECTIONS.HRM_PAYROLL, id);
-    await setDoc(ref, data, { merge: true });
-    const snap = await getDoc(ref);
-    return { id: snap.id, ...snap.data() } as PayrollRecord;
+  async generateMonthlyPayroll(month: string): Promise<PayrollRecord[]> {
+    return this.generatePayroll('monthly', month);
+  }
+
+  async updatePayrollRecord(_id: string, _data: Partial<PayrollRecord>): Promise<PayrollRecord> {
+    throw new Error('Direct payroll mutation is disabled. Payroll records are server-authoritative; use the payroll backend workflow.');
   }
 
   async markPayrollPaid(id: string, paymentMethod: string): Promise<PayrollRecord> {
     const now = new Date().toISOString();
-    const updated = await this.updatePayrollRecord(id, {
-      paymentStatus: 'paid',
-      paymentMethod,
-      paymentDate: now
-    });
+    const payrollRef = doc(db, COLLECTIONS.HRM_PAYROLL, id);
+    const payrollSnap = await getDoc(payrollRef);
+    if (!payrollSnap.exists()) throw new Error('Payroll record not found');
+    const current = { id: payrollSnap.id, ...payrollSnap.data() } as PayrollRecord;
+    if (current.paymentStatus === 'paid') return current;
 
-    try {
-      const token = await getAuthToken();
-      await fetch(getApiUrl('/api/salaries'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-        },
-        body: JSON.stringify({
-          salaryData: {
-            employeeId: updated.employeeId,
-            employeeName: updated.employeeName,
-            period: updated.month,
-            netPaid: updated.netSalary,
-            paymentMethod,
-            branchId: updated.branchId || (updated as any).branch || ''
-          }
-        })
-      });
-    } catch (e) {
-      console.warn('Salary disbursement backend log note:', e);
+    const token = await getAuthToken();
+    const response = await fetch(getApiUrl('/api/salaries'), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': `payroll-payment:${id}`,
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify({
+        salaryData: {
+          payrollId: id,
+          employeeId: current.employeeId,
+          employeeName: current.employeeName,
+          period: current.periodStart || current.month,
+          periodStart: current.periodStart,
+          periodEnd: current.periodEnd,
+          payFrequency: current.payFrequency,
+          netPaid: current.netSalary,
+          paymentMethod,
+          branchId: current.branchId || (current as any).branch || ''
+        }
+      })
+    });
+    if (!response.ok) {
+      let message = 'Salary disbursement failed';
+      try { message = (await response.json())?.error || message; } catch {}
+      throw new Error(message);
     }
 
-    return updated;
+    // Payroll status is finalized by the trusted backend transaction; direct client writes are blocked by Firestore Rules.
+    const finalSnap = await getDoc(payrollRef);
+    return { id: finalSnap.id, ...finalSnap.data() } as PayrollRecord;
   }
 
   // ==========================================
@@ -476,7 +362,11 @@ export class HRMRepositoryImpl implements IHRMRepository {
   // ==========================================
 
   async getLeaveRequests(filter?: { employeeId?: string; status?: string }): Promise<LeaveRequest[]> {
-    const snap = await getDocs(collection(db, COLLECTIONS.HRM_LEAVE_REQUESTS));
+    const branchId = getEffectiveBranchId();
+    const leaveConstraints = branchId !== 'all' ? [where('branchId', '==', branchId)] : [];
+    if (filter?.employeeId) leaveConstraints.push(where('employeeId', '==', filter.employeeId));
+    const leaveQuery = query(collection(db, COLLECTIONS.HRM_LEAVE_REQUESTS), ...leaveConstraints);
+    const snap = await getDocs(leaveQuery);
     let requests: LeaveRequest[] = snap.docs.map((d) => ({
       id: d.id,
       ...d.data()
@@ -526,7 +416,7 @@ export class HRMRepositoryImpl implements IHRMRepository {
     const now = new Date().toISOString();
 
     const updated: Partial<LeaveRequest> = {
-      workflowStatus: 'HR Approval',
+      workflowStatus: 'Manager Approval',
       managerApproval: {
         approvedBy,
         approvedAt: now,
@@ -580,7 +470,11 @@ export class HRMRepositoryImpl implements IHRMRepository {
   // ==========================================
 
   async getPerformanceRecords(filter?: { employeeId?: string; period?: string }): Promise<PerformanceRecord[]> {
-    const snap = await getDocs(collection(db, COLLECTIONS.HRM_PERFORMANCE));
+    const branchId = getEffectiveBranchId();
+    const performanceConstraints = branchId !== 'all' ? [where('branchId', '==', branchId)] : [];
+    if (filter?.employeeId) performanceConstraints.push(where('employeeId', '==', filter.employeeId));
+    const performanceQuery = query(collection(db, COLLECTIONS.HRM_PERFORMANCE), ...performanceConstraints);
+    const snap = await getDocs(performanceQuery);
     let records: PerformanceRecord[] = snap.docs.map((d) => ({
       id: d.id,
       ...d.data()
@@ -619,7 +513,10 @@ export class HRMRepositoryImpl implements IHRMRepository {
   // ==========================================
 
   async getEmployeeDocuments(employeeId: string): Promise<EmployeeDocument[]> {
-    const snap = await getDocs(collection(db, COLLECTIONS.HRM_EMPLOYEE_DOCUMENTS));
+    const branchId = getEffectiveBranchId();
+    const constraints = branchId !== 'all' ? [where('branchId', '==', branchId)] : [];
+    constraints.push(where('employeeId', '==', employeeId));
+    const snap = await getDocs(query(collection(db, COLLECTIONS.HRM_EMPLOYEE_DOCUMENTS), ...constraints));
     const docs = snap.docs
       .map((d) => ({ id: d.id, ...d.data() } as EmployeeDocument))
       .filter((d) => d.employeeId === employeeId);
@@ -653,7 +550,11 @@ export class HRMRepositoryImpl implements IHRMRepository {
   // ==========================================
 
   async getNotifications(employeeId?: string): Promise<HRNotification[]> {
-    const snap = await getDocs(collection(db, COLLECTIONS.HRM_EMPLOYEE_NOTIFICATIONS));
+    const branchId = getEffectiveBranchId();
+    const notificationConstraints = branchId !== 'all' ? [where('branchId', '==', branchId)] : [];
+    if (employeeId) notificationConstraints.push(where('employeeId', '==', employeeId));
+    const notificationsQuery = query(collection(db, COLLECTIONS.HRM_EMPLOYEE_NOTIFICATIONS), ...notificationConstraints);
+    const snap = await getDocs(notificationsQuery);
     let notifs: HRNotification[] = snap.docs.map((d) => ({ id: d.id, ...d.data() } as HRNotification));
     if (employeeId) {
       notifs = notifs.filter((n) => !n.employeeId || n.employeeId === employeeId);

@@ -1,21 +1,36 @@
-import { initializeApp, getApps, cert } from 'firebase-admin/app';
+import { initializeApp, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 import { getMessaging } from 'firebase-admin/messaging';
 import firebaseConfig from '../firebase-applet-config.json';
 
 export function getFirebaseProjectId(): string {
-  return (
-    process.env.VITE_FIREBASE_PROJECT_ID ||
+  const isProduction = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
+  if (isProduction) {
+    const explicitProductionId = String(process.env.FIREBASE_PROJECT_ID || '').trim();
+    if (!explicitProductionId) {
+      throw new Error('FIREBASE_PROJECT_ID is required in production; refusing implicit project selection or bundled-project fallback.');
+    }
+    return explicitProductionId;
+  }
+
+  const explicit =
     process.env.FIREBASE_PROJECT_ID ||
     process.env.GCLOUD_PROJECT ||
     process.env.GCP_PROJECT ||
-    firebaseConfig.projectId ||
-    'babasultan-restaurant'
-  );
+    process.env.VITE_FIREBASE_PROJECT_ID;
+
+  if (explicit && explicit.trim()) return explicit.trim();
+  return firebaseConfig.projectId;
 }
 
 export function getFirebaseApiKey(): string {
+  const isProduction = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
+  if (isProduction) {
+    const explicit = String(process.env.FIREBASE_API_KEY || '').trim();
+    if (!explicit) throw new Error('FIREBASE_API_KEY is required in production for REST auth fallback.');
+    return explicit;
+  }
   return (
     process.env.VITE_FIREBASE_API_KEY ||
     process.env.FIREBASE_API_KEY ||
@@ -24,28 +39,31 @@ export function getFirebaseApiKey(): string {
   );
 }
 
-function initializeFirebaseAdmin() {
-  if (getApps().length > 0) return;
-
-  const projectId = getFirebaseProjectId();
-  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-  const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n');
-
-  if (clientEmail && privateKey) {
-    initializeApp({
-      credential: cert({ projectId, clientEmail, privateKey }),
-      projectId
-    });
-    return;
-  }
-
-  // On Google-managed runtimes (e.g. Cloud Run), fall back to ADC.
-  // On Render, configure FIREBASE_CLIENT_EMAIL and FIREBASE_PRIVATE_KEY.
-  initializeApp({ projectId });
-}
-
 export class InMemoryFirestoreMock {
   private store: Map<string, Map<string, any>> = new Map();
+
+  constructor() {
+    const coreAccounts: Array<[string, { id: string; code: string; name: string; type: string; balance: number; branchId: string }]> = [
+      ['acc_cash', { id: 'acc_cash', code: '1010', name: 'Cash on Hand (Register)', type: 'Asset', balance: 0, branchId: 'all' }],
+      ['acc_bank', { id: 'acc_bank', code: '1020', name: 'Primary Bank', type: 'Asset', balance: 0, branchId: 'all' }],
+      ['acc_inventory', { id: 'acc_inventory', code: '1030', name: 'Food & Beverage Inventory Asset', type: 'Asset', balance: 0, branchId: 'all' }],
+      ['acc_ar', { id: 'acc_ar', code: '1200', name: 'Accounts Receivable', type: 'Asset', balance: 0, branchId: 'all' }],
+      ['acc_ap', { id: 'acc_ap', code: '2010', name: 'Accounts Payable', type: 'Liability', balance: 0, branchId: 'all' }],
+      ['acc_equity', { id: 'acc_equity', code: '3000', name: 'Owner Equity', type: 'Equity', balance: 0, branchId: 'all' }],
+      ['acc_revenue', { id: 'acc_revenue', code: '4010', name: 'Sales Revenue', type: 'Revenue', balance: 0, branchId: 'all' }],
+      ['acc_cogs', { id: 'acc_cogs', code: '5010', name: 'Cost of Goods Sold', type: 'COGS', balance: 0, branchId: 'all' }],
+      ['acc_expense', { id: 'acc_expense', code: '6100', name: 'General Expense', type: 'Expense', balance: 0, branchId: 'all' }],
+      ['acc_payroll_expense', { id: 'acc_payroll_expense', code: '6120', name: 'Salaries & Wages Expense', type: 'Expense', balance: 0, branchId: 'all' }],
+      ['acc_bank_fees', { id: 'acc_bank_fees', code: '6200', name: 'Bank Charges & Merchant Fees', type: 'Expense', balance: 0, branchId: 'all' }],
+      ['acc_tax', { id: 'acc_tax', code: '2100', name: 'Tax Payable', type: 'Liability', balance: 0, branchId: 'all' }],
+      ['acc_delivery_revenue', { id: 'acc_delivery_revenue', code: '4020', name: 'Delivery Revenue', type: 'Revenue', balance: 0, branchId: 'all' }],
+      ['acc_driver_expense', { id: 'acc_driver_expense', code: '6110', name: 'Driver Earnings Expense', type: 'Expense', balance: 0, branchId: 'all' }],
+      ['acc_driver_payable', { id: 'acc_driver_payable', code: '2020', name: 'Driver Payable', type: 'Liability', balance: 0, branchId: 'all' }],
+      ['acc_wallet_liability', { id: 'acc_wallet_liability', code: '2030', name: 'Customer Wallet Liability', type: 'Liability', balance: 0, branchId: 'all' }]
+    ];
+    const accountMap = this.getColMap('accounts');
+    for (const [id, data] of coreAccounts) accountMap.set(id, JSON.parse(JSON.stringify(data)));
+  }
 
   private getColMap(colName: string): Map<string, any> {
     if (!this.store.has(colName)) {
@@ -122,6 +140,8 @@ export class InMemoryFirestoreMock {
                   const val = data[filter.field];
                   if (filter.op === '==') {
                     if (val !== filter.value) return false;
+                  } else if (filter.op === 'in') {
+                    if (!Array.isArray(filter.value) || !filter.value.includes(val)) return false;
                   } else if (filter.op === '>=') {
                     if (!(val >= filter.value)) return false;
                   } else if (filter.op === '<=') {
@@ -234,12 +254,22 @@ export function getAdminDb(): any {
   if (process.env.VITEST === 'true' || process.env.NODE_ENV === 'test') {
     return inMemoryTestDb;
   }
-  initializeFirebaseAdmin();
+  if (getApps().length === 0) {
+    const projectId = getFirebaseProjectId();
+    initializeApp({
+      projectId
+    });
+  }
   return getFirestore();
 }
 
 export function getAdminAuth() {
-  initializeFirebaseAdmin();
+  if (getApps().length === 0) {
+    const projectId = getFirebaseProjectId();
+    initializeApp({
+      projectId
+    });
+  }
   return getAuth();
 }
 
@@ -251,6 +281,11 @@ export function getAdminMessaging(): any {
       }
     };
   }
-  initializeFirebaseAdmin();
+  if (getApps().length === 0) {
+    const projectId = getFirebaseProjectId();
+    initializeApp({
+      projectId
+    });
+  }
   return getMessaging();
 }

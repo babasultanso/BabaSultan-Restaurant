@@ -1,3 +1,5 @@
+import { useAuth } from '../../context/AuthContext';
+import { translateRawUi } from '../../../i18n/rawUi';
 import React, { useState, useEffect } from 'react';
 import { CustomerReward, MembershipLevel } from '../../../domain/entities/customer';
 import { CustomerRepositoryImpl } from '../../../data/repositories/CustomerRepositoryImpl';
@@ -19,6 +21,7 @@ import {
 const repo = new CustomerRepositoryImpl();
 
 export const LoyaltyProgramView: React.FC = () => {
+  const { t } = useAuth();
   const [rewards, setRewards] = useState<CustomerReward[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -117,10 +120,10 @@ export const LoyaltyProgramView: React.FC = () => {
         <div>
           <h2 className="text-xl font-black text-white flex items-center gap-2.5">
             <Award className="w-6 h-6 text-purple-400" />
-            <span>Loyalty & Membership Program</span>
+            <span>{t.legacyUi.loyaltyMembershipProgram}</span>
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            Configure tier progression levels, point multipliers, and redeemable rewards catalog
+            {translateRawUi('Configure tier progression levels, point multipliers, and redeemable rewards catalog')}
           </p>
         </div>
 
@@ -129,7 +132,7 @@ export const LoyaltyProgramView: React.FC = () => {
           className="px-4 py-2.5 rounded-xl bg-purple-500 hover:bg-purple-400 text-slate-950 font-bold text-xs flex items-center gap-2 cursor-pointer shadow-lg shadow-purple-500/20"
         >
           <Plus className="w-4 h-4" />
-          <span>Create Reward Voucher</span>
+          <span>{t.legacyUi.createRewardVoucher}</span>
         </button>
       </div>
 
@@ -137,7 +140,7 @@ export const LoyaltyProgramView: React.FC = () => {
       <div className="space-y-3">
         <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
           <Crown className="w-4 h-4 text-amber-400" />
-          <span>Membership Level Tiers & Earning Multipliers</span>
+          <span>{t.legacyUi.membershipLevelTiers}</span>
         </h3>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3">
@@ -164,21 +167,21 @@ export const LoyaltyProgramView: React.FC = () => {
         <div className="flex items-center justify-between">
           <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
             <Gift className="w-4 h-4 text-emerald-400" />
-            <span>Redeemable Rewards Catalog</span>
+            <span>{t.legacyUi.redeemableRewards}</span>
           </h3>
           <button onClick={loadRewards} className="text-xs text-slate-400 hover:text-white flex items-center gap-1">
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-            <span>Sync</span>
+            <span>{translateRawUi('Sync')}</span>
           </button>
         </div>
 
         {loading ? (
           <div className="p-8 text-center text-slate-400 bg-slate-900/50 rounded-2xl border border-slate-800 text-xs">
-            Loading rewards catalog...
+            {translateRawUi('Loading rewards catalog...')}
           </div>
         ) : rewards.length === 0 ? (
           <div className="p-8 text-center text-slate-400 bg-slate-900/50 rounded-2xl border border-slate-800 text-xs">
-            No rewards in catalog yet. Click "Create Reward Voucher" to add one.
+            {translateRawUi('No rewards in catalog yet. Click "Create Reward Voucher" to add one.')}
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -248,19 +251,19 @@ export const LoyaltyProgramView: React.FC = () => {
 
             <form onSubmit={handleSaveReward} className="space-y-4">
               <div>
-                <label className="text-xs font-semibold text-slate-300 mb-1 block">Reward Title (English) *</label>
+                <label className="text-xs font-semibold text-slate-300 mb-1 block">{t.legacyUi.rewardTitleEnglish}</label>
                 <input
                   type="text"
                   value={formData.rewardName}
                   onChange={(e) => setFormData({ ...formData, rewardName: e.target.value })}
-                  placeholder="e.g. Free Suqaar Dish"
+                  placeholder={translateRawUi('e.g. Free Suqaar Dish')}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-purple-500"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs font-semibold text-slate-300 mb-1 block">Points Required *</label>
+                  <label className="text-xs font-semibold text-slate-300 mb-1 block">{t.legacyUi.pointsRequired}</label>
                   <input
                     type="number"
                     value={formData.pointsRequired}
@@ -270,20 +273,20 @@ export const LoyaltyProgramView: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="text-xs font-semibold text-slate-300 mb-1 block">Discount Type</label>
+                  <label className="text-xs font-semibold text-slate-300 mb-1 block">{t.legacyUi.discountType}</label>
                   <select
                     value={formData.discountType}
                     onChange={(e: any) => setFormData({ ...formData, discountType: e.target.value })}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-300 focus:outline-none focus:border-purple-500"
                   >
-                    <option value="fixed_amount">Fixed Amount ($)</option>
-                    <option value="percentage">Percentage (%)</option>
+                    <option value="fixed_amount">{t.legacyUi.fixedAmountUsd}</option>
+                    <option value="percentage">{t.legacyUi.percentage}</option>
                   </select>
                 </div>
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-slate-300 mb-1 block">Discount Value *</label>
+                <label className="text-xs font-semibold text-slate-300 mb-1 block">{t.legacyUi.discountValueRequired}</label>
                 <input
                   type="number"
                   step="0.01"
@@ -294,12 +297,12 @@ export const LoyaltyProgramView: React.FC = () => {
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-slate-300 mb-1 block">Description</label>
+                <label className="text-xs font-semibold text-slate-300 mb-1 block">{translateRawUi('Description')}</label>
                 <textarea
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                   rows={2}
-                  placeholder="Reward details..."
+                  placeholder={translateRawUi('Reward details...')}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-purple-500 resize-none"
                 />
               </div>
@@ -313,7 +316,7 @@ export const LoyaltyProgramView: React.FC = () => {
                   className="rounded text-purple-500 bg-slate-950 border-slate-800"
                 />
                 <label htmlFor="isActive" className="text-xs font-medium text-slate-300 cursor-pointer">
-                  Active in Customer Loyalty Catalog
+                  {translateRawUi('Active in Customer Loyalty Catalog')}
                 </label>
               </div>
 
@@ -323,7 +326,7 @@ export const LoyaltyProgramView: React.FC = () => {
                   onClick={() => setShowModal(false)}
                   className="px-4 py-2.5 rounded-xl bg-slate-800 text-slate-300 text-xs font-semibold hover:bg-slate-700"
                 >
-                  Cancel
+                  {translateRawUi('Cancel')}
                 </button>
                 <button
                   type="submit"

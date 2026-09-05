@@ -1,3 +1,4 @@
+import { translateRawUi } from '../../i18n';
 import React, { useState, useEffect, useMemo } from 'react';
 import { collection, onSnapshot, query, where, orderBy } from 'firebase/firestore';
 import { db, COLLECTIONS, updateOrderStatusFirestore } from '../../lib/firebase';
@@ -90,10 +91,10 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
               prepStatus: data.prepStatus || 'new',
               items: data.items || [],
               tableNumber: data.tableNumber || '',
-              customerName: data.customerName || 'Guest',
+              customerName: data.customerName || t.pos.walkInGuest,
               orderType: data.orderType || 'dine_in',
               priority: data.priority || 'normal',
-              estimatedPrepTimeMinutes: data.estimatedPrepTimeMinutes || 15,
+              estimatedPrepTimeMinutes: Number.isFinite(Number(data.estimatedPrepTimeMinutes)) ? Number(data.estimatedPrepTimeMinutes) : 0,
               branchId: data.branchId || '',
               createdAt: data.createdAt || new Date().toISOString(),
               updatedAt: data.updatedAt || data.createdAt || new Date().toISOString(),
@@ -148,7 +149,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
               paymentMethod: data.paymentMethod || 'cash',
               paymentStatus: data.paymentStatus || 'unpaid',
               itemsCount: data.itemsCount || (data.items ? data.items.length : 1),
-              estimatedDeliveryTimeMinutes: data.estimatedDeliveryTimeMinutes || 30,
+              estimatedDeliveryTimeMinutes: Number.isFinite(Number(data.estimatedDeliveryTimeMinutes)) ? Number(data.estimatedDeliveryTimeMinutes) : 0,
               createdAt: data.createdAt || new Date().toISOString()
             } as DeliveryOrder;
           });
@@ -216,7 +217,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold uppercase tracking-wider">
             <CheckCircle2 className="w-3 h-3" />
-            Completed
+            {translateRawUi('Completed')}
           </span>
         );
       case 'ready_for_pickup':
@@ -224,7 +225,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-teal-500/20 text-teal-400 border border-teal-500/30 text-[10px] font-bold uppercase tracking-wider">
             <Clock className="w-3 h-3" />
-            Ready
+            {translateRawUi('Ready')}
           </span>
         );
       case 'in_preparation':
@@ -232,28 +233,28 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 text-[10px] font-bold uppercase tracking-wider animate-pulse">
             <Flame className="w-3 h-3" />
-            In Preparation
+            {translateRawUi('In Preparation')}
           </span>
         );
       case 'confirmed':
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30 text-[10px] font-bold uppercase tracking-wider">
             <CheckCircle2 className="w-3 h-3" />
-            Confirmed
+            {translateRawUi('Confirmed')}
           </span>
         );
       case 'cancelled':
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-rose-500/20 text-rose-400 border border-rose-500/30 text-[10px] font-bold uppercase tracking-wider">
             <AlertCircle className="w-3 h-3" />
-            Cancelled
+            {translateRawUi('Cancelled')}
           </span>
         );
       default:
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-sky-500/20 text-sky-400 border border-sky-500/30 text-[10px] font-bold uppercase tracking-wider">
             <Clock className="w-3 h-3" />
-            New Order
+            {translateRawUi('New Order')}
           </span>
         );
     }
@@ -270,42 +271,42 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
         return (
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-950/60 text-emerald-400 border border-emerald-500/30 text-[10px] font-semibold">
             <CheckCircle2 className="w-2.5 h-2.5" />
-            Kitchen: Completed
+            {translateRawUi('Kitchen: Completed')}
           </span>
         );
       case 'ready_for_pickup':
         return (
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-teal-950/60 text-teal-300 border border-teal-500/30 text-[10px] font-semibold">
             <Clock className="w-2.5 h-2.5" />
-            Kitchen: Food Ready
+            {translateRawUi('Kitchen: Food Ready')}
           </span>
         );
       case 'cooking':
         return (
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-950/60 text-amber-300 border border-amber-500/30 text-[10px] font-semibold animate-pulse">
             <Flame className="w-2.5 h-2.5" />
-            Kitchen: Cooking
+            {translateRawUi('Kitchen: Cooking')}
           </span>
         );
       case 'accepted':
         return (
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-950/60 text-blue-300 border border-blue-500/30 text-[10px] font-semibold">
             <Clock className="w-2.5 h-2.5" />
-            Kitchen: Accepted
+            {translateRawUi('Kitchen: Accepted')}
           </span>
         );
       case 'cancelled':
         return (
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-rose-950/60 text-rose-300 border border-rose-500/30 text-[10px] font-semibold">
             <AlertCircle className="w-2.5 h-2.5" />
-            Kitchen: Cancelled
+            {translateRawUi('Kitchen: Cancelled')}
           </span>
         );
       default:
         return (
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-900 text-slate-300 border border-slate-700 text-[10px] font-semibold">
             <Clock className="w-2.5 h-2.5" />
-            Kitchen: New Ticket
+            {translateRawUi('Kitchen: New Ticket')}
           </span>
         );
     }
@@ -324,14 +325,14 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
         return (
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-950/60 text-emerald-300 border border-emerald-500/30 text-[10px] font-semibold">
             <CheckCircle2 className="w-2.5 h-2.5 text-emerald-400" />
-            Delivery: Delivered
+            {translateRawUi('Delivery: Delivered')}
           </span>
         );
       case 'arrived':
         return (
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-teal-950/60 text-teal-300 border border-teal-500/30 text-[10px] font-semibold">
             <MapPin className="w-2.5 h-2.5 text-teal-400" />
-            Delivery: Driver Arrived
+            {translateRawUi('Delivery: Driver Arrived')}
           </span>
         );
       case 'on_the_way':
@@ -339,28 +340,28 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
         return (
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-purple-950/60 text-purple-300 border border-purple-500/30 text-[10px] font-semibold animate-pulse">
             <Truck className="w-2.5 h-2.5 text-purple-400" />
-            Delivery: Out for Delivery
+            {translateRawUi('Delivery: Out for Delivery')}
           </span>
         );
       case 'picked_up':
         return (
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-950/60 text-amber-300 border border-amber-500/30 text-[10px] font-semibold">
             <Truck className="w-2.5 h-2.5 text-amber-400" />
-            Delivery: Picked Up
+            {translateRawUi('Delivery: Picked Up')}
           </span>
         );
       case 'accepted':
         return (
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-cyan-950/60 text-cyan-300 border border-cyan-500/30 text-[10px] font-semibold">
             <Truck className="w-2.5 h-2.5 text-cyan-400" />
-            Delivery: Driver Accepted
+            {translateRawUi('Delivery: Driver Accepted')}
           </span>
         );
       case 'assigned':
         return (
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-indigo-950/60 text-indigo-300 border border-indigo-500/30 text-[10px] font-semibold">
             <Truck className="w-2.5 h-2.5 text-indigo-400" />
-            Delivery: Driver Assigned
+            {translateRawUi('Delivery: Driver Assigned')}
           </span>
         );
       case 'failed':
@@ -369,14 +370,14 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
         return (
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-rose-950/60 text-rose-300 border border-rose-500/30 text-[10px] font-semibold">
             <AlertCircle className="w-2.5 h-2.5 text-rose-400" />
-            Delivery: Failed
+            {translateRawUi('Delivery: Failed')}
           </span>
         );
       default:
         return (
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-900 text-slate-400 border border-slate-700 text-[10px] font-semibold">
             <Truck className="w-2.5 h-2.5 text-slate-400" />
-            Delivery: Unassigned
+            {translateRawUi('Delivery: Unassigned')}
           </span>
         );
     }
@@ -389,28 +390,28 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
         return (
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-bold uppercase">
             <DollarSign className="w-2.5 h-2.5" />
-            Paid
+            {translateRawUi('Paid')}
           </span>
         );
       case 'refunded':
         return (
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/20 text-[10px] font-bold uppercase">
             <AlertCircle className="w-2.5 h-2.5" />
-            Refunded
+            {translateRawUi('Refunded')}
           </span>
         );
       case 'failed':
         return (
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/20 text-[10px] font-bold uppercase">
             <AlertCircle className="w-2.5 h-2.5" />
-            Failed
+            {translateRawUi('Failed')}
           </span>
         );
       default:
         return (
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[10px] font-bold uppercase">
             <Clock className="w-2.5 h-2.5" />
-            Pending
+            {translateRawUi('Pending')}
           </span>
         );
     }
@@ -423,20 +424,20 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
       case 'delivery':
         return (
           <span className="px-2 py-0.5 rounded-md bg-purple-500/20 text-purple-400 border border-purple-500/30 text-[10px] font-bold uppercase flex items-center gap-1">
-            <Truck className="w-2.5 h-2.5" /> Delivery
+            <Truck className="w-2.5 h-2.5" /> {translateRawUi('Delivery')}
           </span>
         );
       case 'takeaway':
       case 'takeout':
         return (
           <span className="px-2 py-0.5 rounded-md bg-teal-500/20 text-teal-400 border border-teal-500/30 text-[10px] font-bold uppercase flex items-center gap-1">
-            <ShoppingBag className="w-2.5 h-2.5" /> Takeout
+            <ShoppingBag className="w-2.5 h-2.5" /> {translateRawUi('Takeout')}
           </span>
         );
       default:
         return (
           <span className="px-2 py-0.5 rounded-md bg-blue-500/20 text-blue-400 border border-blue-500/30 text-[10px] font-bold uppercase flex items-center gap-1">
-            <Utensils className="w-2.5 h-2.5" /> Dine-in
+            <Utensils className="w-2.5 h-2.5" /> {translateRawUi('Dine-in')}
           </span>
         );
     }
@@ -517,9 +518,9 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
               <div className="flex items-center gap-2">
                 <AlertTriangle className="w-5 h-5 text-rose-400 flex-shrink-0" />
                 <div>
-                  <span className="font-bold text-rose-200 block">Orders realtime connection unavailable</span>
+                  <span className="font-bold text-rose-200 block">{t.ui.realtimeUnavailable}</span>
                   <span className="text-[11px] text-rose-300/80">
-                    {ordersError || realtimeSubError || 'Please check your connection and branch permissions.'}
+                    {ordersError || realtimeSubError || t.ui.realtimeHelp}
                   </span>
                 </div>
               </div>
@@ -529,7 +530,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                   className="px-3 py-1.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-bold transition cursor-pointer flex items-center gap-1.5 text-xs flex-shrink-0"
                 >
                   <RefreshCw className="w-3.5 h-3.5" />
-                  <span>Retry Connection</span>
+                  <span>{t.ui.retryConnection}</span>
                 </button>
               )}
             </div>
@@ -543,7 +544,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                 <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
-                  placeholder="Search by Order #, Customer, Phone, Table, Address, Driver..."
+                  placeholder={t.ui.searchOrdersPlaceholder}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-4 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition"
@@ -552,22 +553,22 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
 
               {/* Order Type Dropdown Filter */}
               <div className="flex items-center gap-2">
-                <span className="text-slate-400 text-xs font-semibold whitespace-nowrap">Type:</span>
+                <span className="text-slate-400 text-xs font-semibold whitespace-nowrap">{t.ui.type}:</span>
                 <select
                   value={filterType}
                   onChange={(e) => setFilterType(e.target.value)}
                   className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500 transition cursor-pointer"
                 >
-                  <option value="all">All Types</option>
-                  <option value="dine_in">Dine-in</option>
-                  <option value="takeaway">Takeout</option>
-                  <option value="delivery">Delivery</option>
+                  <option value="all">{t.ui.allTypes}</option>
+                  <option value="dine_in">{t.ui.dineIn}</option>
+                  <option value="takeaway">{t.ui.takeout}</option>
+                  <option value="delivery">{t.ui.delivery}</option>
                 </select>
 
                 {onRefresh && (
                   <button
                     onClick={onRefresh}
-                    title="Refresh Data"
+                    title={t.ui.refreshData}
                     className="p-2 rounded-xl bg-slate-950 border border-slate-800 text-slate-400 hover:text-white hover:border-slate-700 transition cursor-pointer"
                   >
                     <RefreshCw className="w-4 h-4" />
@@ -578,7 +579,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
 
             {/* Status Filter Pills (Real Project Statuses) */}
             <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pt-1 text-xs">
-              <span className="text-slate-500 text-[11px] font-bold uppercase tracking-wider mr-1">Status:</span>
+              <span className="text-slate-500 text-[11px] font-bold uppercase tracking-wider mr-1">{t.ui.status}:</span>
               {[
                 { id: 'all', label: 'All Orders' },
                 { id: 'new', label: 'New' },
@@ -608,19 +609,19 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
             {isLoading && orders.length === 0 ? (
               <div className="p-12 text-center text-slate-400 text-xs">
                 <RefreshCw className="w-6 h-6 text-emerald-400 animate-spin mx-auto mb-2" />
-                <p>Loading live orders...</p>
+                <p>{t.ui.ordersLoading}</p>
               </div>
             ) : orders.length === 0 && !ordersError ? (
               <div className="p-12 text-center text-slate-400 text-xs">
                 <ShoppingBag className="w-8 h-8 text-slate-600 mx-auto mb-2" />
-                <p className="font-bold text-slate-300 text-sm">No orders found</p>
-                <p className="text-slate-500 mt-1">Orders created in POS or online will appear here automatically in real time.</p>
+                <p className="font-bold text-slate-300 text-sm">{t.ui.noOrdersFound}</p>
+                <p className="text-slate-500 mt-1">{t.legacyUi.ordersRealtimeHelp}</p>
               </div>
             ) : filteredOrders.length === 0 && orders.length > 0 ? (
               <div className="p-12 text-center text-slate-400 text-xs">
                 <Filter className="w-8 h-8 text-slate-600 mx-auto mb-2" />
-                <p className="font-bold text-slate-300 text-sm">No orders match the selected filter</p>
-                <p className="text-slate-500 mt-1">Try resetting the status filter or search query.</p>
+                <p className="font-bold text-slate-300 text-sm">{t.ui.noOrdersMatch}</p>
+                <p className="text-slate-500 mt-1">{t.legacyUi.tryResetFilters}</p>
                 <button
                   onClick={() => {
                     setFilterStatus('all');
@@ -629,7 +630,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                   }}
                   className="mt-3 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs transition cursor-pointer"
                 >
-                  Clear Filters
+                  {translateRawUi('Clear Filters')}
                 </button>
               </div>
             ) : (
@@ -637,15 +638,15 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                 <table className="w-full text-left text-xs text-slate-300 border-collapse">
                   <thead className="bg-slate-950/80 text-slate-400 font-bold uppercase text-[10px] tracking-wider border-b border-slate-800">
                     <tr>
-                      <th className="py-3.5 px-4">Order #</th>
-                      <th className="py-3.5 px-4">Type</th>
-                      <th className="py-3.5 px-4">Customer / Destination</th>
-                      <th className="py-3.5 px-4 text-center">Items</th>
-                      <th className="py-3.5 px-4">Total</th>
-                      <th className="py-3.5 px-4">Payment</th>
-                      <th className="py-3.5 px-4">Order State</th>
-                      <th className="py-3.5 px-4">Operational Progress</th>
-                      <th className="py-3.5 px-4 text-right">Actions</th>
+                      <th className="py-3.5 px-4">{t.ui.orderNumber}</th>
+                      <th className="py-3.5 px-4">{t.ui.type}</th>
+                      <th className="py-3.5 px-4">{t.ui.customerDestination}</th>
+                      <th className="py-3.5 px-4 text-center">{t.ui.items}</th>
+                      <th className="py-3.5 px-4">{t.ui.total}</th>
+                      <th className="py-3.5 px-4">{t.ui.payment}</th>
+                      <th className="py-3.5 px-4">{t.ui.orderState}</th>
+                      <th className="py-3.5 px-4">{t.ui.operationalProgress}</th>
+                      <th className="py-3.5 px-4 text-right">{t.ui.actions}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/60">
@@ -690,7 +691,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                                   Table {order.tableNumber}
                                 </span>
                               ) : (
-                                <span className="text-[11px] text-slate-400">Direct Order</span>
+                                <span className="text-[11px] text-slate-400">{t.ui.directOrder}</span>
                               )}
                             </div>
                           </td>
@@ -698,7 +699,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                           {/* Items Count */}
                           <td className="py-3.5 px-4 text-center">
                             <span className="bg-slate-800 px-2 py-0.5 rounded-md text-[11px] font-mono font-bold text-slate-200 border border-slate-700">
-                              {order.items?.reduce((sum, item) => sum + (item.quantity || 1), 0) || 0}
+                              {order.items?.reduce((sum, item) => sum + (item.quantity ?? 0), 0) || 0}
                             </span>
                           </td>
 
@@ -707,7 +708,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                             <div>
                               <span>${(order.totalAmount || 0).toFixed(2)}</span>
                               <span className="block text-[10px] text-teal-400 font-sans font-semibold">
-                                +${(order.profit || (order.totalAmount || 0) * 0.55).toFixed(2)} net
+                                +${Number.isFinite(Number(order.profit)) ? Number(order.profit).toFixed(2) : 'Not recorded'} net
                               </span>
                             </div>
                           </td>
@@ -737,7 +738,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                               className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-emerald-500 hover:text-slate-950 text-white font-bold text-xs transition cursor-pointer inline-flex items-center gap-1"
                             >
                               <Eye className="w-3.5 h-3.5" />
-                              <span>Details</span>
+                              <span>{t.ui.details}</span>
                             </button>
                           </td>
                         </tr>

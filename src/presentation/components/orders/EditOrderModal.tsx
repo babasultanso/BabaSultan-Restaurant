@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { translateRawUi } from '../../../i18n';
 import { Order, OrderItem } from '../../../types';
 import { updateOrderFirestore } from '../../../lib/firebase';
 import { X, Plus, Minus, Trash2, CheckCircle2, Save } from 'lucide-react';
@@ -102,17 +103,17 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
         {/* Modal Header */}
         <div className="pb-3 border-b border-slate-800">
           <h3 className="text-lg font-bold text-white">Edit Order #{order.orderNumber}</h3>
-          <p className="text-xs text-slate-400">Modify items, quantities, table assignment & order notes</p>
+          <p className="text-xs text-slate-400">{translateRawUi('Modify items, quantities, table assignment & order notes')}</p>
         </div>
 
         <form onSubmit={handleSaveOrder} className="space-y-4 text-xs">
           
           {/* Table Selector */}
           <div>
-            <label className="text-slate-300 font-bold block mb-1">Table Number</label>
+            <label className="text-slate-300 font-bold block mb-1">{translateRawUi('Table Number')}</label>
             <input
               type="text"
-              placeholder="e.g. T-01 / VIP-1"
+              placeholder={translateRawUi('e.g. T-01 / VIP-1')}
               value={tableNumber}
               onChange={e => setTableNumber(e.target.value)}
               className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-3.5 py-2 text-white focus:outline-none focus:border-emerald-500"
@@ -121,7 +122,7 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
 
           {/* Items List */}
           <div className="space-y-2">
-            <label className="text-slate-300 font-bold block">Order Items</label>
+            <label className="text-slate-300 font-bold block">{translateRawUi('Order Items')}</label>
             <div className="space-y-2 max-h-52 overflow-y-auto no-scrollbar pr-1">
               {items.map((item, idx) => (
                 <div
@@ -169,10 +170,10 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
 
           {/* Order Notes */}
           <div>
-            <label className="text-slate-300 font-bold block mb-1">Order Notes</label>
+            <label className="text-slate-300 font-bold block mb-1">{translateRawUi('Order Notes')}</label>
             <input
               type="text"
-              placeholder="e.g. Extra spicy, pack separately..."
+              placeholder={translateRawUi('e.g. Extra spicy, pack separately...')}
               value={orderNotes}
               onChange={e => setOrderNotes(e.target.value)}
               className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-3.5 py-2 text-white focus:outline-none focus:border-emerald-500"
@@ -182,7 +183,7 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
           {/* Updated Totals */}
           <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 space-y-1 font-mono">
             <div className="flex justify-between text-slate-400">
-              <span>Subtotal:</span>
+              <span>{translateRawUi('Subtotal:')}</span>
               <span>${(totals.subtotal || 0).toFixed(2)}</span>
             </div>
             <div className="flex justify-between text-slate-400">
@@ -190,7 +191,7 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
               <span>${(totals.tax || 0).toFixed(2)}</span>
             </div>
             <div className="flex justify-between text-sm font-extrabold text-emerald-400 pt-1 border-t border-slate-800">
-              <span>New Grand Total:</span>
+              <span>{translateRawUi('New Grand Total:')}</span>
               <span>${(totals.totalAmount || 0).toFixed(2)}</span>
             </div>
           </div>

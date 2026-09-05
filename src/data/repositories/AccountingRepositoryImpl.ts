@@ -7,7 +7,7 @@ import {
   where,
   orderBy
 } from 'firebase/firestore';
-import { db, COLLECTIONS, addExpenseFirestore, getAuthToken } from '../../lib/firebase';
+import { db, COLLECTIONS, addExpenseFirestore, getAuthToken, getEffectiveBranchId } from '../../lib/firebase';
 import { getMogadishuDateString } from '../../lib/dateUtils';
 import {
   Account,
@@ -33,13 +33,17 @@ import { getApiUrl } from '../../lib/apiConfig';
 async function authFetch(url: string, options: RequestInit = {}) {
   const token = await getAuthToken();
   const targetUrl = getApiUrl(url);
+  const method = String(options.method || 'GET').toUpperCase();
+  const incomingHeaders = new Headers(options.headers || {});
+  if (method !== 'GET' && method !== 'HEAD' && !incomingHeaders.has('Idempotency-Key')) {
+    const key = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    incomingHeaders.set('Idempotency-Key', `accounting:${key}`);
+  }
+  incomingHeaders.set('Content-Type', 'application/json');
+  if (token) incomingHeaders.set('Authorization', `Bearer ${token}`);
   const res = await fetch(targetUrl, {
     ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
-      ...(options.headers || {})
-    }
+    headers: incomingHeaders
   });
   if (!res.ok) {
     const errData = await res.json().catch(() => ({}));
@@ -52,7 +56,11 @@ export class AccountingRepositoryImpl implements IAccountingRepository {
   // --- CHART OF ACCOUNTS ---
   async getAccounts(): Promise<Account[]> {
     try {
-      const snap = await getDocs(collection(db, COLLECTIONS.ACCOUNTS));
+      const branchId = getEffectiveBranchId();
+      const q = branchId === 'all'
+        ? collection(db, COLLECTIONS.ACCOUNTS)
+        : query(collection(db, COLLECTIONS.ACCOUNTS), where('branchId', '==', branchId));
+      const snap = await getDocs(q);
       if (snap.empty) {
         return [];
       }
@@ -258,7 +266,11 @@ export class AccountingRepositoryImpl implements IAccountingRepository {
 
   async getBankAccounts(): Promise<BankAccount[]> {
     try {
-      const snap = await getDocs(collection(db, COLLECTIONS.BANK_ACCOUNTS));
+      const branchId = getEffectiveBranchId();
+      const q = branchId === 'all'
+        ? collection(db, COLLECTIONS.BANK_ACCOUNTS)
+        : query(collection(db, COLLECTIONS.BANK_ACCOUNTS), where('branchId', '==', branchId));
+      const snap = await getDocs(q);
       if (snap.empty) {
         return [];
       }
@@ -326,9 +338,8 @@ export class AccountingRepositoryImpl implements IAccountingRepository {
   // --- TAX ---
   async getTaxes(branchId?: string): Promise<TaxConfig[]> {
     try {
-      const q = branchId && branchId !== 'all'
-        ? query(collection(db, COLLECTIONS.TAXES), where('branchId', '==', branchId))
-        : query(collection(db, COLLECTIONS.TAXES));
+      if (!branchId || branchId === 'all') return [];
+      const q = query(collection(db, COLLECTIONS.TAXES), where('branchId', '==', branchId));
       const snap = await getDocs(q);
       if (snap.empty) {
         return [];
@@ -357,91 +368,92 @@ export class AccountingRepositoryImpl implements IAccountingRepository {
   // --- FINANCIAL STATEMENTS ---
   async getFinancialStatements(startDate?: string, endDate?: string, branchId?: string): Promise<FinancialStatements> {
     const accounts = await this.getAccounts();
+    const linesQuery = branchId && branchId !== 'all'
+      ? query(collection(db, COLLECTIONS.JOURNAL_LINES), where('branchId', '==', branchId))
+      : query(collection(db, COLLECTIONS.JOURNAL_LINES));
+    const linesSnap = await getDocs(linesQuery);
+    const allLines = linesSnap.docs.map(d => ({ id: d.id, ...d.data() } as any));
+    const start = startDate ? new Date(startDate) : undefined;
+    const end = endDate ? new Date(endDate) : undefined;
+    const lineDate = (l: any) => new Date(String(l.date || l.createdAt || ''));
+    const inPeriod = (l: any) => {
+      const d = lineDate(l);
+      if (!Number.isFinite(d.getTime())) return false;
+      if (start && d < start) return false;
+      if (end) {
+        const inclusiveEnd = new Date(end);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(String(endDate || ''))) inclusiveEnd.setHours(23, 59, 59, 999);
+        if (d > inclusiveEnd) return false;
+      }
+      return true;
+    };
+    const periodLines = (startDate || endDate) ? allLines.filter(inPeriod) : allLines;
 
-    // Group accounts by type
-    const revenuesList = accounts.filter(a => a.type === 'Revenue').map(a => ({ accountCode: a.code, accountName: a.name, amount: Math.abs(a.balance) }));
+    const deltaFor = (a: Account, l: any) => {
+      const debit = Number(l.debit || 0);
+      const credit = Number(l.credit || 0);
+      const debitNature = ['Asset', 'COGS', 'Expense'].includes(a.type);
+      return debitNature ? debit - credit : credit - debit;
+    };
+    const asOfBalance = (a: Account) => {
+      let balance = Number(a.balance || 0);
+      if (!end) return balance;
+      for (const l of allLines) {
+        if (String(l.accountId) !== String(a.id)) continue;
+        const d = lineDate(l);
+        if (Number.isFinite(d.getTime()) && d > end) balance -= deltaFor(a, l);
+      }
+      return Number.isFinite(balance) ? balance : 0;
+    };
+    const periodAmountByAccount = new Map<string, number>();
+    for (const l of periodLines) {
+      const id = String(l.accountId || '');
+      const account = accounts.find(a => String(a.id) === id);
+      if (!account) continue;
+      const debit = Number(l.debit || 0);
+      const credit = Number(l.credit || 0);
+      if (!Number.isFinite(debit) || !Number.isFinite(credit) || debit < 0 || credit < 0 || (debit > 0 && credit > 0)) continue;
+      periodAmountByAccount.set(id, (periodAmountByAccount.get(id) || 0) + deltaFor(account, l));
+    }
+
+    const revenuesList = accounts.filter(a => a.type === 'Revenue').map(a => ({ accountCode: a.code, accountName: a.name, amount: Math.max(0, -(periodAmountByAccount.get(a.id) || 0)) }));
     const totalRevenue = revenuesList.reduce((s, r) => s + r.amount, 0);
-
-    const cogsList = accounts.filter(a => a.type === 'COGS').map(a => ({ accountCode: a.code, accountName: a.name, amount: Math.abs(a.balance) }));
+    const cogsList = accounts.filter(a => a.type === 'COGS').map(a => ({ accountCode: a.code, accountName: a.name, amount: Math.max(0, periodAmountByAccount.get(a.id) || 0) }));
     const totalCOGS = cogsList.reduce((s, c) => s + c.amount, 0);
-
     const grossProfit = totalRevenue - totalCOGS;
-
-    const expensesList = accounts.filter(a => a.type === 'Expense').map(a => ({ accountCode: a.code, accountName: a.name, amount: Math.abs(a.balance) }));
+    const expensesList = accounts.filter(a => a.type === 'Expense').map(a => ({ accountCode: a.code, accountName: a.name, amount: Math.max(0, periodAmountByAccount.get(a.id) || 0) }));
     const totalExpenses = expensesList.reduce((s, e) => s + e.amount, 0);
-
     const netProfit = grossProfit - totalExpenses;
 
-    // Balance Sheet
-    const assetsList = accounts.filter(a => a.type === 'Asset').map(a => ({ accountCode: a.code, accountName: a.name, amount: a.balance }));
+    const assetsList = accounts.filter(a => a.type === 'Asset').map(a => ({ accountCode: a.code, accountName: a.name, amount: asOfBalance(a) }));
     const totalAssets = assetsList.reduce((s, a) => s + a.amount, 0);
-
-    const liabilitiesList = accounts.filter(a => a.type === 'Liability').map(a => ({ accountCode: a.code, accountName: a.name, amount: a.balance }));
+    const liabilitiesList = accounts.filter(a => a.type === 'Liability').map(a => ({ accountCode: a.code, accountName: a.name, amount: asOfBalance(a) }));
     const totalLiabilities = liabilitiesList.reduce((s, l) => s + l.amount, 0);
-
-    const equityList = accounts.filter(a => a.type === 'Equity').map(a => {
-      let val = a.balance;
-      if (a.code === '3020') {
-        val += netProfit;
-      }
-      return { accountCode: a.code, accountName: a.name, amount: val };
-    });
+    const equityList = accounts.filter(a => a.type === 'Equity').map(a => ({ accountCode: a.code, accountName: a.name, amount: asOfBalance(a) }));
+    if (Math.abs(netProfit) > 0.005) equityList.push({ accountCode: 'CURRENT_EARNINGS', accountName: 'Current Period Earnings', amount: netProfit });
     const totalEquity = equityList.reduce((s, e) => s + e.amount, 0);
-
     const totalLiabilitiesAndEquity = totalLiabilities + totalEquity;
-    const isBalanced = Math.abs(totalAssets - totalLiabilitiesAndEquity) < 0.05;
+    const isBalanced = Math.round(totalAssets * 100) === Math.round(totalLiabilitiesAndEquity * 100);
 
-    // Trial Balance
     const trialBalance = accounts.map(a => {
+      const balance = asOfBalance(a);
       let debitBalance = 0;
       let creditBalance = 0;
-
       if (['Asset', 'COGS', 'Expense'].includes(a.type)) {
-        if (a.balance >= 0) debitBalance = a.balance;
-        else creditBalance = Math.abs(a.balance);
+        if (balance >= 0) debitBalance = balance; else creditBalance = Math.abs(balance);
       } else {
-        if (a.balance >= 0) creditBalance = a.balance;
-        else debitBalance = Math.abs(a.balance);
+        if (balance >= 0) creditBalance = balance; else debitBalance = Math.abs(balance);
       }
-
-      return {
-        accountCode: a.code,
-        accountName: a.name,
-        type: a.type,
-        debitBalance,
-        creditBalance
-      };
+      return { accountCode: a.code, accountName: a.name, type: a.type, debitBalance, creditBalance };
     });
-
     const totalTrialDebit = trialBalance.reduce((s, t) => s + t.debitBalance, 0);
     const totalTrialCredit = trialBalance.reduce((s, t) => s + t.creditBalance, 0);
-    const isTrialBalanced = Math.abs(totalTrialDebit - totalTrialCredit) < 0.05;
+    const isTrialBalanced = Math.round(totalTrialDebit * 100) === Math.round(totalTrialCredit * 100);
 
     return {
-      profitAndLoss: {
-        revenue: revenuesList,
-        totalRevenue,
-        cogs: cogsList,
-        totalCOGS,
-        grossProfit,
-        expenses: expensesList,
-        totalExpenses,
-        netProfit
-      },
-      balanceSheet: {
-        assets: assetsList,
-        totalAssets,
-        liabilities: liabilitiesList,
-        totalLiabilities,
-        equity: equityList,
-        totalEquity,
-        totalLiabilitiesAndEquity,
-        isBalanced
-      },
-      trialBalance,
-      totalTrialDebit,
-      totalTrialCredit,
-      isTrialBalanced
+      profitAndLoss: { revenue: revenuesList, totalRevenue, cogs: cogsList, totalCOGS, grossProfit, expenses: expensesList, totalExpenses, netProfit },
+      balanceSheet: { assets: assetsList, totalAssets, liabilities: liabilitiesList, totalLiabilities, equity: equityList, totalEquity, totalLiabilitiesAndEquity, isBalanced },
+      trialBalance, totalTrialDebit, totalTrialCredit, isTrialBalanced
     };
   }
 }

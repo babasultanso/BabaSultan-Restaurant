@@ -1,3 +1,5 @@
+import { translateRawUi } from '../../../i18n';
+import { useAuth } from '../../context/AuthContext';
 import React, { useState } from 'react';
 import { Product, ProductOption, ProductOptionChoice, SelectedOptionChoice } from '../../../types';
 import { X, Plus, Minus, Check, Tag } from 'lucide-react';
@@ -19,6 +21,7 @@ export const ProductOptionModal: React.FC<ProductOptionModalProps> = ({
   onClose,
   onConfirm
 }) => {
+  const { t } = useAuth();
   const [quantity, setQuantity] = useState<number>(1);
   const [itemNotes, setItemNotes] = useState<string>('');
 
@@ -44,7 +47,7 @@ export const ProductOptionModal: React.FC<ProductOptionModalProps> = ({
   };
 
   // Calculate unit price including options
-  const optionsExtra = Object.values(selectedChoices).reduce((sum, choice) => sum + (choice.priceModifier || 0), 0);
+  const optionsExtra = (Object.values(selectedChoices) as ProductOptionChoice[]).reduce((sum, choice) => sum + (choice.priceModifier || 0), 0);
   const calculatedUnitPrice = product.price + optionsExtra;
   const totalPrice = calculatedUnitPrice * quantity;
 
@@ -108,7 +111,7 @@ export const ProductOptionModal: React.FC<ProductOptionModalProps> = ({
                     <Tag className="w-3.5 h-3.5 text-emerald-400" /> {opt.name}
                     {opt.isRequired && <span className="text-rose-400 font-bold">*</span>}
                   </span>
-                  <span className="text-slate-400 text-[10px]">Select one choice</span>
+                  <span className="text-slate-400 text-[10px]">{t.legacyUi.selectOneChoice}</span>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
@@ -145,18 +148,18 @@ export const ProductOptionModal: React.FC<ProductOptionModalProps> = ({
           </div>
         ) : (
           <div className="py-2 text-xs text-slate-400 italic">
-            No customization options available for this dish.
+            {translateRawUi('No customization options available for this dish.')}
           </div>
         )}
 
         {/* Special Instructions / Notes */}
         <div className="space-y-1.5">
           <label className="text-xs text-slate-300 font-bold block">
-            Special Instructions / Kitchen Note
+            {translateRawUi('Special Instructions / Kitchen Note')}
           </label>
           <input
             type="text"
-            placeholder="e.g. Extra spicy, no onions, sauce on the side..."
+            placeholder={translateRawUi('e.g. Extra spicy, no onions, sauce on the side...')}
             value={itemNotes}
             onChange={e => setItemNotes(e.target.value)}
             className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500"
@@ -176,7 +179,7 @@ export const ProductOptionModal: React.FC<ProductOptionModalProps> = ({
             <span className="px-4 font-extrabold text-emerald-400 text-sm">{quantity}</span>
             <button
               type="button"
-              onClick={() => setQuantity(q => Math.min(product.stock || 99, q + 1))}
+              onClick={() => setQuantity(q => Math.min(Math.max(0, Number(product.stock ?? 0)), q + 1))}
               className="p-2 hover:bg-slate-800 rounded-xl text-slate-300 cursor-pointer"
             >
               <Plus className="w-4 h-4" />

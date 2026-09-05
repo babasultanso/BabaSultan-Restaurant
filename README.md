@@ -1,5 +1,10 @@
 # Baba Sultan Restaurant ERP & AI Business Assistant
 
+**Software development & copyright:** Space
+
+**Product:** Baba Sultan Restaurant ERP  
+**Release:** 1.0.1
+
 A comprehensive, production-ready Restaurant Enterprise Resource Planning (ERP) platform with integrated AI Certified Public Accountant (CPA), Chief Financial Officer (CFO), and Operations Manager capabilities powered by Google Gemini, Firebase Firestore, Firebase Auth, Express, and React TypeScript.
 
 ---
@@ -52,7 +57,7 @@ Cloud Firestore (Authoritative Source of Truth)
 
 ## 4. Installation & Quick Start
 
-Ensure Node.js 20+ is installed on your system.
+Ensure Node.js 22+ is installed on your system.
 
 ```bash
 # Clone the repository
@@ -124,27 +129,3 @@ npm run build
 npm start
 ```
 
-## 7. Render Free Backend Deployment
-
-The Express server can be deployed as a Render Web Service while Firebase remains the project's database/auth/storage layer. Render web services accept Node.js/Express apps, require binding to `0.0.0.0`, and provide a `PORT` environment variable. This project already follows that pattern.
-
-Recommended Render settings:
-- **Runtime:** Node
-- **Build Command:** `npm install && npm run build`
-- **Start Command:** `npm start`
-- **Health Check Path:** `/api/health`
-- **Plan:** Free (for testing/small projects)
-
-For a separate frontend (Firebase Hosting/Vercel), set `VITE_API_BASE_URL` in the frontend build environment to the Render service URL, for example `https://babasultan-api.onrender.com`. Also set `FRONTEND_URL` on Render to the exact frontend origin so CORS remains restricted.
-
-### Render server secrets
-
-Because Render is not a Google-managed runtime, configure Firebase Admin credentials as Render environment variables instead of committing a service-account JSON file:
-- `FIREBASE_PROJECT_ID`
-- `FIREBASE_CLIENT_EMAIL`
-- `FIREBASE_PRIVATE_KEY`
-- `GEMINI_API_KEY`
-
-The Firebase Admin SDK supports explicit service-account credentials in non-Google environments. Keep the private key only in Render's secret environment variables.
-
-The included `render.yaml` preconfigures the service and non-secret defaults.

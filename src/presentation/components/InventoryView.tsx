@@ -1,3 +1,4 @@
+import { translateRawUi } from '../../i18n/rawUi';
 import React, { useState } from 'react';
 import { Product, Ingredient, InventoryMovement } from '../../types';
 import { InventoryRepositoryImpl } from '../../data/repositories/InventoryRepositoryImpl';
@@ -29,7 +30,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   movements,
   onRefresh
 }) => {
-  const { user } = useAuth();
+  const { user, t } = useAuth();
   const [activeTab, setActiveTab] = useState<'ingredients' | 'products' | 'movements'>('ingredients');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
@@ -43,17 +44,17 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   const [adjustReason, setAdjustReason] = useState<string>('Physical Stock Count');
 
   const [ingName, setIngName] = useState<string>('');
-  const [ingStock, setIngStock] = useState<number>(10);
+  const [ingStock, setIngStock] = useState<number>(0);
   const [ingUnit, setIngUnit] = useState<string>('kg');
-  const [ingMinAlert, setIngMinAlert] = useState<number>(5);
-  const [ingCost, setIngCost] = useState<number>(2.50);
-  const [ingSupplier, setIngSupplier] = useState<string>('Primary Wholesale Ltd');
+  const [ingMinAlert, setIngMinAlert] = useState<number>(0);
+  const [ingCost, setIngCost] = useState<number>(0);
+  const [ingSupplier, setIngSupplier] = useState<string>('');
 
   const [prodName, setProdName] = useState<string>('');
   const [prodCat, setProdCat] = useState<string>('Main Course');
-  const [prodPrice, setProdPrice] = useState<number>(14.99);
-  const [prodCost, setProdCost] = useState<number>(5.00);
-  const [prodStock, setProdStock] = useState<number>(25);
+  const [prodPrice, setProdPrice] = useState<number>(0);
+  const [prodCost, setProdCost] = useState<number>(0);
+  const [prodStock, setProdStock] = useState<number>(0);
 
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
@@ -149,10 +150,10 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
         <div>
           <h2 className="text-xl font-bold text-white flex items-center gap-2">
             <Package className="w-6 h-6 text-emerald-400" />
-            Kitchen Inventory & Menu Catalog
+            {translateRawUi('Kitchen Inventory & Menu Catalog')}
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            Real-time stock control, threshold alerts & automatic sales deductions
+            {translateRawUi('Real-time stock control, threshold alerts & automatic sales deductions')}
           </p>
         </div>
 
@@ -162,14 +163,14 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
             className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-3.5 py-2 rounded-2xl text-xs transition flex items-center gap-1.5 cursor-pointer shadow-lg shadow-emerald-500/20"
           >
             <PlusCircle className="w-4 h-4" />
-            Add Raw Ingredient
+            {translateRawUi('Add Raw Ingredient')}
           </button>
           <button
             onClick={() => setIsAddProductOpen(true)}
             className="bg-teal-600 hover:bg-teal-500 text-white font-bold px-3.5 py-2 rounded-2xl text-xs transition flex items-center gap-1.5 cursor-pointer"
           >
             <PlusCircle className="w-4 h-4" />
-            Add Menu Dish
+            {translateRawUi('Add Menu Dish')}
           </button>
         </div>
       </div>
@@ -207,7 +208,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
           <input
             type="text"
-            placeholder="Search inventory items..."
+            placeholder={translateRawUi('Search inventory items...')}
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             className="w-full bg-slate-900 border border-slate-800 rounded-2xl pl-9 pr-4 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
@@ -221,7 +222,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
           <div className="flex items-center gap-3">
             <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0" />
             <p className="text-xs text-amber-300">
-              <strong>Stock Threshold Warning:</strong> {lowIngredients.length + lowProducts.length} items below minimum reserve limit.
+              <strong>{t.legacyUi.stockThresholdWarning}</strong> {lowIngredients.length + lowProducts.length} items below minimum reserve limit.
             </p>
           </div>
         </div>
@@ -234,13 +235,13 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
             <table className="w-full text-left text-sm text-slate-300">
               <thead className="bg-slate-950 text-xs uppercase tracking-wider text-slate-400 border-b border-slate-800">
                 <tr>
-                  <th className="py-4 px-6">Ingredient</th>
-                  <th className="py-4 px-6">Stock Level</th>
-                  <th className="py-4 px-6">Alert Limit</th>
-                  <th className="py-4 px-6">Unit Cost</th>
-                  <th className="py-4 px-6">Supplier</th>
-                  <th className="py-4 px-6">Status</th>
-                  <th className="py-4 px-6 text-right">Actions</th>
+                  <th className="py-4 px-6">{translateRawUi('Ingredient')}</th>
+                  <th className="py-4 px-6">{t.legacyUi.stockLevel}</th>
+                  <th className="py-4 px-6">{t.legacyUi.alertLimit}</th>
+                  <th className="py-4 px-6">{t.legacyUi.unitCost}</th>
+                  <th className="py-4 px-6">{t.legacyUi.supplierLabel}</th>
+                  <th className="py-4 px-6">{t.legacyUi.status}</th>
+                  <th className="py-4 px-6 text-right">{t.legacyUi.actions}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60">
@@ -260,11 +261,11 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                         <td className="py-4 px-6">
                           {isLow ? (
                             <span className="px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 text-[10px] font-bold flex items-center gap-1 w-fit">
-                              <AlertTriangle className="w-3 h-3" /> Reorder Needed
+                              <AlertTriangle className="w-3 h-3" /> {translateRawUi('Reorder Needed')}
                             </span>
                           ) : (
                             <span className="px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold">
-                              Optimal
+                              {translateRawUi('Optimal')}
                             </span>
                           )}
                         </td>
@@ -276,7 +277,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                             }}
                             className="bg-slate-800 hover:bg-emerald-500 hover:text-slate-950 text-emerald-400 font-bold px-3 py-1.5 rounded-xl transition text-[11px] cursor-pointer"
                           >
-                            Adjust Stock
+                            {translateRawUi('Adjust Stock')}
                           </button>
                         </td>
                       </tr>
@@ -295,13 +296,13 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
             <table className="w-full text-left text-sm text-slate-300">
               <thead className="bg-slate-950 text-xs uppercase tracking-wider text-slate-400 border-b border-slate-800">
                 <tr>
-                  <th className="py-4 px-6">Dish Name</th>
-                  <th className="py-4 px-6">Category</th>
-                  <th className="py-4 px-6">Price</th>
-                  <th className="py-4 px-6">COGS Cost</th>
-                  <th className="py-4 px-6">Stock</th>
-                  <th className="py-4 px-6">Sales Count</th>
-                  <th className="py-4 px-6 text-right">Actions</th>
+                  <th className="py-4 px-6">{t.legacyUi.dishName}</th>
+                  <th className="py-4 px-6">{t.legacyUi.category}</th>
+                  <th className="py-4 px-6">{t.legacyUi.priceLabel}</th>
+                  <th className="py-4 px-6">{t.legacyUi.cogsCost}</th>
+                  <th className="py-4 px-6">{translateRawUi('Stock')}</th>
+                  <th className="py-4 px-6">{t.legacyUi.salesCount}</th>
+                  <th className="py-4 px-6 text-right">{t.legacyUi.actions}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60">
@@ -323,7 +324,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                           }}
                           className="bg-slate-800 hover:bg-emerald-500 hover:text-slate-950 text-emerald-400 font-bold px-3 py-1.5 rounded-xl transition text-[11px] cursor-pointer"
                         >
-                          Adjust Stock
+                          {translateRawUi('Adjust Stock')}
                         </button>
                       </td>
                     </tr>
@@ -341,12 +342,12 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
             <table className="w-full text-left text-sm text-slate-300">
               <thead className="bg-slate-950 text-xs uppercase tracking-wider text-slate-400 border-b border-slate-800">
                 <tr>
-                  <th className="py-4 px-6">Item Name</th>
-                  <th className="py-4 px-6">Type</th>
-                  <th className="py-4 px-6">Quantity</th>
-                  <th className="py-4 px-6">Reason / Source</th>
-                  <th className="py-4 px-6">Logged By</th>
-                  <th className="py-4 px-6 text-right">Timestamp</th>
+                  <th className="py-4 px-6">{t.legacyUi.itemName}</th>
+                  <th className="py-4 px-6">{translateRawUi('Type')}</th>
+                  <th className="py-4 px-6">{t.legacyUi.quantity}</th>
+                  <th className="py-4 px-6">{t.legacyUi.reasonSource}</th>
+                  <th className="py-4 px-6">{t.legacyUi.loggedBy}</th>
+                  <th className="py-4 px-6 text-right">{t.legacyUi.timestamp}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60 text-xs">
@@ -375,12 +376,12 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
             <button onClick={() => setAdjustItem(null)} className="absolute right-4 top-4 text-slate-400 hover:text-white">
               <X className="w-5 h-5" />
             </button>
-            <h3 className="text-lg font-bold text-white">Adjust Stock Count</h3>
+            <h3 className="text-lg font-bold text-white">{t.legacyUi.adjustStockCount}</h3>
             <p className="text-xs text-slate-400">{adjustItem.name} ({adjustItem.type})</p>
 
             <div className="space-y-3 text-xs">
               <div>
-                <label className="text-slate-400 font-bold block mb-1">New Stock Quantity</label>
+                <label className="text-slate-400 font-bold block mb-1">{t.legacyUi.newStockQuantity}</label>
                 <input
                   type="number"
                   value={newStockVal}
@@ -390,7 +391,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
               </div>
 
               <div>
-                <label className="text-slate-400 font-bold block mb-1">Reason for Adjustment</label>
+                <label className="text-slate-400 font-bold block mb-1">{t.legacyUi.reasonForAdjustment}</label>
                 <input
                   type="text"
                   value={adjustReason}
@@ -418,15 +419,15 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
             <button type="button" onClick={() => setIsAddIngredientOpen(false)} className="absolute right-4 top-4 text-slate-400 hover:text-white">
               <X className="w-5 h-5" />
             </button>
-            <h3 className="text-lg font-bold text-white">Add Raw Kitchen Ingredient</h3>
+            <h3 className="text-lg font-bold text-white">{t.legacyUi.addRawKitchenIngredient}</h3>
 
             <div className="space-y-3">
               <div>
-                <label className="text-slate-400 font-bold block mb-1">Ingredient Name</label>
+                <label className="text-slate-400 font-bold block mb-1">{t.legacyUi.ingredientName}</label>
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Olive Oil / Fresh Tomatoes"
+                  placeholder={translateRawUi('e.g. Olive Oil / Fresh Tomatoes')}
                   value={ingName}
                   onChange={e => setIngName(e.target.value)}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:border-emerald-500 focus:outline-none"
@@ -435,7 +436,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="text-slate-400 font-bold block mb-1">Initial Stock</label>
+                  <label className="text-slate-400 font-bold block mb-1">{t.legacyUi.initialStock}</label>
                   <input
                     type="number"
                     value={ingStock}
@@ -444,7 +445,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                   />
                 </div>
                 <div>
-                  <label className="text-slate-400 font-bold block mb-1">Unit</label>
+                  <label className="text-slate-400 font-bold block mb-1">{translateRawUi('Unit')}</label>
                   <input
                     type="text"
                     value={ingUnit}
@@ -456,7 +457,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="text-slate-400 font-bold block mb-1">Min Alert Threshold</label>
+                  <label className="text-slate-400 font-bold block mb-1">{t.legacyUi.minAlertThreshold}</label>
                   <input
                     type="number"
                     value={ingMinAlert}
@@ -465,7 +466,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                   />
                 </div>
                 <div>
-                  <label className="text-slate-400 font-bold block mb-1">Cost Per Unit ($)</label>
+                  <label className="text-slate-400 font-bold block mb-1">{t.legacyUi.costPerUnit}</label>
                   <input
                     type="number"
                     step="0.01"
@@ -477,7 +478,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
               </div>
 
               <div>
-                <label className="text-slate-400 font-bold block mb-1">Supplier Name</label>
+                <label className="text-slate-400 font-bold block mb-1">{t.legacyUi.supplierName}</label>
                 <input
                   type="text"
                   value={ingSupplier}
@@ -505,15 +506,15 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
             <button type="button" onClick={() => setIsAddProductOpen(false)} className="absolute right-4 top-4 text-slate-400 hover:text-white">
               <X className="w-5 h-5" />
             </button>
-            <h3 className="text-lg font-bold text-white">Add Menu Dish</h3>
+            <h3 className="text-lg font-bold text-white">{t.legacyUi.addMenuDish}</h3>
 
             <div className="space-y-3">
               <div>
-                <label className="text-slate-400 font-bold block mb-1">Dish Name</label>
+                <label className="text-slate-400 font-bold block mb-1">{t.legacyUi.dishName}</label>
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Wagyu Burger Special"
+                  placeholder={translateRawUi('e.g. Wagyu Burger Special')}
                   value={prodName}
                   onChange={e => setProdName(e.target.value)}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:border-emerald-500 focus:outline-none"
@@ -521,23 +522,23 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
               </div>
 
               <div>
-                <label className="text-slate-400 font-bold block mb-1">Category</label>
+                <label className="text-slate-400 font-bold block mb-1">{t.legacyUi.category}</label>
                 <select
                   value={prodCat}
                   onChange={e => setProdCat(e.target.value)}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:border-emerald-500 focus:outline-none"
                 >
-                  <option value="Main Course">Main Course</option>
-                  <option value="Appetizers">Appetizers</option>
-                  <option value="Beverages">Beverages</option>
-                  <option value="Desserts">Desserts</option>
-                  <option value="Sides">Sides</option>
+                  <option value="Main Course">{t.legacyUi.mainCourse}</option>
+                  <option value="Appetizers">{translateRawUi('Appetizers')}</option>
+                  <option value="Beverages">{translateRawUi('Beverages')}</option>
+                  <option value="Desserts">{translateRawUi('Desserts')}</option>
+                  <option value="Sides">{translateRawUi('Sides')}</option>
                 </select>
               </div>
 
               <div className="grid grid-cols-3 gap-2">
                 <div>
-                  <label className="text-slate-400 font-bold block mb-1">Price ($)</label>
+                  <label className="text-slate-400 font-bold block mb-1">{t.legacyUi.priceUsd}</label>
                   <input
                     type="number"
                     step="0.01"
@@ -547,7 +548,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                   />
                 </div>
                 <div>
-                  <label className="text-slate-400 font-bold block mb-1">Cost ($)</label>
+                  <label className="text-slate-400 font-bold block mb-1">{t.legacyUi.costUsd}</label>
                   <input
                     type="number"
                     step="0.01"
@@ -557,7 +558,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                   />
                 </div>
                 <div>
-                  <label className="text-slate-400 font-bold block mb-1">Stock</label>
+                  <label className="text-slate-400 font-bold block mb-1">{translateRawUi('Stock')}</label>
                   <input
                     type="number"
                     value={prodStock}

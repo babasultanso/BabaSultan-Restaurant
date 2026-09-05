@@ -1,3 +1,4 @@
+import { translateRawUi } from '../../i18n';
 import React, { useState, useEffect, useMemo } from 'react';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { db, COLLECTIONS } from '../../lib/firebase';
@@ -190,11 +191,6 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     orders.forEach((o) => {
       if (o.branch) set.add(o.branch);
     });
-    if (set.size === 0) {
-      set.add('Main Branch');
-      set.add('Downtown Express');
-      set.add('Airport Terminal');
-    }
     return Array.from(set);
   }, [orders]);
 
@@ -353,10 +349,10 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
         <div>
           <h2 className="text-xl font-bold text-white flex items-center gap-2">
             <BarChart3 className="w-6 h-6 text-emerald-400" />
-            Executive Business Intelligence & Analytics Module
+            {translateRawUi('Executive Business Intelligence & Analytics Module')}
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            Real-time Firestore analytics, peak hours heatmaps, cost benchmarking & multi-format export center
+            {translateRawUi('Real-time Firestore analytics, peak hours heatmaps, cost benchmarking & multi-format export center')}
           </p>
         </div>
 
@@ -365,14 +361,14 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
             onClick={handlePrintFullAudit}
             className="bg-slate-800 hover:bg-emerald-500 hover:text-slate-950 text-emerald-400 font-bold px-3.5 py-2.5 rounded-2xl text-xs transition flex items-center gap-2 cursor-pointer border border-slate-700/60"
           >
-            <Printer className="w-4 h-4" /> Print Master Statement
+            <Printer className="w-4 h-4" /> {translateRawUi('Print Master Statement')}
           </button>
           <button
             onClick={handleExportMasterExcel}
             className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold px-4 py-2.5 rounded-2xl text-xs transition flex items-center gap-2 cursor-pointer shadow-lg shadow-emerald-500/20"
           >
             <FileSpreadsheet className="w-4 h-4" />
-            Export Master Excel (.XLSX)
+            {translateRawUi('Export Master Excel (.XLSX)')}
           </button>
         </div>
       </div>
@@ -399,7 +395,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
           }`}
         >
           <BarChart3 className="w-4 h-4" />
-          BI Visual Dashboards & Heatmaps
+          {translateRawUi('BI Visual Dashboards & Heatmaps')}
         </button>
 
         <button

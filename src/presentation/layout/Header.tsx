@@ -1,3 +1,4 @@
+import { translateRawUi } from '../../i18n/rawUi';
 import React, { useState, useEffect } from 'react';
 import { collection, query, where, orderBy, limit, onSnapshot } from 'firebase/firestore';
 import { db, COLLECTIONS } from '../../lib/firebase';
@@ -145,12 +146,12 @@ export const Header: React.FC<HeaderProps> = ({ onMobileMenuToggle, onOpenSetupW
 
         <div className="flex items-center gap-2">
           <div className="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center font-black">
-            ERP
+            {translateRawUi('ERP')}
           </div>
           <div className="hidden sm:block">
             <h1 className="text-sm font-bold text-white tracking-wide">{t.appName}</h1>
             <p className="text-[10px] text-emerald-400 font-semibold uppercase tracking-widest">
-              Commercial Edition
+              {translateRawUi('Commercial Edition')}
             </p>
           </div>
         </div>
@@ -189,10 +190,10 @@ export const Header: React.FC<HeaderProps> = ({ onMobileMenuToggle, onOpenSetupW
           <button
             onClick={onOpenSetupWizard}
             className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-500/20 to-teal-500/20 border border-emerald-500/40 text-emerald-300 hover:text-emerald-200 hover:border-emerald-400 text-xs font-bold transition cursor-pointer shadow-sm shadow-emerald-500/10"
-            title="Launch Guided 10-Step Setup Wizard"
+            title={translateRawUi('Launch Guided 10-Step Setup Wizard')}
           >
             <Wand2 className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
-            <span>Setup Wizard</span>
+            <span>{translateRawUi('Setup Wizard')}</span>
           </button>
         )}
 
@@ -200,7 +201,7 @@ export const Header: React.FC<HeaderProps> = ({ onMobileMenuToggle, onOpenSetupW
         <button
           onClick={toggleTheme}
           className="p-2 rounded-xl bg-slate-800/80 border border-slate-700/80 text-slate-300 hover:text-white hover:border-amber-500/50 transition cursor-pointer"
-          title={`Switch to ${themeMode === 'dark' ? 'Light' : 'Dark'} Mode`}
+          title={`${translateRawUi('Switch to')} ${themeMode === 'dark' ? translateRawUi('Light') : translateRawUi('Dark')} ${translateRawUi('Mode')}`}
         >
           {themeMode === 'dark' ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-emerald-400" />}
         </button>
@@ -213,7 +214,7 @@ export const Header: React.FC<HeaderProps> = ({ onMobileMenuToggle, onOpenSetupW
               setShowProfileMenu(false);
             }}
             className="relative p-2 rounded-xl bg-slate-800/80 border border-slate-700/80 text-slate-300 hover:text-white hover:border-emerald-500/50 transition cursor-pointer"
-            title="Notifications"
+            title={t.legacyUi.notifications}
           >
             <Bell className="w-4 h-4" />
             {unreadCount > 0 && (
@@ -232,7 +233,7 @@ export const Header: React.FC<HeaderProps> = ({ onMobileMenuToggle, onOpenSetupW
               <div className="flex items-center justify-between border-b border-slate-800 pb-2">
                 <div className="flex items-center gap-2">
                   <Bell className="w-4 h-4 text-amber-400" />
-                  <span className="text-xs font-bold text-white">System Notifications</span>
+                  <span className="text-xs font-bold text-white">{translateRawUi('System Notifications')}</span>
                   {unreadCount > 0 && (
                     <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 text-[10px] font-bold">
                       {unreadCount} new
@@ -245,7 +246,7 @@ export const Header: React.FC<HeaderProps> = ({ onMobileMenuToggle, onOpenSetupW
                     onClick={markAllRead}
                     className="text-[10px] text-slate-400 hover:text-amber-400 transition"
                   >
-                    Mark all read
+                    {translateRawUi('Mark all read')}
                   </button>
                 )}
               </div>
@@ -287,7 +288,7 @@ export const Header: React.FC<HeaderProps> = ({ onMobileMenuToggle, onOpenSetupW
 
                 {notifications.length === 0 && (
                   <div className="p-6 text-center text-xs text-slate-500">
-                    No active notifications.
+                    {translateRawUi('No active notifications.')}
                   </div>
                 )}
               </div>
@@ -303,7 +304,7 @@ export const Header: React.FC<HeaderProps> = ({ onMobileMenuToggle, onOpenSetupW
               setShowNotifications(false);
             }}
             className="w-8 h-8 rounded-xl bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 flex items-center justify-center text-xs font-bold hover:border-emerald-400 transition cursor-pointer"
-            title="User Profile Menu"
+            title={translateRawUi('User Profile Menu')}
           >
             <UserCheck className="w-4 h-4" />
           </button>
@@ -329,10 +330,10 @@ export const Header: React.FC<HeaderProps> = ({ onMobileMenuToggle, onOpenSetupW
 
               <div className="space-y-1 text-xs">
                 <div className="p-2 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between text-[10px]">
-                  <span className="text-slate-400">System Status</span>
+                  <span className="text-slate-400">{translateRawUi('System Status')}</span>
                   <span className="text-emerald-400 font-bold flex items-center gap-1">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                    Online
+                    {translateRawUi('Online')}
                   </span>
                 </div>
               </div>
@@ -342,7 +343,7 @@ export const Header: React.FC<HeaderProps> = ({ onMobileMenuToggle, onOpenSetupW
                 className="w-full p-2.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 text-xs font-bold flex items-center justify-center gap-2 transition cursor-pointer"
               >
                 <LogOut className="w-3.5 h-3.5" />
-                Sign Out
+                {translateRawUi('Sign Out')}
               </button>
             </div>
           )}

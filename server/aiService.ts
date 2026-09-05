@@ -5,6 +5,34 @@ import { authenticateTrustedUser } from './auth.js';
 
 const SERVER_GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
 
+// In-memory sliding window rate limiter (max 20 requests per minute per user/IP)
+interface RateLimitRecord {
+  timestamps: number[];
+}
+const rateLimitMap = new Map<string, RateLimitRecord>();
+
+function checkRateLimit(key: string, limit: number = 20, windowMs: number = 60000): boolean {
+  const now = Date.now();
+  const record = rateLimitMap.get(key) || { timestamps: [] };
+  // Filter out timestamps older than windowMs
+  const validTimestamps = record.timestamps.filter(ts => now - ts < windowMs);
+  if (validTimestamps.length >= limit) {
+    return false; // Exceeded limit
+  }
+  validTimestamps.push(now);
+  rateLimitMap.set(key, { timestamps: validTimestamps });
+
+  // Periodically clean up old entries
+  if (rateLimitMap.size > 5000) {
+    for (const [k, v] of rateLimitMap.entries()) {
+      if (v.timestamps.length === 0 || now - v.timestamps[v.timestamps.length - 1] > windowMs) {
+        rateLimitMap.delete(k);
+      }
+    }
+  }
+  return true;
+}
+
 export async function handleAIChatRequest(req: express.Request, res: express.Response) {
   try {
     const { prompt, language, currentData } = req.body || {};
@@ -23,15 +51,19 @@ export async function handleAIChatRequest(req: express.Request, res: express.Res
     if (!user) return;
 
     const uid = user.uid;
+    const clientIp = req.ip || req.headers['x-forwarded-for'] || '127.0.0.1';
+    const rateLimitKey = `${uid}_${clientIp}`;
+
+    if (!checkRateLimit(rateLimitKey, 20, 60000)) {
+      return res.status(429).json({
+        error: 'Too many AI requests. Please slow down and try again in a few moments.'
+      });
+    }
+
     const userRole = user.role;
     const userBranchId = user.branchId;
 
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      return res.status(500).json({
-        error: 'AI service configuration issue. GEMINI_API_KEY is not configured on server.'
-      });
-    }
+    const isTestEnvironment = process.env.VITEST === 'true' || process.env.NODE_ENV === 'test';
 
     // 3. Financial Role Verification & Period Options
     const financialRoles = ['Owner', 'owner', 'Admin', 'admin', 'Manager', 'manager', 'Accountant', 'accountant'];
@@ -58,7 +90,7 @@ export async function handleAIChatRequest(req: express.Request, res: express.Res
       }
     }
 
-    const ai = new GoogleGenAI({ apiKey });
+    const apiKey = process.env.GEMINI_API_KEY;
 
     const systemInstruction = isFinancialUser ? `
 You are the official AI Certified Public Accountant (CPA), Chief Financial Officer (CFO), and Financial Controller for this Restaurant ERP System.
@@ -88,13 +120,14 @@ CRITICAL CPA MANDATES:
      - "RECORD_BANK_TRANSACTION": { "amount": number, "type"?: "deposit"|"withdrawal"|"transfer"|"fee", "bankAccountId"?: string, "accountName"?: string, "description"?: string, "referenceNumber"?: string }
      - "RECORD_MOVEMENT": { "itemId": string, "quantity": number, "type"?: "adjustment"|"in"|"out"|"transfer"|"waste"|"spoilage", "itemType"?: "ingredient"|"product", "itemName"?: string, "reason"?: string }
      - "UPDATE_STOCK": { "productId": string, "newStock": number, "reason"?: string }
+     - "UPDATE_PRODUCT_PRICE": { "productId": string, "newPrice": number, "reason"?: string }
 
 4. OUTPUT FORMAT:
    Always return a valid JSON object:
    {
      "detectedLanguage": "en" | "ar" | "so",
      "reply": "Clear, precise CPA Markdown answer with exact numerical figures and professional auditing insight...",
-     "actionTaken": "ADD_EXPENSE" | "REGISTER_PURCHASE" | "REGISTER_SALARY" | "RECORD_REFUND" | "RECORD_BANK_TRANSACTION" | "RECORD_MOVEMENT" | "UPDATE_STOCK" | null,
+     "actionTaken": "ADD_EXPENSE" | "REGISTER_PURCHASE" | "REGISTER_SALARY" | "RECORD_REFUND" | "RECORD_BANK_TRANSACTION" | "RECORD_MOVEMENT" | "UPDATE_STOCK" | "UPDATE_PRODUCT_PRICE" | null,
      "actionPayload": object | null,
      "suggestedQuestions": ["Question 1 in user language", "Question 2 in user language", "Question 3 in user language"]
    }
@@ -139,7 +172,7 @@ USER QUESTION / COMMAND:
 
     let replyText = '';
     try {
-      if (process.env.VITEST === 'true' || process.env.NODE_ENV === 'test') {
+      if (isTestEnvironment) {
         replyText = JSON.stringify({
           detectedLanguage: 'en',
           reply: isFinancialUser
@@ -150,6 +183,10 @@ USER QUESTION / COMMAND:
           suggestedQuestions: ['What are open orders?']
         });
       } else {
+        if (!apiKey) {
+          throw new Error('AI service configuration issue. GEMINI_API_KEY is not configured on server.');
+        }
+        const ai = new GoogleGenAI({ apiKey });
         const response = await ai.models.generateContent({
           model: SERVER_GEMINI_MODEL,
           contents: userContext,
@@ -161,7 +198,7 @@ USER QUESTION / COMMAND:
         replyText = response.text || '';
       }
     } catch (aiErr: any) {
-      if (process.env.VITEST === 'true' || process.env.NODE_ENV === 'test') {
+      if (isTestEnvironment) {
         replyText = JSON.stringify({
           detectedLanguage: 'en',
           reply: isFinancialUser
@@ -247,6 +284,12 @@ USER QUESTION / COMMAND:
               const ns = Number(payload.newStock);
               const prod = String(payload.productId || payload.productName || '').trim();
               isValid = Number.isFinite(ns) && ns >= 0 && prod.length > 0;
+              break;
+            }
+            case 'UPDATE_PRODUCT_PRICE': {
+              const np = Number(payload.newPrice);
+              const prod = String(payload.productId || '').trim();
+              isValid = Number.isFinite(np) && np >= 0 && prod.length > 0;
               break;
             }
             default:

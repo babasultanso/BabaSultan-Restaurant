@@ -3,6 +3,7 @@ export interface NewEmployeePayload {
   email: string;
   role: string;
   salary: number;
+  payFrequency?: 'daily' | 'weekly' | 'monthly';
 }
 
 export interface NewSupplierPayload {
@@ -11,6 +12,8 @@ export interface NewSupplierPayload {
   phone: string;
   itemsSupplied: string;
   pendingAmount: number;
+  branchId?: string;
+  branch?: string;
 }
 
 export interface SalaryPaymentPayload {

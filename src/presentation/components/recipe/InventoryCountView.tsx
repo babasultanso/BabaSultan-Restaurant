@@ -1,7 +1,9 @@
+import { translateRawUi } from '../../../i18n';
+import { translations } from '../../../i18n/translations';
 import React, { useState, useEffect } from 'react';
 import { Ingredient, StockCount, StockCountItem } from '../../../domain/entities/recipe';
 import { RecipeController } from '../../../controllers/RecipeController';
-import { recipeDict, RecipeLang } from './translations';
+import { recipeDict, RecipeLang } from '../../../i18n';
 import { ClipboardList, Plus, CheckCircle2, AlertCircle, Save, Check } from 'lucide-react';
 
 interface InventoryCountViewProps {
@@ -17,7 +19,7 @@ export const InventoryCountView: React.FC<InventoryCountViewProps> = ({
   lang,
   currentUser = 'Inventory Manager'
 }) => {
-  const t = recipeDict[lang] || recipeDict.en;
+  const t = { ...(recipeDict[lang] || recipeDict.en), legacyUi: translations[lang].legacyUi };
 
   const [stockCounts, setStockCounts] = useState<StockCount[]>([]);
   const [showNewModal, setShowNewModal] = useState(false);
@@ -39,7 +41,7 @@ export const InventoryCountView: React.FC<InventoryCountViewProps> = ({
       expectedQuantity: ing.currentStockUsageUnit || 0,
       actualQuantity: ing.currentStockUsageUnit || 0,
       difference: 0,
-      costPerUnit: ing.costPerUsageUnit || 0.01,
+      costPerUnit: ing.costPerUsageUnit || 0,
       lossValue: 0,
       notes: ''
     }));
@@ -115,7 +117,7 @@ export const InventoryCountView: React.FC<InventoryCountViewProps> = ({
             {t.stockCount.title}
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            Perform physical ingredient audits, detect loss discrepancies, and automatically adjust stock levels.
+            {translateRawUi('Perform physical ingredient audits, detect loss discrepancies, and automatically adjust stock levels.')}
           </p>
         </div>
 
@@ -195,11 +197,11 @@ export const InventoryCountView: React.FC<InventoryCountViewProps> = ({
               <table className="w-full text-xs text-left">
                 <thead className="text-[10px] uppercase font-bold text-slate-400 bg-slate-950">
                   <tr>
-                    <th className="p-2.5 rounded-l-xl">Ingredient</th>
-                    <th className="p-2.5">Expected</th>
-                    <th className="p-2.5">Actual Count</th>
-                    <th className="p-2.5">Difference</th>
-                    <th className="p-2.5 text-right rounded-r-xl">Discrepancy Loss ($)</th>
+                    <th className="p-2.5 rounded-l-xl">{translateRawUi('Ingredient')}</th>
+                    <th className="p-2.5">{translateRawUi('Expected')}</th>
+                    <th className="p-2.5">{t.legacyUi.actualCount}</th>
+                    <th className="p-2.5">{translateRawUi('Difference')}</th>
+                    <th className="p-2.5 text-right rounded-r-xl">{t.legacyUi.discrepancyLossUsd}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60">
@@ -236,7 +238,7 @@ export const InventoryCountView: React.FC<InventoryCountViewProps> = ({
 
         {stockCounts.length === 0 && (
           <div className="p-12 text-center bg-slate-900 border border-slate-800 rounded-3xl text-slate-400 text-xs">
-            No stock count audits performed yet. Click &quot;New Stock Count&quot; to begin audit.
+            {translateRawUi('No stock count audits performed yet. Click &quot;New Stock Count&quot; to begin audit.')}
           </div>
         )}
       </div>
@@ -262,10 +264,10 @@ export const InventoryCountView: React.FC<InventoryCountViewProps> = ({
               <table className="w-full text-xs text-left">
                 <thead className="text-[10px] uppercase font-bold text-slate-400 bg-slate-950 sticky top-0">
                   <tr>
-                    <th className="p-2.5">Ingredient</th>
-                    <th className="p-2.5">Expected Stock</th>
-                    <th className="p-2.5">Actual Physical Count</th>
-                    <th className="p-2.5">Discrepancy</th>
+                    <th className="p-2.5">{translateRawUi('Ingredient')}</th>
+                    <th className="p-2.5">{t.legacyUi.expectedStock}</th>
+                    <th className="p-2.5">{t.legacyUi.actualPhysicalCount}</th>
+                    <th className="p-2.5">{translateRawUi('Discrepancy')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800">
@@ -309,7 +311,7 @@ export const InventoryCountView: React.FC<InventoryCountViewProps> = ({
                 type="text"
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                placeholder="Audit notes or comments..."
+                placeholder={translateRawUi('Audit notes or comments...')}
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
               />
             </div>
@@ -320,14 +322,14 @@ export const InventoryCountView: React.FC<InventoryCountViewProps> = ({
                 onClick={() => handleSaveCount('draft')}
                 className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-300"
               >
-                Save Draft
+                {translateRawUi('Save Draft')}
               </button>
               <button
                 type="button"
                 onClick={() => handleSaveCount('completed')}
                 className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs cursor-pointer shadow-lg shadow-amber-500/20"
               >
-                Save &amp; Apply Stock Adjustment
+                {translateRawUi('Save &amp; Apply Stock Adjustment')}
               </button>
             </div>
           </div>

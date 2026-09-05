@@ -2,7 +2,10 @@ import React, { useState, useRef, useEffect } from 'react';
 import { auth } from '../lib/firebase';
 import { getApiUrl } from '../lib/apiConfig';
 import { ChatMessage, Language } from '../types';
-import { translations, detectLanguage } from '../lib/i18n';
+import { SupportedLanguage } from '../constants';
+import { translations } from '../i18n/translations';
+import { translateRawUi } from '../i18n';
+import { detectLanguage } from '../lib/i18n';
 import {
   Bot,
   X,
@@ -43,8 +46,9 @@ export const AIAssistantModal: React.FC<AIAssistantModalProps> = ({
 
   const chatEndRef = useRef<HTMLDivElement>(null);
 
-  const activeLang = language === 'auto' ? 'en' : language;
+  const activeLang: SupportedLanguage = language === 'auto' ? 'en' : language as SupportedLanguage;
   const t = translations[activeLang];
+  const legacyUi = translations[activeLang].legacyUi;
 
   useEffect(() => {
     if (isOpen && messages.length === 0) {
@@ -218,10 +222,10 @@ export const AIAssistantModal: React.FC<AIAssistantModalProps> = ({
               <h2 className="text-base font-bold text-white flex items-center gap-2">
                 {t.aiAssistant}
                 <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full border border-emerald-500/30">
-                  Real Firestore Sync
+                  {translateRawUi('Real Firestore Sync')}
                 </span>
               </h2>
-              <p className="text-xs text-slate-400">Multi-lingual: English • العربية • Af Soomaali</p>
+              <p className="text-xs text-slate-400">{translateRawUi('Multi-lingual: English • العربية • Af Soomaali')}</p>
             </div>
           </div>
 
@@ -229,14 +233,14 @@ export const AIAssistantModal: React.FC<AIAssistantModalProps> = ({
             <button
               onClick={handleExportPDFFromChat}
               className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition"
-              title="Download PDF Financial Audit"
+              title={translateRawUi('Download PDF Financial Audit')}
             >
               <FileText className="w-5 h-5 text-emerald-400" />
             </button>
             <button
               onClick={handleExportExcelFromChat}
               className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition"
-              title="Export Excel Worksheet"
+              title={translateRawUi('Export Excel Worksheet')}
             >
               <FileSpreadsheet className="w-5 h-5 text-teal-400" />
             </button>
@@ -319,12 +323,12 @@ export const AIAssistantModal: React.FC<AIAssistantModalProps> = ({
                           className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold py-2 px-3 rounded-lg flex items-center justify-center gap-2 transition cursor-pointer"
                         >
                           <CheckCircle2 className="w-4 h-4" />
-                          Apply Action to Firestore
+                          {translateRawUi('Apply Action to Firestore')}
                         </button>
                       ) : (
                         <div className="text-emerald-400 font-semibold flex items-center justify-center gap-1.5 py-1">
                           <CheckCircle2 className="w-4 h-4" />
-                          Applied to Firestore Database!
+                          {translateRawUi('Applied to Firestore Database!')}
                         </div>
                       )}
                     </div>
@@ -353,7 +357,7 @@ export const AIAssistantModal: React.FC<AIAssistantModalProps> = ({
 
                 {isUser && (
                   <div className="w-8 h-8 rounded-lg bg-slate-700 text-slate-200 flex items-center justify-center shrink-0 mt-1 font-bold text-xs">
-                    YOU
+                    {translateRawUi('YOU')}
                   </div>
                 )}
               </div>
@@ -363,7 +367,7 @@ export const AIAssistantModal: React.FC<AIAssistantModalProps> = ({
           {isLoading && (
             <div className="flex items-center gap-3 text-slate-400 text-xs p-3 bg-slate-800/40 rounded-xl border border-slate-800">
               <RefreshCw className="w-4 h-4 animate-spin text-emerald-400" />
-              <span>Analyzing live Firestore data & computing financial Advisor response...</span>
+              <span>{legacyUi.analyzingFirestore}</span>
             </div>
           )}
 
@@ -396,7 +400,7 @@ export const AIAssistantModal: React.FC<AIAssistantModalProps> = ({
             </button>
           </form>
           <p className="text-[10px] text-slate-500 text-center mt-2">
-            Ask in English, Arabic (العربية), or Somali (Af Soomaali). AI executes real Firestore ERP transactions.
+            {translateRawUi('Ask in English, Arabic (العربية), or Somali (Af Soomaali). AI executes real Firestore ERP transactions.')}
           </p>
         </div>
 

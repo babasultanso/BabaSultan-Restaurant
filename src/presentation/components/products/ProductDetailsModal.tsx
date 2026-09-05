@@ -1,3 +1,4 @@
+import { translateRawUi } from '../../../i18n/rawUi';
 import React from 'react';
 import { Product, Category } from '../../../types';
 import { useAuth } from '../../context/AuthContext';
@@ -28,7 +29,7 @@ export const ProductDetailsModal: React.FC<ProductDetailsModalProps> = ({
   onClose,
   categories
 }) => {
-  const { language } = useAuth();
+  const { language, t} = useAuth();
 
   if (!isOpen || !product) return null;
 
@@ -94,13 +95,13 @@ export const ProductDetailsModal: React.FC<ProductDetailsModalProps> = ({
             {product.isFeatured && (
               <span className="px-3 py-1 bg-amber-500/10 text-amber-300 border border-amber-500/20 rounded-xl text-xs font-bold flex items-center gap-1">
                 <Flame className="w-3.5 h-3.5" />
-                <span>Featured Dish</span>
+                <span>{t.legacyUi.featuredDish}</span>
               </span>
             )}
 
             <span className="px-3 py-1 bg-slate-800 text-slate-300 rounded-xl text-xs font-medium flex items-center gap-1">
               <Clock className="w-3.5 h-3.5 text-slate-400" />
-              <span>Prep Time: {product.prepTimeMinutes || 15} Mins</span>
+              <span>Prep Time: {product.prepTimeMinutes ?? '—'} Mins</span>
             </span>
 
             {product.calories && (
@@ -112,7 +113,7 @@ export const ProductDetailsModal: React.FC<ProductDetailsModalProps> = ({
 
           {/* Descriptions */}
           <div className="space-y-2">
-            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Description</h4>
+            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">{translateRawUi('Description')}</h4>
             <p className="text-xs text-slate-300 leading-relaxed bg-slate-950/60 p-4 rounded-2xl border border-slate-800">
               {product.description || product.shortDescription || 'No description provided for this menu item.'}
             </p>
@@ -121,15 +122,15 @@ export const ProductDetailsModal: React.FC<ProductDetailsModalProps> = ({
           {/* Multi-Lingual Names Breakdown */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div className="p-3 bg-slate-950/60 border border-slate-800 rounded-2xl">
-              <span className="text-[10px] text-slate-400 block font-semibold">English Name</span>
+              <span className="text-[10px] text-slate-400 block font-semibold">{t.legacyUi.englishName}</span>
               <p className="text-xs font-bold text-white mt-1">{product.nameEn || product.name}</p>
             </div>
             <div className="p-3 bg-slate-950/60 border border-slate-800 rounded-2xl">
-              <span className="text-[10px] text-slate-400 block font-semibold">Arabic Name</span>
+              <span className="text-[10px] text-slate-400 block font-semibold">{t.legacyUi.arabicName}</span>
               <p className="text-xs font-bold text-white mt-1 dir-rtl">{product.nameAr || 'غير محدد'}</p>
             </div>
             <div className="p-3 bg-slate-950/60 border border-slate-800 rounded-2xl">
-              <span className="text-[10px] text-slate-400 block font-semibold">Somali Name</span>
+              <span className="text-[10px] text-slate-400 block font-semibold">{t.legacyUi.somaliName}</span>
               <p className="text-xs font-bold text-white mt-1">{product.nameSo || 'Aan la cayimin'}</p>
             </div>
           </div>
@@ -137,19 +138,19 @@ export const ProductDetailsModal: React.FC<ProductDetailsModalProps> = ({
           {/* Technical ERP Fields */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 bg-slate-950/60 p-4 rounded-2xl border border-slate-800">
             <div>
-              <span className="text-[10px] text-slate-400 block font-semibold">SKU Code</span>
+              <span className="text-[10px] text-slate-400 block font-semibold">{t.legacyUi.skuCode}</span>
               <p className="text-xs font-mono font-bold text-slate-200">{product.sku || 'N/A'}</p>
             </div>
             <div>
-              <span className="text-[10px] text-slate-400 block font-semibold">Barcode</span>
+              <span className="text-[10px] text-slate-400 block font-semibold">{translateRawUi('Barcode')}</span>
               <p className="text-xs font-mono font-bold text-slate-200">{product.barcode || 'N/A'}</p>
             </div>
             <div>
-              <span className="text-[10px] text-slate-400 block font-semibold">Cost Price</span>
+              <span className="text-[10px] text-slate-400 block font-semibold">{t.legacyUi.costPrice}</span>
               <p className="text-xs font-bold text-emerald-400">${(product.cost || 0).toFixed(2)}</p>
             </div>
             <div>
-              <span className="text-[10px] text-slate-400 block font-semibold">Stock Quantity</span>
+              <span className="text-[10px] text-slate-400 block font-semibold">{t.legacyUi.stockQuantity}</span>
               <p className="text-xs font-bold text-slate-200">{product.stock} {product.unit || 'Units'}</p>
             </div>
           </div>
@@ -159,7 +160,7 @@ export const ProductDetailsModal: React.FC<ProductDetailsModalProps> = ({
             <div className="space-y-2">
               <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
                 <Boxes className="w-4 h-4 text-emerald-400" />
-                <span>Recipe & Inventory Linkage (Auto-Deducted)</span>
+                <span>{t.legacyUi.recipeInventoryLinkage}</span>
               </h4>
               <div className="space-y-2">
                 {product.ingredients.map((ing, i) => (
@@ -177,7 +178,7 @@ export const ProductDetailsModal: React.FC<ProductDetailsModalProps> = ({
             <div className="space-y-2">
               <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
                 <Sliders className="w-4 h-4 text-emerald-400" />
-                <span>Configured Options & Add-ons</span>
+                <span>{t.legacyUi.configuredOptionsAddons}</span>
               </h4>
               <div className="space-y-2">
                 {product.options.map((opt, i) => (
@@ -207,7 +208,7 @@ export const ProductDetailsModal: React.FC<ProductDetailsModalProps> = ({
             onClick={onClose}
             className="px-5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl"
           >
-            Close Details
+            {translateRawUi('Close Details')}
           </button>
         </div>
 

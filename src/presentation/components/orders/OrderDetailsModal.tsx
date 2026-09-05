@@ -1,3 +1,5 @@
+import { useAuth } from '../../context/AuthContext';
+import { translateRawUi } from '../../../i18n/rawUi';
 import React, { useState } from 'react';
 import { Order, OrderStatus } from '../../../types';
 import { KitchenTicket } from '../../../domain/entities/kitchen';
@@ -42,6 +44,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
   onCancelOrder,
   onEditOrder
 }) => {
+  const { t } = useAuth();
   const [isCancelling, setIsCancelling] = useState<boolean>(false);
   const [showCancelPrompt, setShowCancelPrompt] = useState<boolean>(false);
   const [cancelReason, setCancelReason] = useState<string>('');
@@ -76,19 +79,19 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
   const getOrderStatusBadge = (status: OrderStatus) => {
     switch (status) {
       case 'completed':
-        return <span className="px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold uppercase">Completed</span>;
+        return <span className="px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold uppercase">{t.legacyUi.completed}</span>;
       case 'ready_for_pickup':
       case 'ready':
-        return <span className="px-2.5 py-1 rounded-full bg-teal-500/20 text-teal-400 border border-teal-500/30 text-[10px] font-bold uppercase">Ready</span>;
+        return <span className="px-2.5 py-1 rounded-full bg-teal-500/20 text-teal-400 border border-teal-500/30 text-[10px] font-bold uppercase">{translateRawUi('Ready')}</span>;
       case 'in_preparation':
       case 'preparing':
-        return <span className="px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 text-[10px] font-bold uppercase animate-pulse">In Preparation</span>;
+        return <span className="px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 text-[10px] font-bold uppercase animate-pulse">{t.legacyUi.inPreparation}</span>;
       case 'confirmed':
-        return <span className="px-2.5 py-1 rounded-full bg-sky-500/20 text-sky-400 border border-sky-500/30 text-[10px] font-bold uppercase">Confirmed</span>;
+        return <span className="px-2.5 py-1 rounded-full bg-sky-500/20 text-sky-400 border border-sky-500/30 text-[10px] font-bold uppercase">{translateRawUi('Confirmed')}</span>;
       case 'cancelled':
-        return <span className="px-2.5 py-1 rounded-full bg-rose-500/20 text-rose-400 border border-rose-500/30 text-[10px] font-bold uppercase">Cancelled</span>;
+        return <span className="px-2.5 py-1 rounded-full bg-rose-500/20 text-rose-400 border border-rose-500/30 text-[10px] font-bold uppercase">{translateRawUi('Cancelled')}</span>;
       default:
-        return <span className="px-2.5 py-1 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30 text-[10px] font-bold uppercase">New Order</span>;
+        return <span className="px-2.5 py-1 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30 text-[10px] font-bold uppercase">{translateRawUi('New Order')}</span>;
     }
   };
 
@@ -96,21 +99,21 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
   const getKitchenBadge = () => {
     const status = kitchenTicket?.prepStatus || order.prepStatus;
     if (!status && !kitchenTicket) {
-      return <span className="px-2.5 py-1 rounded-full bg-slate-800 text-slate-400 border border-slate-700 text-[10px] font-bold uppercase">No Ticket</span>;
+      return <span className="px-2.5 py-1 rounded-full bg-slate-800 text-slate-400 border border-slate-700 text-[10px] font-bold uppercase">{translateRawUi('No Ticket')}</span>;
     }
     switch (status) {
       case 'completed':
-        return <span className="px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold uppercase">Kitchen Completed</span>;
+        return <span className="px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold uppercase">{t.legacyUi.kitchenCompleted}</span>;
       case 'ready_for_pickup':
-        return <span className="px-2.5 py-1 rounded-full bg-teal-500/20 text-teal-400 border border-teal-500/30 text-[10px] font-bold uppercase">Food Ready</span>;
+        return <span className="px-2.5 py-1 rounded-full bg-teal-500/20 text-teal-400 border border-teal-500/30 text-[10px] font-bold uppercase">{t.legacyUi.foodReady}</span>;
       case 'cooking':
-        return <span className="px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 text-[10px] font-bold uppercase animate-pulse">Cooking</span>;
+        return <span className="px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 text-[10px] font-bold uppercase animate-pulse">{translateRawUi('Cooking')}</span>;
       case 'accepted':
-        return <span className="px-2.5 py-1 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30 text-[10px] font-bold uppercase">Accepted</span>;
+        return <span className="px-2.5 py-1 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30 text-[10px] font-bold uppercase">{translateRawUi('Accepted')}</span>;
       case 'cancelled':
-        return <span className="px-2.5 py-1 rounded-full bg-rose-500/20 text-rose-400 border border-rose-500/30 text-[10px] font-bold uppercase">Cancelled</span>;
+        return <span className="px-2.5 py-1 rounded-full bg-rose-500/20 text-rose-400 border border-rose-500/30 text-[10px] font-bold uppercase">{translateRawUi('Cancelled')}</span>;
       default:
-        return <span className="px-2.5 py-1 rounded-full bg-slate-800 text-slate-300 border border-slate-700 text-[10px] font-bold uppercase">New Ticket</span>;
+        return <span className="px-2.5 py-1 rounded-full bg-slate-800 text-slate-300 border border-slate-700 text-[10px] font-bold uppercase">{translateRawUi('New Ticket')}</span>;
     }
   };
 
@@ -118,28 +121,28 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
   const getDeliveryBadge = () => {
     const status = deliveryRecord?.status || order.deliveryStatus;
     if (!status && !isDeliveryOrder) {
-      return <span className="px-2.5 py-1 rounded-full bg-slate-800 text-slate-400 border border-slate-700 text-[10px] font-bold uppercase">Not Delivery</span>;
+      return <span className="px-2.5 py-1 rounded-full bg-slate-800 text-slate-400 border border-slate-700 text-[10px] font-bold uppercase">{translateRawUi('Not Delivery')}</span>;
     }
     switch (status) {
       case 'delivered':
-        return <span className="px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold uppercase">Delivered</span>;
+        return <span className="px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold uppercase">{translateRawUi('Delivered')}</span>;
       case 'arrived':
-        return <span className="px-2.5 py-1 rounded-full bg-teal-500/20 text-teal-400 border border-teal-500/30 text-[10px] font-bold uppercase">Driver Arrived</span>;
+        return <span className="px-2.5 py-1 rounded-full bg-teal-500/20 text-teal-400 border border-teal-500/30 text-[10px] font-bold uppercase">{t.legacyUi.driverArrived}</span>;
       case 'on_the_way':
       case 'in_transit':
-        return <span className="px-2.5 py-1 rounded-full bg-purple-500/20 text-purple-400 border border-purple-500/30 text-[10px] font-bold uppercase">Out for Delivery</span>;
+        return <span className="px-2.5 py-1 rounded-full bg-purple-500/20 text-purple-400 border border-purple-500/30 text-[10px] font-bold uppercase">{translateRawUi('Out for Delivery')}</span>;
       case 'picked_up':
-        return <span className="px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 text-[10px] font-bold uppercase">Picked Up</span>;
+        return <span className="px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 text-[10px] font-bold uppercase">{translateRawUi('Picked Up')}</span>;
       case 'accepted':
-        return <span className="px-2.5 py-1 rounded-full bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 text-[10px] font-bold uppercase">Driver Accepted</span>;
+        return <span className="px-2.5 py-1 rounded-full bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 text-[10px] font-bold uppercase">{t.legacyUi.driverAccepted}</span>;
       case 'assigned':
-        return <span className="px-2.5 py-1 rounded-full bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 text-[10px] font-bold uppercase">Driver Assigned</span>;
+        return <span className="px-2.5 py-1 rounded-full bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 text-[10px] font-bold uppercase">{t.legacyUi.driverAssigned}</span>;
       case 'failed':
       case 'returned':
       case 'cancelled':
-        return <span className="px-2.5 py-1 rounded-full bg-rose-500/20 text-rose-400 border border-rose-500/30 text-[10px] font-bold uppercase">Delivery Failed</span>;
+        return <span className="px-2.5 py-1 rounded-full bg-rose-500/20 text-rose-400 border border-rose-500/30 text-[10px] font-bold uppercase">{t.legacyUi.deliveryFailed}</span>;
       default:
-        return <span className="px-2.5 py-1 rounded-full bg-slate-800 text-slate-400 border border-slate-700 text-[10px] font-bold uppercase">Unassigned</span>;
+        return <span className="px-2.5 py-1 rounded-full bg-slate-800 text-slate-400 border border-slate-700 text-[10px] font-bold uppercase">{translateRawUi('Unassigned')}</span>;
     }
   };
 
@@ -149,11 +152,11 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
       case 'paid':
         return <span className="px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold uppercase">Paid ({order.paymentMethod || 'cash'})</span>;
       case 'refunded':
-        return <span className="px-2.5 py-1 rounded-full bg-rose-500/20 text-rose-400 border border-rose-500/30 text-[10px] font-bold uppercase">Refunded</span>;
+        return <span className="px-2.5 py-1 rounded-full bg-rose-500/20 text-rose-400 border border-rose-500/30 text-[10px] font-bold uppercase">{translateRawUi('Refunded')}</span>;
       case 'failed':
-        return <span className="px-2.5 py-1 rounded-full bg-rose-500/20 text-rose-400 border border-rose-500/30 text-[10px] font-bold uppercase">Payment Failed</span>;
+        return <span className="px-2.5 py-1 rounded-full bg-rose-500/20 text-rose-400 border border-rose-500/30 text-[10px] font-bold uppercase">{translateRawUi('Payment Failed')}</span>;
       default:
-        return <span className="px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 text-[10px] font-bold uppercase">Payment Pending</span>;
+        return <span className="px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 text-[10px] font-bold uppercase">{translateRawUi('Payment Pending')}</span>;
     }
   };
 
@@ -163,7 +166,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
         <button
           onClick={onClose}
           className="absolute right-4 top-4 text-slate-400 hover:text-white p-1 rounded-xl hover:bg-slate-800 cursor-pointer transition"
-          aria-label="Close Modal"
+          aria-label={translateRawUi('Close Modal')}
         >
           <X className="w-5 h-5" />
         </button>
@@ -192,7 +195,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                 className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
               >
                 <Edit className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Edit Order</span>
+                <span>{t.legacyUi.editOrder}</span>
               </button>
             )}
           </div>
@@ -201,27 +204,27 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
         {/* 4-Card Status Summary Grid: Order, Kitchen, Delivery, Payment */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
           <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800 flex flex-col justify-between">
-            <span className="text-slate-400 font-semibold text-[10px] uppercase tracking-wider block">Order State</span>
+            <span className="text-slate-400 font-semibold text-[10px] uppercase tracking-wider block">{translateRawUi('Order State')}</span>
             <div className="mt-1.5">{getOrderStatusBadge(order.status)}</div>
           </div>
 
           <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800 flex flex-col justify-between">
             <span className="text-slate-400 font-semibold text-[10px] uppercase tracking-wider flex items-center gap-1">
-              <Flame className="w-3 h-3 text-amber-400" /> Kitchen Progress
+              <Flame className="w-3 h-3 text-amber-400" /> {translateRawUi('Kitchen Progress')}
             </span>
             <div className="mt-1.5">{getKitchenBadge()}</div>
           </div>
 
           <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800 flex flex-col justify-between">
             <span className="text-slate-400 font-semibold text-[10px] uppercase tracking-wider flex items-center gap-1">
-              <Truck className="w-3 h-3 text-purple-400" /> Delivery Progress
+              <Truck className="w-3 h-3 text-purple-400" /> {translateRawUi('Delivery Progress')}
             </span>
             <div className="mt-1.5">{getDeliveryBadge()}</div>
           </div>
 
           <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800 flex flex-col justify-between">
             <span className="text-slate-400 font-semibold text-[10px] uppercase tracking-wider flex items-center gap-1">
-              <DollarSign className="w-3 h-3 text-emerald-400" /> Payment State
+              <DollarSign className="w-3 h-3 text-emerald-400" /> {translateRawUi('Payment State')}
             </span>
             <div className="mt-1.5">{getPaymentBadge()}</div>
           </div>
@@ -230,7 +233,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
         {/* Info Cards Grid: Customer, Location / Table, Driver / Staff */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
           <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 space-y-1">
-            <span className="text-slate-400 font-semibold block text-[10px] uppercase">Customer</span>
+            <span className="text-slate-400 font-semibold block text-[10px] uppercase">{translateRawUi('Customer')}</span>
             <span className="text-white font-extrabold block">{order.customerName || 'Walk-in Customer'}</span>
             {order.customerPhone && (
               <span className="text-[10px] text-slate-400 flex items-center gap-1">
@@ -304,32 +307,32 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
         {/* Financial Breakdown (Independent accounting) */}
         <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-1.5 text-xs font-mono">
           <div className="flex justify-between text-slate-400">
-            <span>Subtotal:</span>
+            <span>{translateRawUi('Subtotal:')}</span>
             <span>${(typeof order.subtotal === 'number' ? order.subtotal : (order.totalAmount || 0)).toFixed(2)}</span>
           </div>
           <div className="flex justify-between text-slate-400">
-            <span>Recorded Tax:</span>
+            <span>{translateRawUi('Recorded Tax:')}</span>
             <span>${(typeof order.tax === 'number' ? order.tax : 0).toFixed(2)}</span>
           </div>
           {isDeliveryOrder && (order.deliveryFee || deliveryRecord?.deliveryFee || 0) > 0 && (
             <div className="flex justify-between text-slate-400">
-              <span>Delivery Fee:</span>
+              <span>{t.legacyUi.deliveryFee}</span>
               <span>${(order.deliveryFee || deliveryRecord?.deliveryFee || 0).toFixed(2)}</span>
             </div>
           )}
           {(order.discountAmount || 0) > 0 && (
             <div className="flex justify-between text-emerald-400">
-              <span>Discount Applied:</span>
+              <span>{t.legacyUi.discountApplied}</span>
               <span>-${(order.discountAmount || 0).toFixed(2)}</span>
             </div>
           )}
           <div className="flex justify-between text-sm font-extrabold text-white pt-2 border-t border-slate-800">
-            <span>Grand Total Amount:</span>
+            <span>{t.legacyUi.grandTotalAmount}</span>
             <span className="text-emerald-400">${(order.totalAmount || 0).toFixed(2)}</span>
           </div>
           <div className="flex justify-between text-[11px] text-teal-400 pt-1 font-sans font-bold">
-            <span>Calculated Net Profit:</span>
-            <span>${(order.profit || (order.totalAmount || 0) * 0.55).toFixed(2)}</span>
+            <span>{t.legacyUi.calculatedNetProfit}</span>
+            <span>${Number.isFinite(Number(order.profit)) ? Number(order.profit).toFixed(2) : 'Not recorded'}</span>
           </div>
         </div>
 
@@ -341,11 +344,11 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
               <span>Cancel Order #{order.orderNumber}</span>
             </div>
             <p className="text-[11px] text-slate-300">
-              This will safely cancel the order and trigger automatic cancellation reversal journal entries.
+              {translateRawUi('This will safely cancel the order and trigger automatic cancellation reversal journal entries.')}
             </p>
             <input
               type="text"
-              placeholder="Enter cancellation reason..."
+              placeholder={translateRawUi('Enter cancellation reason...')}
               value={cancelReason}
               onChange={e => setCancelReason(e.target.value)}
               className="w-full bg-slate-900 border border-rose-500/30 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-rose-500"
@@ -355,7 +358,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                 onClick={() => setShowCancelPrompt(false)}
                 className="px-3 py-1.5 rounded-xl bg-slate-800 text-slate-300 text-xs font-bold hover:bg-slate-700 cursor-pointer"
               >
-                Back
+                {translateRawUi('Back')}
               </button>
               <button
                 disabled={isCancelling}
@@ -377,7 +380,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                 className="px-3.5 py-2 rounded-xl bg-rose-500/20 text-rose-400 hover:bg-rose-500 hover:text-white text-xs font-bold transition cursor-pointer flex items-center gap-1.5"
               >
                 <AlertCircle className="w-3.5 h-3.5" />
-                <span>Cancel Order</span>
+                <span>{t.legacyUi.cancelOrder}</span>
               </button>
             )}
           </div>
@@ -388,14 +391,14 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
               className="bg-slate-800 hover:bg-slate-700 text-white font-bold py-2.5 px-4 rounded-xl text-xs transition cursor-pointer flex items-center gap-2"
             >
               <Printer className="w-4 h-4 text-emerald-400" />
-              <span>Print Ticket</span>
+              <span>{translateRawUi('Print Ticket')}</span>
             </button>
             <button
               onClick={() => downloadPDFInvoice(order)}
               className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold py-2.5 px-4 rounded-xl text-xs transition cursor-pointer flex items-center gap-2 shadow-lg shadow-emerald-500/20"
             >
               <Download className="w-4 h-4" />
-              <span>Invoice PDF</span>
+              <span>{t.legacyUi.invoicePdf}</span>
             </button>
           </div>
         </div>

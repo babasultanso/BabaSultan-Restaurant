@@ -1,3 +1,5 @@
+import { useAuth } from '../../context/AuthContext';
+import { translateRawUi } from '../../../i18n';
 import React, { useState, useEffect } from 'react';
 import { Customer, CustomerWallet, WalletTransaction, WalletPaymentMethod } from '../../../domain/entities/customer';
 import { CustomerRepositoryImpl } from '../../../data/repositories/CustomerRepositoryImpl';
@@ -22,6 +24,7 @@ interface CustomerWalletViewProps {
 const repo = new CustomerRepositoryImpl();
 
 export const CustomerWalletView: React.FC<CustomerWalletViewProps> = ({ initialCustomerId }) => {
+  const { t } = useAuth();
   const [wallets, setWallets] = useState<CustomerWallet[]>([]);
   const [transactions, setTransactions] = useState<WalletTransaction[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -31,7 +34,7 @@ export const CustomerWalletView: React.FC<CustomerWalletViewProps> = ({ initialC
   // Modal State
   const [showRechargeModal, setShowRechargeModal] = useState(!!initialCustomerId);
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>(initialCustomerId || '');
-  const [rechargeAmount, setRechargeAmount] = useState<number>(50);
+  const [rechargeAmount, setRechargeAmount] = useState<number>(0);
   const [paymentMethod, setPaymentMethod] = useState<WalletPaymentMethod>('mobile_money');
   const [referenceNumber, setReferenceNumber] = useState('');
   const [notes, setNotes] = useState('');
@@ -89,7 +92,7 @@ export const CustomerWalletView: React.FC<CustomerWalletViewProps> = ({ initialC
       );
 
       setShowRechargeModal(false);
-      setRechargeAmount(50);
+      setRechargeAmount(0);
       setReferenceNumber('');
       setNotes('');
       loadData();
@@ -114,16 +117,16 @@ export const CustomerWalletView: React.FC<CustomerWalletViewProps> = ({ initialC
         <div>
           <h2 className="text-xl font-black text-white flex items-center gap-2.5">
             <Wallet className="w-6 h-6 text-amber-400" />
-            <span>Customer Digital Wallet System</span>
+            <span>{t.legacyUi.customerDigitalWallet}</span>
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            Prepaid customer balances, wallet recharges, store credit refunds, and payment ledger
+            {translateRawUi('Prepaid customer balances, wallet recharges, store credit refunds, and payment ledger')}
           </p>
         </div>
 
         <div className="flex items-center gap-4">
           <div className="bg-slate-950 px-4 py-2 rounded-2xl border border-slate-800 text-right">
-            <span className="text-[10px] font-bold text-slate-500 uppercase block">Total System Liability</span>
+            <span className="text-[10px] font-bold text-slate-500 uppercase block">{t.legacyUi.totalSystemLiability}</span>
             <span className="text-lg font-black text-amber-400">${(totalSystemBalance || 0).toFixed(2)}</span>
           </div>
 
@@ -132,7 +135,7 @@ export const CustomerWalletView: React.FC<CustomerWalletViewProps> = ({ initialC
             className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs flex items-center gap-2 cursor-pointer shadow-lg shadow-amber-500/20"
           >
             <PlusCircle className="w-4 h-4" />
-            <span>Recharge Customer Wallet</span>
+            <span>{t.legacyUi.rechargeCustomerWallet}</span>
           </button>
         </div>
       </div>
@@ -156,7 +159,7 @@ export const CustomerWalletView: React.FC<CustomerWalletViewProps> = ({ initialC
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search wallet account..."
+              placeholder={translateRawUi('Search wallet account...')}
               className="w-full pl-9 pr-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-amber-500"
             />
           </div>
@@ -195,12 +198,12 @@ export const CustomerWalletView: React.FC<CustomerWalletViewProps> = ({ initialC
         <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-3xl p-5 space-y-4">
           <h3 className="text-sm font-bold text-white flex items-center gap-2 border-b border-slate-800 pb-3">
             <CreditCard className="w-4 h-4 text-amber-400" />
-            <span>Master Wallet Transaction Ledger</span>
+            <span>{t.legacyUi.masterWalletLedger}</span>
           </h3>
 
           {transactions.length === 0 ? (
             <div className="p-8 text-center text-slate-500 bg-slate-950 rounded-2xl border border-slate-800 text-xs">
-              No wallet transactions recorded yet.
+              {translateRawUi('No wallet transactions recorded yet.')}
             </div>
           ) : (
             <div className="space-y-2.5 max-h-[550px] overflow-y-auto pr-1">
@@ -252,7 +255,7 @@ export const CustomerWalletView: React.FC<CustomerWalletViewProps> = ({ initialC
             <div className="flex items-center justify-between border-b border-slate-800 pb-4">
               <h3 className="text-base font-bold text-white flex items-center gap-2">
                 <Wallet className="w-5 h-5 text-amber-400" />
-                <span>Recharge Customer Digital Wallet</span>
+                <span>{translateRawUi('Recharge Customer Digital Wallet')}</span>
               </h3>
               <button onClick={() => setShowRechargeModal(false)} className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800">
                 <X className="w-5 h-5" />
@@ -262,13 +265,13 @@ export const CustomerWalletView: React.FC<CustomerWalletViewProps> = ({ initialC
             <form onSubmit={handleRechargeSubmit} className="space-y-4">
               {/* Select Customer */}
               <div>
-                <label className="text-xs font-semibold text-slate-300 mb-1 block">Select Target Customer *</label>
+                <label className="text-xs font-semibold text-slate-300 mb-1 block">{t.legacyUi.selectTargetCustomer}</label>
                 <select
                   value={selectedCustomerId}
                   onChange={(e) => setSelectedCustomerId(e.target.value)}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-amber-500"
                 >
-                  <option value="">-- Choose Customer --</option>
+                  <option value="">{t.legacyUi.chooseCustomer}</option>
                   {customers.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.fullName} ({c.phone || 'No Phone'})
@@ -280,7 +283,7 @@ export const CustomerWalletView: React.FC<CustomerWalletViewProps> = ({ initialC
 
               {/* Amount */}
               <div>
-                <label className="text-xs font-semibold text-slate-300 mb-1 block">Recharge Amount ($) *</label>
+                <label className="text-xs font-semibold text-slate-300 mb-1 block">{t.legacyUi.rechargeAmount}</label>
                 <input
                   type="number"
                   step="0.01"
@@ -294,39 +297,39 @@ export const CustomerWalletView: React.FC<CustomerWalletViewProps> = ({ initialC
 
               {/* Payment Method */}
               <div>
-                <label className="text-xs font-semibold text-slate-300 mb-1 block">Payment Collection Method *</label>
+                <label className="text-xs font-semibold text-slate-300 mb-1 block">{t.legacyUi.paymentCollectionMethod}</label>
                 <select
                   value={paymentMethod}
                   onChange={(e: any) => setPaymentMethod(e.target.value)}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-300 focus:outline-none focus:border-amber-500"
                 >
-                  <option value="mobile_money">Mobile Money (EVC Plus / Zaad / Sahal)</option>
-                  <option value="cash">Cash Payment</option>
-                  <option value="card">Credit / Debit Card</option>
-                  <option value="bank_transfer">Bank Wire Transfer</option>
+                  <option value="mobile_money">{t.legacyUi.mobileMoneyMethods}</option>
+                  <option value="cash">{t.legacyUi.cashPayment}</option>
+                  <option value="card">{t.legacyUi.creditDebitCard}</option>
+                  <option value="bank_transfer">{t.legacyUi.bankWireTransfer}</option>
                 </select>
               </div>
 
               {/* Reference Number */}
               <div>
-                <label className="text-xs font-semibold text-slate-300 mb-1 block">Reference / Transaction Code</label>
+                <label className="text-xs font-semibold text-slate-300 mb-1 block">{t.legacyUi.referenceTransactionCode}</label>
                 <input
                   type="text"
                   value={referenceNumber}
                   onChange={(e) => setReferenceNumber(e.target.value)}
-                  placeholder="e.g. EVC-9821829"
+                  placeholder={translateRawUi('e.g. EVC-9821829')}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-amber-500"
                 />
               </div>
 
               {/* Notes */}
               <div>
-                <label className="text-xs font-semibold text-slate-300 mb-1 block">Notes / Reason</label>
+                <label className="text-xs font-semibold text-slate-300 mb-1 block">{t.legacyUi.notesReason}</label>
                 <input
                   type="text"
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Deposit notes..."
+                  placeholder={translateRawUi('Deposit notes...')}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-amber-500"
                 />
               </div>
@@ -337,7 +340,7 @@ export const CustomerWalletView: React.FC<CustomerWalletViewProps> = ({ initialC
                   onClick={() => setShowRechargeModal(false)}
                   className="px-4 py-2.5 rounded-xl bg-slate-800 text-slate-300 text-xs font-semibold hover:bg-slate-700"
                 >
-                  Cancel
+                  {translateRawUi('Cancel')}
                 </button>
                 <button
                   type="submit"

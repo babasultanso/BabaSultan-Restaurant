@@ -1,7 +1,8 @@
+import { translateRawUi } from '../../../i18n/rawUi';
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { collection, onSnapshot, doc, setDoc, updateDoc } from 'firebase/firestore';
-import { db, COLLECTIONS, logActivityFirestore, updateUserRoleFirestore, updateUserStatusFirestore } from '../../../lib/firebase';
+import { db, COLLECTIONS, logActivityFirestore, updateUserRoleFirestore, updateUserStatusFirestore, getAuthToken, getApiUrl } from '../../../lib/firebase';
 import { USER_ROLES, UserRole } from '../../../constants';
 import { UserRecord, ActivityLog } from '../../../types';
 import { Users, UserPlus, Shield, Search, Filter, Mail, KeyRound, RefreshCw, CheckCircle2, AlertTriangle, UserCheck, Clock, Edit2 } from 'lucide-react';
@@ -22,7 +23,7 @@ export const UserManagementView: React.FC = () => {
   const [newName, setNewName] = useState('');
   const [newEmail, setNewEmail] = useState('');
   const [newRole, setNewRole] = useState<UserRole>('Manager');
-  const [newBranch, setNewBranch] = useState('Main Flagship Branch');
+  const [newBranch, setNewBranch] = useState('');
   const [creatingUser, setCreatingUser] = useState(false);
 
   // Edit User Modal State
@@ -65,23 +66,26 @@ export const UserManagementView: React.FC = () => {
     if (!newName || !newEmail) return;
     setCreatingUser(true);
     try {
-      const uid = `usr_${Date.now()}`;
-      const newUserRecord: UserRecord = {
-        uid,
-        displayName: newName,
-        email: newEmail,
-        role: newRole,
-        branch: newBranch,
-        status: 'pending',
-        emailVerified: false,
-        createdAt: new Date().toISOString()
-      };
-
-      await setDoc(doc(db, COLLECTIONS.USERS, uid), newUserRecord);
-      await logActivityFirestore({
-        action: 'CREATE_USER',
-        details: `Provisioned user ${newName} (${newEmail}) as ${newRole}`
+      const token = await getAuthToken();
+      const res = await fetch(getApiUrl('/api/users/admin-create'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({
+          displayName: newName.trim(),
+          email: newEmail.trim(),
+          role: newRole,
+          branch: newBranch,
+          branchId: newBranch
+        })
       });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `Failed to create user: HTTP ${res.status}`);
+      }
 
       setShowAddUserModal(false);
       setNewName('');
@@ -217,7 +221,7 @@ export const UserManagementView: React.FC = () => {
                 onChange={(e) => setRoleFilter(e.target.value)}
                 className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-300 focus:outline-none"
               >
-                <option value="all">All Roles</option>
+                <option value="all">{t.legacyUi.allRoles}</option>
                 {Object.values(USER_ROLES).map(r => (
                   <option key={r} value={r}>{t.roles[r as keyof typeof t.roles] || r}</option>
                 ))}
@@ -229,10 +233,10 @@ export const UserManagementView: React.FC = () => {
                 onChange={(e) => setStatusFilter(e.target.value)}
                 className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-300 focus:outline-none"
               >
-                <option value="all">All Statuses</option>
-                <option value="active">Active</option>
-                <option value="suspended">Suspended</option>
-                <option value="pending">Pending</option>
+                <option value="all">{t.legacyUi.allStatuses}</option>
+                <option value="active">{translateRawUi('Active')}</option>
+                <option value="suspended">{translateRawUi('Suspended')}</option>
+                <option value="pending">{t.legacyUi.pendingLabel}</option>
               </select>
             </div>
           </div>
@@ -255,7 +259,7 @@ export const UserManagementView: React.FC = () => {
                   {filteredUsers.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="p-8 text-center text-slate-500">
-                        No user accounts match the current filter.
+                        {translateRawUi('No user accounts match the current filter.')}
                       </td>
                     </tr>
                   ) : (
@@ -280,7 +284,7 @@ export const UserManagementView: React.FC = () => {
                         </td>
 
                         <td className="p-4 text-slate-300 font-medium">
-                          {u.branch || 'Main Flagship Branch'}
+                          {u.branch || '—'}
                         </td>
 
                         <td className="p-4">
@@ -309,7 +313,7 @@ export const UserManagementView: React.FC = () => {
                             className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-[11px] font-semibold transition inline-flex items-center gap-1 cursor-pointer"
                           >
                             <Edit2 className="w-3 h-3" />
-                            <span>Edit</span>
+                            <span>{t.legacyUi.editLabel}</span>
                           </button>
 
                           <button
@@ -317,7 +321,7 @@ export const UserManagementView: React.FC = () => {
                             className="px-2.5 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-lg text-[11px] font-semibold transition inline-flex items-center gap-1 cursor-pointer"
                           >
                             <KeyRound className="w-3 h-3" />
-                            <span>Reset Pass</span>
+                            <span>{translateRawUi('Reset Pass')}</span>
                           </button>
                         </td>
                       </tr>
@@ -409,7 +413,7 @@ export const UserManagementView: React.FC = () => {
                   type="text"
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
-                  placeholder="e.g. Hassan Mohamed"
+                  placeholder={translateRawUi('e.g. Hassan Mohamed')}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500/50"
                   required
                 />
@@ -423,7 +427,7 @@ export const UserManagementView: React.FC = () => {
                   type="email"
                   value={newEmail}
                   onChange={(e) => setNewEmail(e.target.value)}
-                  placeholder="hassan@restaurant-erp.internal"
+                  placeholder={translateRawUi('name@example.com')}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500/50"
                   required
                 />
@@ -498,7 +502,7 @@ export const UserManagementView: React.FC = () => {
             <form onSubmit={handleUpdateUser} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  User Account
+                  {translateRawUi('User Account')}
                 </label>
                 <input
                   type="text"
@@ -532,9 +536,9 @@ export const UserManagementView: React.FC = () => {
                   onChange={(e) => setEditStatus(e.target.value as any)}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
                 >
-                  <option value="active">Active</option>
-                  <option value="suspended">Suspended</option>
-                  <option value="pending">Pending</option>
+                  <option value="active">{translateRawUi('Active')}</option>
+                  <option value="suspended">{translateRawUi('Suspended')}</option>
+                  <option value="pending">{t.legacyUi.pendingLabel}</option>
                 </select>
               </div>
 

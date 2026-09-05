@@ -1,3 +1,4 @@
+import { translateRawUi } from '../i18n/rawUi';
 import React, { useState, useEffect } from 'react';
 import { 
   collection, 
@@ -70,7 +71,7 @@ interface Props {
 }
 
 export const AICEOView: React.FC<Props> = ({ language: initialLanguage }) => {
-  const { userRecord, role } = useAuth();
+  const { userRecord, role, t } = useAuth();
   const [currentLang, setCurrentLang] = useState<Language>(initialLanguage || 'en');
   const [activeTab, setActiveTab] = useState<'dashboard' | 'decisions' | 'risks' | 'forecast' | 'assistant'>('dashboard');
 
@@ -379,10 +380,10 @@ export const AICEOView: React.FC<Props> = ({ language: initialLanguage }) => {
           <div>
             <div className="flex items-center gap-3 mb-2.5">
               <span className="bg-amber-400/20 text-amber-300 border border-amber-400/30 text-xs font-black px-3.5 py-1 rounded-full uppercase tracking-wider flex items-center gap-1.5 shadow-sm">
-                <Crown className="w-4 h-4 text-amber-400" /> Executive Chief Suite
+                <Crown className="w-4 h-4 text-amber-400" /> {translateRawUi('Executive Chief Suite')}
               </span>
               <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" /> Synchronized across all AI Agents
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" /> {translateRawUi('Synchronized across all AI Agents')}
               </span>
             </div>
 
@@ -391,7 +392,7 @@ export const AICEOView: React.FC<Props> = ({ language: initialLanguage }) => {
               {currentLang === 'ar' ? 'الرئيس التنفيذي الذكي (AI CEO)' : currentLang === 'so' ? 'Maamulaha Sare ee AI (AI CEO)' : 'AI Chief Executive Officer'}
             </h1>
             <p className="text-slate-300 text-sm mt-2 max-w-3xl leading-relaxed">
-              Supervising every core module (Sales, Finance, Inventory, Kitchen, Staff, Delivery, Customer, Suppliers, Branches) using live Firestore analytics to drive high-impact strategic business decisions.
+              {translateRawUi('Supervising every core module (Sales, Finance, Inventory, Kitchen, Staff, Delivery, Customer, Suppliers, Branches) using live Firestore analytics to drive high-impact strategic business decisions.')}
             </p>
           </div>
 
@@ -404,7 +405,7 @@ export const AICEOView: React.FC<Props> = ({ language: initialLanguage }) => {
                   currentLang === 'en' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
                 }`}
               >
-                English
+                {translateRawUi('English')}
               </button>
               <button
                 onClick={() => setCurrentLang('ar')}
@@ -420,7 +421,7 @@ export const AICEOView: React.FC<Props> = ({ language: initialLanguage }) => {
                   currentLang === 'so' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
                 }`}
               >
-                Soomaali
+                {translateRawUi('Soomaali')}
               </button>
             </div>
 
@@ -428,7 +429,7 @@ export const AICEOView: React.FC<Props> = ({ language: initialLanguage }) => {
               onClick={() => showToast('Re-evaluated enterprise metrics across all modules!')}
               className="bg-indigo-600/90 hover:bg-indigo-500 text-white font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-2 cursor-pointer shadow-lg transition-all"
             >
-              <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} /> Refresh CEO Dashboard
+              <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} /> {translateRawUi('Refresh CEO Dashboard')}
             </button>
           </div>
         </div>
@@ -447,7 +448,7 @@ export const AICEOView: React.FC<Props> = ({ language: initialLanguage }) => {
             </div>
 
             <div>
-              <span className="text-xs text-slate-400 uppercase font-semibold tracking-wider block">Enterprise Business Health</span>
+              <span className="text-xs text-slate-400 uppercase font-semibold tracking-wider block">{t.legacyUi.enterpriseBusinessHealth}</span>
               <div className="flex items-center gap-2 mt-1">
                 <span className={`text-xl font-extrabold ${
                   healthBreakdown.rating === 'Excellent' ? 'text-emerald-400' :
@@ -457,31 +458,31 @@ export const AICEOView: React.FC<Props> = ({ language: initialLanguage }) => {
                   {healthBreakdown.rating} Status
                 </span>
               </div>
-              <p className="text-xs text-slate-400 mt-1">Weighted score across sales, profit, customer, inventory, & cash flow.</p>
+              <p className="text-xs text-slate-400 mt-1">{translateRawUi('Weighted score across sales, profit, customer, inventory, & cash flow.')}</p>
             </div>
           </div>
 
           <div className="lg:col-span-8 grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div className="bg-slate-900/60 rounded-xl p-3 border border-slate-800">
-              <span className="text-xs text-slate-400 block font-medium">Today's Revenue</span>
+              <span className="text-xs text-slate-400 block font-medium">{translateRawUi("Today's Revenue")}</span>
               <span className="text-lg font-bold text-emerald-400 mt-1 block">${executiveBriefing.todayRevenue.toLocaleString()}</span>
               <span className="text-[10px] text-slate-400">{executiveBriefing.totalOrdersCount} orders</span>
             </div>
 
             <div className="bg-slate-900/60 rounded-xl p-3 border border-slate-800">
-              <span className="text-xs text-slate-400 block font-medium">Today's Profit</span>
+              <span className="text-xs text-slate-400 block font-medium">{translateRawUi('Today\'s Profit')}</span>
               <span className="text-lg font-bold text-indigo-400 mt-1 block">${executiveBriefing.todayProfit.toLocaleString()}</span>
-              <span className="text-[10px] text-emerald-400 font-semibold">Net Margin ~22%</span>
+              <span className="text-[10px] text-emerald-400 font-semibold">{translateRawUi('Net Margin: Recorded')}</span>
             </div>
 
             <div className="bg-slate-900/60 rounded-xl p-3 border border-slate-800">
-              <span className="text-xs text-slate-400 block font-medium">Cash Flow Reserve</span>
+              <span className="text-xs text-slate-400 block font-medium">{t.legacyUi.cashFlowReserve}</span>
               <span className="text-lg font-bold text-teal-400 mt-1 block">${executiveBriefing.cashFlowBalance.toLocaleString()}</span>
-              <span className="text-[10px] text-slate-400">18 days operating buffer</span>
+              <span className="text-[10px] text-slate-400">{t.legacyUi.coverageDaysNotEstimated}</span>
             </div>
 
             <div className="bg-slate-900/60 rounded-xl p-3 border border-slate-800">
-              <span className="text-xs text-slate-400 block font-medium">Customer Rating</span>
+              <span className="text-xs text-slate-400 block font-medium">{t.legacyUi.customerRating}</span>
               <span className="text-lg font-bold text-amber-400 mt-1 block">★ {executiveBriefing.avgCustomerRating} / 5</span>
               <span className="text-[10px] text-slate-400">{executiveBriefing.customerSatisfactionPercentage}% Satisfied</span>
             </div>
@@ -499,7 +500,7 @@ export const AICEOView: React.FC<Props> = ({ language: initialLanguage }) => {
               : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
           }`}
         >
-          <BarChart3 className="w-4 h-4" /> Daily CEO Briefing
+          <BarChart3 className="w-4 h-4" /> {translateRawUi('Daily CEO Briefing')}
         </button>
 
         <button
@@ -532,7 +533,7 @@ export const AICEOView: React.FC<Props> = ({ language: initialLanguage }) => {
               : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
           }`}
         >
-          <LineChart className="w-4 h-4" /> AI Forecasting & Growth
+          <LineChart className="w-4 h-4" /> {translateRawUi('AI Forecasting & Growth')}
         </button>
 
         <button
@@ -543,7 +544,7 @@ export const AICEOView: React.FC<Props> = ({ language: initialLanguage }) => {
               : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
           }`}
         >
-          <Bot className="w-4 h-4 text-amber-300" /> AI CEO Voice & Chat
+          <Bot className="w-4 h-4 text-amber-300" /> {translateRawUi('AI CEO Voice & Chat')}
         </button>
       </div>
 
@@ -555,71 +556,71 @@ export const AICEOView: React.FC<Props> = ({ language: initialLanguage }) => {
           {/* Health Score Component Breakdown */}
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm">
             <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2 mb-4">
-              <Activity className="w-5 h-5 text-indigo-500" /> Executive Business Health Pillars (Weighted Breakdown)
+              <Activity className="w-5 h-5 text-indigo-500" /> {translateRawUi('Executive Business Health Pillars (Weighted Breakdown)')}
             </h3>
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40">
-                <span className="text-xs text-slate-500 dark:text-slate-400 font-medium block">Sales & Revenue</span>
+                <span className="text-xs text-slate-500 dark:text-slate-400 font-medium block">{translateRawUi('Sales & Revenue')}</span>
                 <div className="flex items-center justify-between mt-1">
                   <span className="text-base font-bold text-slate-900 dark:text-white">{healthBreakdown.salesScore} / 100</span>
-                  <span className="text-[10px] font-bold text-emerald-500">20% Weight</span>
+                  <span className="text-[10px] font-bold text-emerald-500">{t.legacyUi.weight20}</span>
                 </div>
               </div>
 
               <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40">
-                <span className="text-xs text-slate-500 dark:text-slate-400 font-medium block">Profitability & Margins</span>
+                <span className="text-xs text-slate-500 dark:text-slate-400 font-medium block">{translateRawUi('Profitability & Margins')}</span>
                 <div className="flex items-center justify-between mt-1">
                   <span className="text-base font-bold text-slate-900 dark:text-white">{healthBreakdown.profitScore} / 100</span>
-                  <span className="text-[10px] font-bold text-emerald-500">20% Weight</span>
+                  <span className="text-[10px] font-bold text-emerald-500">{t.legacyUi.weight20}</span>
                 </div>
               </div>
 
               <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40">
-                <span className="text-xs text-slate-500 dark:text-slate-400 font-medium block">Customer Satisfaction</span>
+                <span className="text-xs text-slate-500 dark:text-slate-400 font-medium block">{t.legacyUi.customerSatisfaction}</span>
                 <div className="flex items-center justify-between mt-1">
                   <span className="text-base font-bold text-slate-900 dark:text-white">{healthBreakdown.customerSatisfactionScore} / 100</span>
-                  <span className="text-[10px] font-bold text-emerald-500">15% Weight</span>
+                  <span className="text-[10px] font-bold text-emerald-500">{translateRawUi('15% Weight')}</span>
                 </div>
               </div>
 
               <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40">
-                <span className="text-xs text-slate-500 dark:text-slate-400 font-medium block">Inventory Efficiency</span>
+                <span className="text-xs text-slate-500 dark:text-slate-400 font-medium block">{t.legacyUi.inventoryEfficiency}</span>
                 <div className="flex items-center justify-between mt-1">
                   <span className="text-base font-bold text-slate-900 dark:text-white">{healthBreakdown.inventoryScore} / 100</span>
-                  <span className="text-[10px] font-bold text-emerald-500">10% Weight</span>
+                  <span className="text-[10px] font-bold text-emerald-500">{t.legacyUi.weight10}</span>
                 </div>
               </div>
 
               <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40">
-                <span className="text-xs text-slate-500 dark:text-slate-400 font-medium block">Employee Productivity</span>
+                <span className="text-xs text-slate-500 dark:text-slate-400 font-medium block">{t.legacyUi.employeeProductivity}</span>
                 <div className="flex items-center justify-between mt-1">
                   <span className="text-base font-bold text-slate-900 dark:text-white">{healthBreakdown.employeeProductivityScore} / 100</span>
-                  <span className="text-[10px] font-bold text-emerald-500">10% Weight</span>
+                  <span className="text-[10px] font-bold text-emerald-500">{t.legacyUi.weight10}</span>
                 </div>
               </div>
 
               <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40">
-                <span className="text-xs text-slate-500 dark:text-slate-400 font-medium block">Delivery Success</span>
+                <span className="text-xs text-slate-500 dark:text-slate-400 font-medium block">{t.legacyUi.deliverySuccess}</span>
                 <div className="flex items-center justify-between mt-1">
                   <span className="text-base font-bold text-slate-900 dark:text-white">{healthBreakdown.deliveryPerformanceScore} / 100</span>
-                  <span className="text-[10px] font-bold text-emerald-500">10% Weight</span>
+                  <span className="text-[10px] font-bold text-emerald-500">{t.legacyUi.weight10}</span>
                 </div>
               </div>
 
               <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40">
-                <span className="text-xs text-slate-500 dark:text-slate-400 font-medium block">Waste Control</span>
+                <span className="text-xs text-slate-500 dark:text-slate-400 font-medium block">{translateRawUi('Waste Control')}</span>
                 <div className="flex items-center justify-between mt-1">
                   <span className="text-base font-bold text-slate-900 dark:text-white">{healthBreakdown.wasteControlScore} / 100</span>
-                  <span className="text-[10px] font-bold text-emerald-500">5% Weight</span>
+                  <span className="text-[10px] font-bold text-emerald-500">{translateRawUi('5% Weight')}</span>
                 </div>
               </div>
 
               <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40">
-                <span className="text-xs text-slate-500 dark:text-slate-400 font-medium block">Cash Flow Liquidity</span>
+                <span className="text-xs text-slate-500 dark:text-slate-400 font-medium block">{t.legacyUi.cashFlowLiquidity}</span>
                 <div className="flex items-center justify-between mt-1">
                   <span className="text-base font-bold text-slate-900 dark:text-white">{healthBreakdown.cashFlowScore} / 100</span>
-                  <span className="text-[10px] font-bold text-emerald-500">10% Weight</span>
+                  <span className="text-[10px] font-bold text-emerald-500">{t.legacyUi.weight10}</span>
                 </div>
               </div>
             </div>
@@ -630,7 +631,7 @@ export const AICEOView: React.FC<Props> = ({ language: initialLanguage }) => {
             {/* Top Performers */}
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm">
               <h4 className="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-2 mb-3">
-                <ArrowUpRight className="w-4 h-4 text-emerald-500" /> Best Selling Menu Items
+                <ArrowUpRight className="w-4 h-4 text-emerald-500" /> {translateRawUi('Best Selling Menu Items')}
               </h4>
 
               <div className="space-y-3">
@@ -649,7 +650,7 @@ export const AICEOView: React.FC<Props> = ({ language: initialLanguage }) => {
             {/* Slow Moving Items */}
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm">
               <h4 className="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-2 mb-3">
-                <ArrowDownRight className="w-4 h-4 text-rose-500" /> Slow-Moving / Attention Needed
+                <ArrowDownRight className="w-4 h-4 text-rose-500" /> {translateRawUi('Slow-Moving / Attention Needed')}
               </h4>
 
               <div className="space-y-3">
@@ -663,7 +664,7 @@ export const AICEOView: React.FC<Props> = ({ language: initialLanguage }) => {
                       onClick={() => showToast(`Initiated promotional bundle discount for ${p.name}`)}
                       className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
                     >
-                      Promo Discount
+                      {translateRawUi('Promo Discount')}
                     </button>
                   </div>
                 ))}
@@ -680,10 +681,10 @@ export const AICEOView: React.FC<Props> = ({ language: initialLanguage }) => {
         <div className="space-y-6">
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm">
             <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2 mb-1">
-              <Sparkles className="w-5 h-5 text-indigo-500" /> AI Executive Decision Support Engine
+              <Sparkles className="w-5 h-5 text-indigo-500" /> {translateRawUi('AI Executive Decision Support Engine')}
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400 mb-6">
-              Every recommendation includes data-backed justification, projected financial impact, potential trade-off risks, and statistical confidence score.
+              {translateRawUi('Every recommendation includes data-backed justification, projected financial impact, potential trade-off risks, and statistical confidence score.')}
             </p>
 
             <div className="space-y-6">
@@ -707,23 +708,23 @@ export const AICEOView: React.FC<Props> = ({ language: initialLanguage }) => {
                       onClick={() => showToast(`Executive decision approved: ${dec.title}`)}
                       className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-5 py-2.5 rounded-xl text-xs flex items-center justify-center gap-2 cursor-pointer shadow-md transition-all whitespace-nowrap"
                     >
-                      Approve & Execute <ChevronRight className="w-4 h-4" />
+                      {translateRawUi('Approve & Execute')} <ChevronRight className="w-4 h-4" />
                     </button>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 border-t border-slate-200 dark:border-slate-700/60 text-xs">
                     <div className="bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800">
-                      <span className="font-bold text-indigo-600 dark:text-indigo-400 block mb-1">Why Made (Data Reason):</span>
+                      <span className="font-bold text-indigo-600 dark:text-indigo-400 block mb-1">{translateRawUi('Why Made (Data Reason):')}</span>
                       <p className="text-slate-600 dark:text-slate-400 leading-relaxed">{dec.whyMade}</p>
                     </div>
 
                     <div className="bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800">
-                      <span className="font-bold text-emerald-600 dark:text-emerald-400 block mb-1">Expected Financial Impact:</span>
+                      <span className="font-bold text-emerald-600 dark:text-emerald-400 block mb-1">{t.legacyUi.expectedFinancialImpact}</span>
                       <p className="text-slate-600 dark:text-slate-400 leading-relaxed">{dec.expectedImpact}</p>
                     </div>
 
                     <div className="bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800">
-                      <span className="font-bold text-rose-600 dark:text-rose-400 block mb-1">Possible Risks to Monitor:</span>
+                      <span className="font-bold text-rose-600 dark:text-rose-400 block mb-1">{translateRawUi('Possible Risks to Monitor:')}</span>
                       <p className="text-slate-600 dark:text-slate-400 leading-relaxed">{dec.possibleRisks}</p>
                     </div>
                   </div>
@@ -741,7 +742,7 @@ export const AICEOView: React.FC<Props> = ({ language: initialLanguage }) => {
         <div className="space-y-6">
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm">
             <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2 mb-4">
-              <ShieldAlert className="w-5 h-5 text-rose-500" /> Enterprise Risk Matrix & Mitigation Strategies
+              <ShieldAlert className="w-5 h-5 text-rose-500" /> {translateRawUi('Enterprise Risk Matrix & Mitigation Strategies')}
             </h3>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -762,7 +763,7 @@ export const AICEOView: React.FC<Props> = ({ language: initialLanguage }) => {
                   <p className="text-xs text-slate-600 dark:text-slate-400">{r.description}</p>
 
                   <div className="pt-2 border-t border-slate-200 dark:border-slate-700/60 text-xs text-slate-700 dark:text-slate-300">
-                    <span className="font-semibold text-indigo-600 dark:text-indigo-400">Mitigation: </span>
+                    <span className="font-semibold text-indigo-600 dark:text-indigo-400">{translateRawUi('Mitigation:')}</span>
                     {r.mitigationStrategy}
                   </div>
                 </div>
@@ -779,28 +780,28 @@ export const AICEOView: React.FC<Props> = ({ language: initialLanguage }) => {
         <div className="space-y-6">
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm">
             <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2 mb-4">
-              <LineChart className="w-5 h-5 text-indigo-500" /> AI Sales & Revenue Forecasting Models
+              <LineChart className="w-5 h-5 text-indigo-500" /> {translateRawUi('AI Sales & Revenue Forecasting Models')}
             </h3>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
               <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-emerald-50/40 dark:bg-emerald-950/20">
-                <span className="text-xs font-semibold text-slate-500">Predicted Tomorrow Sales</span>
+                <span className="text-xs font-semibold text-slate-500">{translateRawUi('Predicted Tomorrow Sales')}</span>
                 <span className="text-xl font-bold text-emerald-600 dark:text-emerald-400 block mt-1">${forecast.projectedNextDaySales.toLocaleString()}</span>
               </div>
 
               <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-indigo-50/40 dark:bg-indigo-950/20">
-                <span className="text-xs font-semibold text-slate-500">Predicted 7-Day Revenue</span>
+                <span className="text-xs font-semibold text-slate-500">{translateRawUi('Predicted 7-Day Revenue')}</span>
                 <span className="text-xl font-bold text-indigo-600 dark:text-indigo-400 block mt-1">${forecast.projected7DaySales.toLocaleString()}</span>
               </div>
 
               <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-purple-50/40 dark:bg-purple-950/20">
-                <span className="text-xs font-semibold text-slate-500">Predicted 30-Day Revenue</span>
+                <span className="text-xs font-semibold text-slate-500">{translateRawUi('Predicted 30-Day Revenue')}</span>
                 <span className="text-xl font-bold text-purple-600 dark:text-purple-400 block mt-1">${forecast.projected30DaySales.toLocaleString()}</span>
               </div>
             </div>
 
             <div className="p-4 rounded-xl bg-slate-900 text-white text-xs space-y-2">
-              <span className="font-bold text-amber-400 uppercase tracking-wider block">Seasonal Demand & Customer Growth Insight</span>
+              <span className="font-bold text-amber-400 uppercase tracking-wider block">{translateRawUi('Seasonal Demand & Customer Growth Insight')}</span>
               <p className="text-slate-300 leading-relaxed">{forecast.seasonalDemandInsight}</p>
             </div>
           </div>
@@ -814,10 +815,10 @@ export const AICEOView: React.FC<Props> = ({ language: initialLanguage }) => {
         <div className="bg-slate-950 border border-slate-800 rounded-3xl p-6 text-white shadow-2xl space-y-6">
           <div>
             <h3 className="text-lg font-bold flex items-center gap-2 text-white">
-              <Bot className="w-6 h-6 text-indigo-400" /> Executive Voice & Chat AI Assistant (EN / AR / SO)
+              <Bot className="w-6 h-6 text-indigo-400" /> {translateRawUi('Executive Voice & Chat AI Assistant (EN / AR / SO)')}
             </h3>
             <p className="text-xs text-slate-400 mt-1">
-              Ask high-level questions regarding business health, branch expansion feasibility, staff hiring, menu price increases, or loss-making departments.
+              {translateRawUi('Ask high-level questions regarding business health, branch expansion feasibility, staff hiring, menu price increases, or loss-making departments.')}
             </p>
           </div>
 
@@ -827,42 +828,42 @@ export const AICEOView: React.FC<Props> = ({ language: initialLanguage }) => {
               onClick={() => handleAskPresetQuestion('health')}
               className="p-3 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-left text-xs font-bold text-indigo-300 hover:text-white flex items-center gap-2 transition-all cursor-pointer"
             >
-              <Activity className="w-4 h-4 text-emerald-400" /> How healthy is my business?
+              <Activity className="w-4 h-4 text-emerald-400" /> {translateRawUi('How healthy is my business?')}
             </button>
 
             <button
               onClick={() => handleAskPresetQuestion('expand_branch')}
               className="p-3 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-left text-xs font-bold text-teal-300 hover:text-white flex items-center gap-2 transition-all cursor-pointer"
             >
-              <Building2 className="w-4 h-4 text-teal-400" /> Can I afford to open another branch?
+              <Building2 className="w-4 h-4 text-teal-400" /> {translateRawUi('Can I afford to open another branch?')}
             </button>
 
             <button
               onClick={() => handleAskPresetQuestion('hire_employees')}
               className="p-3 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-left text-xs font-bold text-purple-300 hover:text-white flex items-center gap-2 transition-all cursor-pointer"
             >
-              <Users className="w-4 h-4 text-purple-400" /> Should I hire more employees?
+              <Users className="w-4 h-4 text-purple-400" /> {translateRawUi('Should I hire more employees?')}
             </button>
 
             <button
               onClick={() => handleAskPresetQuestion('increase_prices')}
               className="p-3 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-left text-xs font-bold text-amber-300 hover:text-white flex items-center gap-2 transition-all cursor-pointer"
             >
-              <DollarSign className="w-4 h-4 text-amber-400" /> Should I increase prices?
+              <DollarSign className="w-4 h-4 text-amber-400" /> {translateRawUi('Should I increase prices?')}
             </button>
 
             <button
               onClick={() => handleAskPresetQuestion('losses_department')}
               className="p-3 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-left text-xs font-bold text-rose-300 hover:text-white flex items-center gap-2 transition-all cursor-pointer"
             >
-              <TrendingDown className="w-4 h-4 text-rose-400" /> Which department causes losses?
+              <TrendingDown className="w-4 h-4 text-rose-400" /> {translateRawUi('Which department causes losses?')}
             </button>
 
             <button
               onClick={() => handleAskPresetQuestion('biggest_risk')}
               className="p-3 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-left text-xs font-bold text-rose-300 hover:text-white flex items-center gap-2 transition-all cursor-pointer"
             >
-              <ShieldAlert className="w-4 h-4 text-rose-400" /> What is my biggest risk?
+              <ShieldAlert className="w-4 h-4 text-rose-400" /> {translateRawUi('What is my biggest risk?')}
             </button>
           </div>
 
@@ -875,7 +876,7 @@ export const AICEOView: React.FC<Props> = ({ language: initialLanguage }) => {
               >
                 {msg.sender === 'assistant' && (
                   <div className="w-7 h-7 rounded-xl bg-indigo-600 flex items-center justify-center shrink-0 text-white font-bold">
-                    CEO
+                    {translateRawUi('CEO')}
                   </div>
                 )}
                 <div className={`p-3.5 rounded-2xl max-w-xl leading-relaxed whitespace-pre-line ${
@@ -908,7 +909,7 @@ export const AICEOView: React.FC<Props> = ({ language: initialLanguage }) => {
               onClick={handleSendQuestion}
               className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-5 py-3 rounded-xl text-xs flex items-center gap-2 cursor-pointer shadow-lg transition-all"
             >
-              <Send className="w-4 h-4" /> Send
+              <Send className="w-4 h-4" /> {translateRawUi('Send')}
             </button>
           </div>
         </div>

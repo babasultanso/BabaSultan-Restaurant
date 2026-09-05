@@ -1,6 +1,9 @@
+import { translateRawUi } from '../../i18n/rawUi';
 import React, { useState, useEffect } from 'react';
 import { Employee, Supplier, Salary } from '../../types';
 import { StaffRepositoryImpl } from '../../data/repositories/StaffRepositoryImpl';
+import { HRMRepositoryImpl } from '../../data/repositories/HRMRepositoryImpl';
+import { useAuth } from '../context/AuthContext';
 import {
   Users,
   Truck,
@@ -24,6 +27,7 @@ interface StaffAndSuppliersViewProps {
 }
 
 const staffRepo = new StaffRepositoryImpl();
+const hrmRepo = new HRMRepositoryImpl();
 
 export const StaffAndSuppliersView: React.FC<StaffAndSuppliersViewProps> = ({
   employees: propEmployees,
@@ -31,6 +35,8 @@ export const StaffAndSuppliersView: React.FC<StaffAndSuppliersViewProps> = ({
   salaries: propSalaries,
   onRefresh
 }) => {
+  const { t } = useAuth();
+  const pt = t.hrm.payrollManagement;
   const [activeTab, setActiveTab] = useState<'employees' | 'suppliers' | 'payroll'>('employees');
 
   // Separate State Hooks for Each Resource
@@ -51,13 +57,13 @@ export const StaffAndSuppliersView: React.FC<StaffAndSuppliersViewProps> = ({
   const [empName, setEmpName] = useState<string>('');
   const [empEmail, setEmpEmail] = useState<string>('');
   const [empRole, setEmpRole] = useState<string>('cashier');
-  const [empSalary, setEmpSalary] = useState<number>(2500);
+  const [empSalary, setEmpSalary] = useState<number>(0);
+  const [empPayFrequency, setEmpPayFrequency] = useState<'daily' | 'weekly' | 'monthly'>('monthly');
 
   const [supName, setSupName] = useState<string>('');
   const [supContact, setSupContact] = useState<string>('');
   const [supPhone, setSupPhone] = useState<string>('');
   const [supItems, setSupItems] = useState<string>('Meat & Meat Products');
-  const [supPending, setSupPending] = useState<number>(0);
 
   const [payPeriod, setPayPeriod] = useState<string>('Current Month');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
@@ -98,11 +104,13 @@ export const StaffAndSuppliersView: React.FC<StaffAndSuppliersViewProps> = ({
         name: empName,
         email: empEmail,
         role: empRole,
-        salary: empSalary
+        salary: empSalary,
+        payFrequency: empPayFrequency
       });
       setIsAddEmployeeOpen(false);
       setEmpName('');
       setEmpEmail('');
+      setEmpPayFrequency('monthly');
       await loadData();
       if (onRefresh) onRefresh();
     } catch (err: any) {
@@ -121,7 +129,7 @@ export const StaffAndSuppliersView: React.FC<StaffAndSuppliersViewProps> = ({
         contactPerson: supContact,
         phone: supPhone,
         itemsSupplied: supItems,
-        pendingAmount: supPending
+        pendingAmount: 0
       });
       setIsAddSupplierOpen(false);
       setSupName('');
@@ -139,12 +147,15 @@ export const StaffAndSuppliersView: React.FC<StaffAndSuppliersViewProps> = ({
     if (!paySalaryEmp) return;
     setIsSubmitting(true);
     try {
-      await staffRepo.processSalaryPayment({
-        employeeId: paySalaryEmp.id,
-        employeeName: paySalaryEmp.name || paySalaryEmp.fullName || 'Employee',
-        amount: paySalaryEmp.salary || 500,
-        period: payPeriod
-      });
+      const frequency = paySalaryEmp.payFrequency || 'monthly';
+      const now = new Date();
+      const isoDate = now.toISOString().slice(0, 10);
+      const monday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - ((now.getUTCDay() + 6) % 7)));
+      const period = frequency === 'daily' ? isoDate : frequency === 'weekly' ? monday.toISOString().slice(0, 10) : isoDate.slice(0, 7);
+      const records = await hrmRepo.generatePayroll(frequency, period);
+      const payrollRecord = records.find((p) => p.employeeId === paySalaryEmp.id);
+      if (!payrollRecord) throw new Error('No payroll record was generated for this employee and pay period.');
+      await hrmRepo.markPayrollPaid(payrollRecord.id, 'Bank Transfer');
       setPaySalaryEmp(null);
       await loadData();
       if (onRefresh) onRefresh();
@@ -182,10 +193,10 @@ export const StaffAndSuppliersView: React.FC<StaffAndSuppliersViewProps> = ({
         <div>
           <h2 className="text-xl font-bold text-white flex items-center gap-2">
             <Users className="w-6 h-6 text-emerald-400" />
-            Human Resources, Payroll & Vendor Management
+            {translateRawUi('Human Resources, Payroll & Vendor Management')}
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            Restaurant staff roster, monthly payroll processing & supplier directory
+            {translateRawUi('Restaurant staff roster, monthly payroll processing & supplier directory')}
           </p>
         </div>
 
@@ -195,14 +206,14 @@ export const StaffAndSuppliersView: React.FC<StaffAndSuppliersViewProps> = ({
             className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-3.5 py-2 rounded-2xl text-xs transition flex items-center gap-1.5 cursor-pointer shadow-lg shadow-emerald-500/20"
           >
             <PlusCircle className="w-4 h-4" />
-            Hire Staff Member
+            {translateRawUi('Hire Staff Member')}
           </button>
           <button
             onClick={() => setIsAddSupplierOpen(true)}
             className="bg-teal-600 hover:bg-teal-500 text-white font-bold px-3.5 py-2 rounded-2xl text-xs transition flex items-center gap-1.5 cursor-pointer"
           >
             <PlusCircle className="w-4 h-4" />
-            Add Supplier
+            {translateRawUi('Add Supplier')}
           </button>
         </div>
       </div>
@@ -255,11 +266,11 @@ export const StaffAndSuppliersView: React.FC<StaffAndSuppliersViewProps> = ({
               onChange={e => setRoleFilter(e.target.value)}
               className="bg-slate-900 border border-slate-800 rounded-2xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
             >
-              <option value="all">All Roles</option>
-              <option value="cashier">Cashier</option>
-              <option value="chef">Chef</option>
-              <option value="manager">Manager</option>
-              <option value="driver">Driver</option>
+              <option value="all">{t.legacyUi.allRoles}</option>
+              <option value="cashier">{t.legacyUi.cashier}</option>
+              <option value="chef">{translateRawUi('Chef')}</option>
+              <option value="manager">{t.legacyUi.manager}</option>
+              <option value="driver">{translateRawUi('Driver')}</option>
             </select>
           )}
         </div>
@@ -270,14 +281,14 @@ export const StaffAndSuppliersView: React.FC<StaffAndSuppliersViewProps> = ({
         <>
           {filteredEmployees.length === 0 ? (
             <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 text-center text-slate-400 text-xs">
-              No employee records found matching criteria.
+              {translateRawUi('No employee records found matching criteria.')}
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {filteredEmployees.map(emp => {
                 const displayName = emp.fullName || emp.name || 'Unnamed Employee';
                 const displayRole = emp.role || emp.jobTitle || 'Staff';
-                const displaySalary = Number(emp.salary) || 500;
+                const displaySalary = Number(emp.salary) || 0;
                 return (
                   <div key={emp.id} className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl flex flex-col justify-between space-y-4">
                     <div>
@@ -288,7 +299,7 @@ export const StaffAndSuppliersView: React.FC<StaffAndSuppliersViewProps> = ({
                             {displayRole}
                           </span>
                         </div>
-                        <span className="text-sm font-extrabold text-white">${displaySalary}/mo</span>
+                        <span className="text-sm font-extrabold text-white">${displaySalary} / {(emp.payFrequency || 'monthly').toUpperCase()}</span>
                       </div>
 
                       <div className="mt-4 space-y-1 text-xs text-slate-400">
@@ -303,7 +314,7 @@ export const StaffAndSuppliersView: React.FC<StaffAndSuppliersViewProps> = ({
                       className="w-full bg-slate-800 hover:bg-emerald-500 hover:text-slate-950 text-emerald-400 font-bold py-2 rounded-xl transition text-xs flex items-center justify-center gap-1.5 cursor-pointer"
                     >
                       <DollarSign className="w-4 h-4" />
-                      Disburse Monthly Salary
+                      Disburse {(emp.payFrequency || 'monthly').toUpperCase()} Salary
                     </button>
                   </div>
                 );
@@ -318,18 +329,18 @@ export const StaffAndSuppliersView: React.FC<StaffAndSuppliersViewProps> = ({
         <div className="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
           {filteredSuppliers.length === 0 ? (
             <div className="p-8 text-center text-slate-400 text-xs">
-              No supplier records found matching criteria.
+              {translateRawUi('No supplier records found matching criteria.')}
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm text-slate-300">
                 <thead className="bg-slate-950 text-xs uppercase tracking-wider text-slate-400 border-b border-slate-800">
                   <tr>
-                    <th className="py-4 px-6">Vendor / Supplier Name</th>
-                    <th className="py-4 px-6">Contact Person</th>
-                    <th className="py-4 px-6">Phone Number</th>
-                    <th className="py-4 px-6">Goods Supplied</th>
-                    <th className="py-4 px-6 text-right">Pending Payables</th>
+                    <th className="py-4 px-6">{t.legacyUi.supplierVendorName}</th>
+                    <th className="py-4 px-6">{t.legacyUi.contactPerson}</th>
+                    <th className="py-4 px-6">{t.legacyUi.phoneNumber}</th>
+                    <th className="py-4 px-6">{t.legacyUi.goodsSupplied}</th>
+                    <th className="py-4 px-6 text-right">{t.legacyUi.pendingPayables}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60 text-xs">
@@ -359,18 +370,18 @@ export const StaffAndSuppliersView: React.FC<StaffAndSuppliersViewProps> = ({
         <div className="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
           {salariesList.length === 0 ? (
             <div className="p-8 text-center text-slate-400 text-xs">
-              No payroll records recorded yet.
+              {translateRawUi('No payroll records recorded yet.')}
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm text-slate-300">
                 <thead className="bg-slate-950 text-xs uppercase tracking-wider text-slate-400 border-b border-slate-800">
                   <tr>
-                    <th className="py-4 px-6">Employee Name</th>
-                    <th className="py-4 px-6">Disbursed Amount</th>
-                    <th className="py-4 px-6">Pay Period</th>
-                    <th className="py-4 px-6">Status</th>
-                    <th className="py-4 px-6 text-right">Payment Date</th>
+                    <th className="py-4 px-6">{t.legacyUi.employeeName}</th>
+                    <th className="py-4 px-6">{t.legacyUi.disbursedAmount}</th>
+                    <th className="py-4 px-6">{t.legacyUi.payPeriod}</th>
+                    <th className="py-4 px-6">{t.legacyUi.status}</th>
+                    <th className="py-4 px-6 text-right">{t.legacyUi.paymentDate}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60 text-xs">
@@ -403,15 +414,15 @@ export const StaffAndSuppliersView: React.FC<StaffAndSuppliersViewProps> = ({
             <button type="button" onClick={() => setIsAddEmployeeOpen(false)} className="absolute right-4 top-4 text-slate-400 hover:text-white">
               <X className="w-5 h-5" />
             </button>
-            <h3 className="text-lg font-bold text-white">Hire Staff Member</h3>
+            <h3 className="text-lg font-bold text-white">{t.legacyUi.hireStaffMember}</h3>
 
             <div className="space-y-3">
               <div>
-                <label className="text-slate-400 font-bold block mb-1">Full Name</label>
+                <label className="text-slate-400 font-bold block mb-1">{t.legacyUi.fullName}</label>
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Alex Morgan"
+                  placeholder={translateRawUi('e.g. Alex Morgan')}
                   value={empName}
                   onChange={e => setEmpName(e.target.value)}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:border-emerald-500 focus:outline-none"
@@ -419,11 +430,11 @@ export const StaffAndSuppliersView: React.FC<StaffAndSuppliersViewProps> = ({
               </div>
 
               <div>
-                <label className="text-slate-400 font-bold block mb-1">Email Address</label>
+                <label className="text-slate-400 font-bold block mb-1">{t.legacyUi.emailAddress}</label>
                 <input
                   type="email"
                   required
-                  placeholder="alex@restaurant.com"
+                  placeholder={translateRawUi('alex@restaurant.com')}
                   value={empEmail}
                   onChange={e => setEmpEmail(e.target.value)}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:border-emerald-500 focus:outline-none"
@@ -432,28 +443,41 @@ export const StaffAndSuppliersView: React.FC<StaffAndSuppliersViewProps> = ({
 
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="text-slate-400 font-bold block mb-1">Role / Position</label>
+                  <label className="text-slate-400 font-bold block mb-1">{t.legacyUi.rolePosition}</label>
                   <select
                     value={empRole}
                     onChange={e => setEmpRole(e.target.value)}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:border-emerald-500 focus:outline-none"
                   >
-                    <option value="cashier">Cashier (POS)</option>
-                    <option value="chef">Chef / Kitchen</option>
-                    <option value="manager">Branch Manager</option>
-                    <option value="driver">Delivery Driver</option>
-                    <option value="accountant">Accountant</option>
+                    <option value="cashier">{t.legacyUi.cashierPos}</option>
+                    <option value="chef">{t.legacyUi.chefKitchen}</option>
+                    <option value="manager">{t.legacyUi.branchManager}</option>
+                    <option value="driver">{t.legacyUi.deliveryDriver}</option>
+                    <option value="accountant">{t.legacyUi.accountant}</option>
                   </select>
                 </div>
                 <div>
-                  <label className="text-slate-400 font-bold block mb-1">Monthly Salary ($)</label>
+                  <label className="text-slate-400 font-bold block mb-1">{t.legacyUi.salaryAmount}</label>
                   <input
                     type="number"
+                    min="0"
                     value={empSalary}
                     onChange={e => setEmpSalary(parseFloat(e.target.value) || 0)}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold focus:border-emerald-500 focus:outline-none"
                   />
                 </div>
+              </div>
+              <div className="mt-2">
+                <label className="text-slate-400 font-bold block mb-1">{t.legacyUi.payFrequency}</label>
+                <select
+                  value={empPayFrequency}
+                  onChange={e => setEmpPayFrequency(e.target.value as 'daily' | 'weekly' | 'monthly')}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white"
+                >
+                  <option value="daily">{pt.daily}</option>
+                  <option value="weekly">{pt.weekly}</option>
+                  <option value="monthly">{pt.monthly}</option>
+                </select>
               </div>
             </div>
 
@@ -475,15 +499,15 @@ export const StaffAndSuppliersView: React.FC<StaffAndSuppliersViewProps> = ({
             <button type="button" onClick={() => setIsAddSupplierOpen(false)} className="absolute right-4 top-4 text-slate-400 hover:text-white">
               <X className="w-5 h-5" />
             </button>
-            <h3 className="text-lg font-bold text-white">Add Supplier / Vendor</h3>
+            <h3 className="text-lg font-bold text-white">{t.legacyUi.addSupplierVendor}</h3>
 
             <div className="space-y-3">
               <div>
-                <label className="text-slate-400 font-bold block mb-1">Company / Vendor Name</label>
+                <label className="text-slate-400 font-bold block mb-1">{t.legacyUi.companyVendorName}</label>
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Mogadishu Meat Supplies"
+                  placeholder={translateRawUi('e.g. Meat Supplier')}
                   value={supName}
                   onChange={e => setSupName(e.target.value)}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:border-emerald-500 focus:outline-none"
@@ -492,22 +516,22 @@ export const StaffAndSuppliersView: React.FC<StaffAndSuppliersViewProps> = ({
 
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="text-slate-400 font-bold block mb-1">Contact Person</label>
+                  <label className="text-slate-400 font-bold block mb-1">{t.legacyUi.contactPerson}</label>
                   <input
                     type="text"
                     required
-                    placeholder="e.g. Hassan Farah"
+                    placeholder={translateRawUi('e.g. Hassan Farah')}
                     value={supContact}
                     onChange={e => setSupContact(e.target.value)}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:border-emerald-500 focus:outline-none"
                   />
                 </div>
                 <div>
-                  <label className="text-slate-400 font-bold block mb-1">Phone Number</label>
+                  <label className="text-slate-400 font-bold block mb-1">{t.legacyUi.phoneNumber}</label>
                   <input
                     type="text"
                     required
-                    placeholder="+252 61 000 0000"
+                    placeholder={translateRawUi('+252 61 000 0000')}
                     value={supPhone}
                     onChange={e => setSupPhone(e.target.value)}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:border-emerald-500 focus:outline-none"
@@ -516,26 +540,17 @@ export const StaffAndSuppliersView: React.FC<StaffAndSuppliersViewProps> = ({
               </div>
 
               <div>
-                <label className="text-slate-400 font-bold block mb-1">Goods / Items Supplied</label>
+                <label className="text-slate-400 font-bold block mb-1">{t.legacyUi.goodsItemsSupplied}</label>
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Meat & Meat Products"
+                  placeholder={translateRawUi('e.g. Meat & Meat Products')}
                   value={supItems}
                   onChange={e => setSupItems(e.target.value)}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:border-emerald-500 focus:outline-none"
                 />
               </div>
 
-              <div>
-                <label className="text-slate-400 font-bold block mb-1">Pending Balance / Payable ($)</label>
-                <input
-                  type="number"
-                  value={supPending}
-                  onChange={e => setSupPending(parseFloat(e.target.value) || 0)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold focus:border-emerald-500 focus:outline-none"
-                />
-              </div>
             </div>
 
             <button
@@ -556,12 +571,12 @@ export const StaffAndSuppliersView: React.FC<StaffAndSuppliersViewProps> = ({
             <button onClick={() => setPaySalaryEmp(null)} className="absolute right-4 top-4 text-slate-400 hover:text-white">
               <X className="w-5 h-5" />
             </button>
-            <h3 className="text-lg font-bold text-white">Process Payroll Disbursal</h3>
+            <h3 className="text-lg font-bold text-white">{pt.processTitle}</h3>
             <p className="text-slate-400">{paySalaryEmp.fullName || paySalaryEmp.name} ({paySalaryEmp.role || paySalaryEmp.jobTitle})</p>
 
             <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800 text-center">
-              <span className="text-[10px] text-slate-400 uppercase font-bold">Monthly Base Salary</span>
-              <div className="text-2xl font-extrabold text-emerald-400">${(paySalaryEmp.salary || 500).toFixed(2)}</div>
+              <span className="text-[10px] text-slate-400 uppercase font-bold">{pt.salaryPerCycle}</span>
+              <div className="text-2xl font-extrabold text-emerald-400">${(Number(paySalaryEmp.salary) || 0).toFixed(2)}</div>
             </div>
 
             <button

@@ -1,3 +1,5 @@
+import { translateRawUi } from '../../../i18n';
+import { translations } from '../../../i18n/translations';
 import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import {
@@ -10,7 +12,7 @@ import {
 } from '../../../domain/entities/inventory';
 import { InventoryRepositoryImpl } from '../../../data/repositories/InventoryRepositoryImpl';
 import { InventoryController } from '../../../controllers/InventoryController';
-import { InventoryLang, inventoryDict } from './translations';
+import { InventoryLang, inventoryDict } from '../../../i18n';
 import { InventoryDashboard } from './InventoryDashboard';
 import { InventoryListView } from './InventoryListView';
 import { StockMovementView } from './StockMovementView';
@@ -41,7 +43,7 @@ interface InventoryManagementSystemProps {
 
 export const InventoryManagementSystem: React.FC<InventoryManagementSystemProps> = ({
   userRole = 'Admin',
-  userBranch = 'Main Branch'
+  userBranch
 }) => {
   const { language, userRecord, role } = useAuth();
   // Controller instantiation
@@ -60,7 +62,7 @@ export const InventoryManagementSystem: React.FC<InventoryManagementSystemProps>
     setLang(currentLang);
   }, [currentLang]);
 
-  const t = inventoryDict[lang] || inventoryDict.en;
+  const t = { ...(inventoryDict[lang] || inventoryDict.en), legacyUi: translations[lang].legacyUi };
   const isRtl = lang === 'ar';
 
   // Active Tab
@@ -147,7 +149,7 @@ export const InventoryManagementSystem: React.FC<InventoryManagementSystemProps>
                   lang === 'en' ? 'bg-amber-500 text-slate-950' : 'text-slate-400 hover:text-white'
                 }`}
               >
-                EN
+                {translateRawUi('EN')}
               </button>
               <button
                 onClick={() => setLang('ar')}
@@ -163,7 +165,7 @@ export const InventoryManagementSystem: React.FC<InventoryManagementSystemProps>
                   lang === 'so' ? 'bg-amber-500 text-slate-950' : 'text-slate-400 hover:text-white'
                 }`}
               >
-                SO
+                {translateRawUi('SO')}
               </button>
             </div>
 

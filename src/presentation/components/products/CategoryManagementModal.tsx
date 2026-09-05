@@ -1,3 +1,4 @@
+import { translateRawUi } from '../../../i18n';
 import React, { useState } from 'react';
 import { Category } from '../../../types';
 import { useAuth } from '../../context/AuthContext';
@@ -124,8 +125,8 @@ export const CategoryManagementModal: React.FC<CategoryManagementModalProps> = (
               <Layers className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-white">Menu Categories Management</h2>
-              <p className="text-xs text-slate-400">Organize and sort your restaurant menu categories</p>
+              <h2 className="text-base font-bold text-white">{t.legacyUi.menuCategoriesManagement}</h2>
+              <p className="text-xs text-slate-400">{t.legacyUi.organizeMenuCategories}</p>
             </div>
           </div>
           <button onClick={onClose} className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition">
@@ -148,7 +149,7 @@ export const CategoryManagementModal: React.FC<CategoryManagementModalProps> = (
                   onClick={() => setEditingCategory(null)}
                   className="text-xs text-slate-400 hover:text-white"
                 >
-                  Cancel
+                  {translateRawUi('Cancel')}
                 </button>
               </div>
 
@@ -156,14 +157,14 @@ export const CategoryManagementModal: React.FC<CategoryManagementModalProps> = (
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    English Name *
+                    {translateRawUi('English Name *')}
                   </label>
                   <input
                     type="text"
                     value={editingCategory.nameEn || ''}
                     onChange={(e) => setEditingCategory({ ...editingCategory, nameEn: e.target.value })}
                     className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
-                    placeholder="e.g. Main Course"
+                    placeholder={translateRawUi('e.g. Main Course')}
                   />
                   {getFieldError('nameEn') && (
                     <p className="text-[10px] text-rose-400 mt-1">{getFieldError('nameEn')}</p>
@@ -172,7 +173,7 @@ export const CategoryManagementModal: React.FC<CategoryManagementModalProps> = (
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Arabic Name (اسم الفئة) *
+                    {translateRawUi('Arabic Name (اسم الفئة) *')}
                   </label>
                   <input
                     type="text"
@@ -180,7 +181,7 @@ export const CategoryManagementModal: React.FC<CategoryManagementModalProps> = (
                     value={editingCategory.nameAr || ''}
                     onChange={(e) => setEditingCategory({ ...editingCategory, nameAr: e.target.value })}
                     className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
-                    placeholder="مثال: الأطباق الرئيسية"
+                    placeholder={translateRawUi('مثال: الأطباق الرئيسية')}
                   />
                   {getFieldError('nameAr') && (
                     <p className="text-[10px] text-rose-400 mt-1">{getFieldError('nameAr')}</p>
@@ -189,14 +190,14 @@ export const CategoryManagementModal: React.FC<CategoryManagementModalProps> = (
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Somali Name *
+                    {translateRawUi('Somali Name *')}
                   </label>
                   <input
                     type="text"
                     value={editingCategory.nameSo || ''}
                     onChange={(e) => setEditingCategory({ ...editingCategory, nameSo: e.target.value })}
                     className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
-                    placeholder="e.g. Cuntada Waaweyn"
+                    placeholder={translateRawUi('e.g. Cuntada Waaweyn')}
                   />
                   {getFieldError('nameSo') && (
                     <p className="text-[10px] text-rose-400 mt-1">{getFieldError('nameSo')}</p>
@@ -208,20 +209,20 @@ export const CategoryManagementModal: React.FC<CategoryManagementModalProps> = (
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div className="md:col-span-3">
                   <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Description
+                    {translateRawUi('Description')}
                   </label>
                   <input
                     type="text"
                     value={editingCategory.description || ''}
                     onChange={(e) => setEditingCategory({ ...editingCategory, description: e.target.value })}
                     className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
-                    placeholder="Short summary of items in this category"
+                    placeholder={translateRawUi('Short summary of items in this category')}
                   />
                 </div>
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Display Order
+                    {translateRawUi('Display Order')}
                   </label>
                   <input
                     type="number"
@@ -236,7 +237,7 @@ export const CategoryManagementModal: React.FC<CategoryManagementModalProps> = (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Category Image URL or Upload
+                    {translateRawUi('Category Image URL or Upload')}
                   </label>
                   <div className="flex items-center gap-2">
                     <input
@@ -244,7 +245,7 @@ export const CategoryManagementModal: React.FC<CategoryManagementModalProps> = (
                       value={editingCategory.imageUrl || ''}
                       onChange={(e) => setEditingCategory({ ...editingCategory, imageUrl: e.target.value })}
                       className="flex-1 px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
-                      placeholder="https://..."
+                      placeholder={translateRawUi('https://...')}
                     />
                     <label className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl cursor-pointer transition">
                       <ImageIcon className="w-4 h-4" />
@@ -261,7 +262,7 @@ export const CategoryManagementModal: React.FC<CategoryManagementModalProps> = (
                       onChange={(e) => setEditingCategory({ ...editingCategory, isActive: e.target.checked })}
                       className="w-4 h-4 rounded text-emerald-500 bg-slate-900 border-slate-800 focus:ring-0"
                     />
-                    <span>Active Status (Visible on Menu)</span>
+                    <span>{t.legacyUi.activeStatusVisibleOnMenu}</span>
                   </label>
                 </div>
               </div>
@@ -272,7 +273,7 @@ export const CategoryManagementModal: React.FC<CategoryManagementModalProps> = (
                   onClick={() => setEditingCategory(null)}
                   className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl"
                 >
-                  Cancel
+                  {translateRawUi('Cancel')}
                 </button>
                 <button
                   type="submit"
@@ -296,7 +297,7 @@ export const CategoryManagementModal: React.FC<CategoryManagementModalProps> = (
                   className="px-3.5 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 text-xs font-bold rounded-xl flex items-center gap-2 transition"
                 >
                   <Plus className="w-4 h-4" />
-                  <span>Add New Category</span>
+                  <span>{t.legacyUi.addNewCategory}</span>
                 </button>
               </div>
 
@@ -384,7 +385,7 @@ export const CategoryManagementModal: React.FC<CategoryManagementModalProps> = (
             onClick={onClose}
             className="px-5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl"
           >
-            Close
+            {translateRawUi('Close')}
           </button>
         </div>
 

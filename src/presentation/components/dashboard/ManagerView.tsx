@@ -1,3 +1,4 @@
+import { translateRawUi } from '../../../i18n';
 import React from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { getMogadishuDateString } from '../../../lib/dateUtils';
@@ -44,6 +45,10 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
 
   const kitchenOrders = orders.filter(o => o.status === 'in_preparation' || o.prepStatus === 'preparing');
   const deliveryOrders = orders.filter(o => o.orderType === 'delivery' || o.status === 'out_for_delivery');
+  const ratedFeedbacks = feedbacks.filter(f => typeof f.rating === 'number' && f.rating > 0);
+  const managerAvgRating = ratedFeedbacks.length > 0
+    ? ratedFeedbacks.reduce((sum, f) => sum + Number(f.rating || 0), 0) / ratedFeedbacks.length
+    : 0;
 
   // Stock Alerts
   const lowStockIngredients = ingredients.filter(i => i.stock <= i.minStockAlert);
@@ -94,25 +99,25 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
         />
 
         <KPICard
-          title="Kitchen KDS Status"
+          title={translateRawUi('Kitchen KDS Status')}
           value={`${kitchenOrders.length} Cooking`}
-          sublabel="Avg Prep Time: 12.4 min"
+          sublabel="Configured prep targets apply"
           icon={ChefHat}
           iconColor="teal"
         />
 
         <KPICard
-          title="Delivery Drivers Status"
+          title={translateRawUi('Delivery Drivers Status')}
           value={`${deliveryOrders.length} In Transit`}
-          sublabel="3 Drivers Available On-Call"
+          sublabel="Current delivery queue"
           icon={Truck}
           iconColor="indigo"
         />
 
         <KPICard
-          title="Employee Attendance"
-          value="100% Present"
-          sublabel="4 Active Staff Checked In Today"
+          title={translateRawUi('Employee Attendance')}
+          value="Attendance data"
+          sublabel="Use current attendance records"
           icon={UserCheck}
           iconColor="emerald"
         />
@@ -136,9 +141,9 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
         />
 
         <KPICard
-          title="Customer Satisfaction"
-          value="4.8 / 5.0"
-          sublabel="Based on 48 reviews"
+          title={t.legacyUi.customerSatisfaction}
+          value={managerAvgRating > 0 ? `${managerAvgRating.toFixed(1)} / 5.0` : 'No ratings'}
+          sublabel={ratedFeedbacks.length > 0 ? `Based on ${ratedFeedbacks.length} recorded ratings` : 'No recorded ratings'}
           icon={MessageSquare}
           iconColor="purple"
         />
@@ -152,14 +157,14 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
           <div className="flex items-center justify-between border-b border-slate-800 pb-3">
             <h3 className="text-sm font-bold text-white flex items-center gap-2">
               <Clock className="w-5 h-5 text-amber-400" />
-              Live Kitchen & POS Active Orders
+              {translateRawUi('Live Kitchen & POS Active Orders')}
             </h3>
             {onNavigateToTab && (
               <button
                 onClick={() => onNavigateToTab('kitchen')}
                 className="text-xs text-amber-400 hover:underline font-bold"
               >
-                View Kitchen Display System →
+                {translateRawUi('View Kitchen Display System →')}
               </button>
             )}
           </div>
@@ -167,7 +172,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
           <div className="space-y-3">
             {activeOrders.length === 0 ? (
               <div className="p-8 text-center text-slate-500 text-xs">
-                No active orders currently in preparation. All orders are fulfilled!
+                {translateRawUi('No active orders currently in preparation. All orders are fulfilled!')}
               </div>
             ) : (
               activeOrders.map(order => (
@@ -201,13 +206,13 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
           <h3 className="text-sm font-bold text-white flex items-center gap-2 border-b border-slate-800 pb-3">
             <MessageSquare className="w-5 h-5 text-purple-400" />
-            Recent Customer Feedback
+            {translateRawUi('Recent Customer Feedback')}
           </h3>
 
           <div className="space-y-3">
             {feedbacks.length === 0 ? (
               <div className="bg-slate-950 p-6 rounded-2xl border border-slate-800 text-center text-slate-500 text-xs font-medium">
-                No customer feedback recorded yet.
+                {translateRawUi('No customer feedback recorded yet.')}
               </div>
             ) : (
               feedbacks.map(fb => (

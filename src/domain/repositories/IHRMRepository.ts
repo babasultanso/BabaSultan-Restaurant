@@ -3,6 +3,7 @@ import {
   AttendanceRecord,
   Shift,
   PayrollRecord,
+  PayFrequency,
   LeaveRequest,
   PerformanceRecord,
   EmployeeDocument,
@@ -19,7 +20,7 @@ export interface IHRMRepository {
   deleteEmployee(id: string): Promise<boolean>;
 
   // Attendance
-  getAttendanceRecords(filter?: { employeeId?: string; date?: string; month?: string }): Promise<AttendanceRecord[]>;
+  getAttendanceRecords(filter?: { employeeId?: string; date?: string; month?: string; branchId?: string }): Promise<AttendanceRecord[]>;
   clockIn(employeeId: string, employeeName: string, notes?: string): Promise<AttendanceRecord>;
   clockOut(attendanceId: string, notes?: string): Promise<AttendanceRecord>;
   recordAttendanceManually(record: Omit<AttendanceRecord, 'id' | 'createdAt'>): Promise<AttendanceRecord>;
@@ -33,6 +34,7 @@ export interface IHRMRepository {
 
   // Payroll
   getPayrollRecords(filter?: { month?: string; employeeId?: string; status?: string }): Promise<PayrollRecord[]>;
+  generatePayroll(frequency: PayFrequency, period: string): Promise<PayrollRecord[]>;
   generateMonthlyPayroll(month: string): Promise<PayrollRecord[]>;
   updatePayrollRecord(id: string, data: Partial<PayrollRecord>): Promise<PayrollRecord>;
   markPayrollPaid(id: string, paymentMethod: string): Promise<PayrollRecord>;

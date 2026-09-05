@@ -1,5 +1,5 @@
 import { Order, Product, Ingredient, Expense, Purchase, Employee, SalaryPayment, Supplier, InventoryMovement, CustomerRefund, BankTransaction, FinancialAccount } from '../types';
-import { getMogadishuDateString } from './dateUtils';
+import { getMogadishuDateString, getMogadishuHour } from './dateUtils';
 
 export interface CFOKPIs {
   // Revenue
@@ -193,11 +193,13 @@ export function calculateCFOAnalytics(data: CFODataPackage) {
     }
   });
 
+  const hasRecordedCOGS = completedOrders.some(ord => Number.isFinite(Number(ord.cogs)));
   const ingredientPurchasesLast30Days = purchases
     .filter(p => new Date(p.createdAt) >= thirtyDaysAgo)
     .reduce((sum, p) => sum + (Number(p.totalCost) || 0), 0);
 
-  const foodCosts = totalCOGS > 0 ? totalCOGS : ingredientPurchasesLast30Days;
+  // Do not substitute procurement spend for COGS: purchases are cash/inventory movements, not period consumption.
+  const foodCosts = hasRecordedCOGS ? totalCOGS : 0;
   const foodCostPercentage = netRevenue > 0 ? (foodCosts / netRevenue) * 100 : 0;
 
   // Expenses Breakdown
@@ -218,8 +220,8 @@ export function calculateCFOAnalytics(data: CFODataPackage) {
   const totalSalariesPaid = salaries
     .filter(s => s.status === 'paid')
     .reduce((sum, s) => sum + (Number(s.amount) || 0), 0);
-  const totalEmployeeMonthlySalary = employees.reduce((sum, e) => sum + (Number(e.salary) || 0), 0);
-  const laborCosts = totalSalariesPaid > 0 ? totalSalariesPaid : totalEmployeeMonthlySalary;
+  // Do not treat current employee salary master-data as period cash expense when no paid payroll exists.
+  const laborCosts = totalSalariesPaid;
   const laborCostPercentage = netRevenue > 0 ? (laborCosts / netRevenue) * 100 : 0;
 
   // Total Expenses
@@ -236,8 +238,8 @@ export function calculateCFOAnalytics(data: CFODataPackage) {
   else if (netMarginPercentage < 20) netMarginStatus = 'warning';
 
   // Accounts & Liquidity
-  let cashBalance = accounts.find(a => a.type === 'cash')?.balance ?? 0;
-  let bankBalance = accounts.find(a => a.type === 'bank')?.balance ?? 0;
+  let cashBalance = accounts.find(a => String(a.type || '').toLowerCase() === 'cash' || String((a as any).accountType || '').toLowerCase() === 'cash' || String((a as any).code || '').startsWith('101'))?.balance ?? 0;
+  let bankBalance = accounts.find(a => String(a.type || '').toLowerCase() === 'bank' || String((a as any).accountType || '').toLowerCase() === 'bank' || String((a as any).code || '').startsWith('102'))?.balance ?? 0;
   const totalLiquidity = cashBalance + bankBalance;
 
   // Cash Flow (Inflow - Outflow in 30 days)
@@ -253,22 +255,27 @@ export function calculateCFOAnalytics(data: CFODataPackage) {
   // Taxes: Authoritative recorded VAT from orders
   const recordedVAT = orders.reduce((sum, o) => sum + (Number(o.tax) || 0), 0);
   const estimatedVAT = recordedVAT;
-  const estimatedCorporateTax = Math.max(0, netProfit) * 0.20; // 20% Tax on Net Profit
+  // Corporate tax is jurisdiction/configuration dependent; this analytics package has no authoritative corporate-tax setting.
+  // Do not fabricate a statutory rate here. Financial reports should source configured tax policy separately.
+  const estimatedCorporateTax = 0;
 
   // Inventory & Waste
   const productValuation = products.reduce((sum, p) => sum + ((p.stock || 0) * (p.cost || 0)), 0);
   const ingredientValuation = ingredients.reduce((sum, ing) => sum + ((ing.stock || 0) * (ing.costPerUnit || 0)), 0);
   const totalInventoryValuation = productValuation + ingredientValuation;
 
-  const lowStockItemsCount = products.filter(p => (p.stock || 0) <= (p.minStockAlert || 5)).length +
-    ingredients.filter(ing => (ing.stock || 0) <= (ing.minStockAlert || 5)).length;
+  const alertLevel = (value: unknown) => Number.isFinite(Number(value)) ? Math.max(0, Number(value)) : 0;
+  const lowStockItemsCount = products.filter(p => (p.stock || 0) <= alertLevel(p.minStockAlert)).length +
+    ingredients.filter(ing => (ing.stock || 0) <= alertLevel(ing.minStockAlert)).length;
 
   const overstockedItemsCount = products.filter(p => (p.stock || 0) > ((p.salesCount || 0) * 3 + 50)).length;
 
   // Spoilage & Waste
   const wasteMovements = inventory_movements.filter(m => {
     const reasonLower = (m.reason || '').toLowerCase();
-    return m.type === 'out' && (reasonLower.includes('waste') || reasonLower.includes('spoil') || reasonLower.includes('loss') || reasonLower.includes('damage'));
+    const isWasteType = m.type === 'waste' || m.type === 'spoilage';
+    const isWasteReason = reasonLower.includes('waste') || reasonLower.includes('spoil') || reasonLower.includes('loss') || reasonLower.includes('damage');
+    return isWasteType || (m.type === 'out' && isWasteReason);
   });
   let spoilageWasteLoss = 0;
   wasteMovements.forEach(wm => {
@@ -379,8 +386,8 @@ export function calculateCFOAnalytics(data: CFODataPackage) {
       title: `${lowMarginProducts.length} Products Have Under-Target Margins`,
       description: `Items like "${lowMarginProducts[0]?.name}" yield gross margin below 25%, compressing menu profitability.`,
       metricValue: `${lowMarginProducts.length} items`,
-      recommendedAction: 'Increase price by 8-12% or reformulate recipe ingredients to lower COGS.',
-      actionPayload: { productId: lowMarginProducts[0]?.id, suggestedPrice: Math.ceil((lowMarginProducts[0]?.cost || 5) * 1.5) }
+      recommendedAction: 'Review the recorded selling price and recipe cost, then adjust price or recipe only after validating the target margin.',
+      actionPayload: { productId: lowMarginProducts[0]?.id, suggestedPrice: Math.ceil((Number(lowMarginProducts[0]?.cost) || 0) * 1.5 * 100) / 100 }
     });
   }
 
@@ -394,7 +401,7 @@ export function calculateCFOAnalytics(data: CFODataPackage) {
       title: `Capital Locked in ${slowProducts.length} Slow-Moving Items`,
       description: `Products like "${slowProducts[0]?.name}" have fewer than 5 sales with ${slowProducts[0]?.stock} units in inventory.`,
       metricValue: `${slowProducts.length} items`,
-      recommendedAction: 'Run a 20% discount promotion or feature in a meal combo.'
+      recommendedAction: 'Test a controlled promotion or combo based on observed demand and recorded margin.'
     });
   }
 
@@ -441,7 +448,8 @@ export function calculateCFOAnalytics(data: CFODataPackage) {
   // ============================================
   // PREDICTIONS & FORECASTING
   // ============================================
-  const avgDailySales = completedOrders.length > 0 ? monthlyRevenue / 30 : 1500;
+  const observedMonthDays = new Set(completedOrders.filter(o => new Date(o.createdAt) >= thirtyDaysAgo).map(o => getMogadishuDateString(new Date(o.createdAt)))).size;
+  const avgDailySales = observedMonthDays > 0 ? monthlyRevenue / observedMonthDays : 0;
   const nextDaySales = Math.round(avgDailySales * (1 + (revenueGrowthWeekOverWeek > 0 ? 0.03 : -0.02)));
   const nextWeekSales = Math.round(nextDaySales * 7);
   const nextMonthSales = Math.round(nextDaySales * 30);
@@ -453,7 +461,7 @@ export function calculateCFOAnalytics(data: CFODataPackage) {
   for (let h = 0; h < 24; h++) hourCounts[h] = { count: 0, rev: 0 };
 
   completedOrders.forEach(ord => {
-    const h = new Date(ord.createdAt).getHours();
+    const h = getMogadishuHour(ord.createdAt);
     hourCounts[h].count += 1;
     hourCounts[h].rev += Number(ord.totalAmount) || 0;
   });
@@ -506,12 +514,16 @@ export function calculateCFOAnalytics(data: CFODataPackage) {
     });
   }
 
+  const avgHistoricalDailyExpenses = historicalDailyTrends.length > 0
+    ? historicalDailyTrends.reduce((sum, day) => sum + day.expenses, 0) / historicalDailyTrends.length
+    : 0;
+
   const forecastDaily7Days: Array<{ date: string; predictedSales: number; predictedProfit: number }> = [];
   for (let i = 1; i <= 7; i++) {
     const d = new Date(now.getTime() + i * 24 * 60 * 60 * 1000);
     const multiplier = d.getDay() === 5 || d.getDay() === 6 ? 1.25 : 0.95; // Weekend spike
     const predSales = Math.round(nextDaySales * multiplier);
-    const predProfit = Math.round(predSales * (grossMarginPercentage / 100) - (totalExpenses / 30));
+    const predProfit = Math.round(predSales * (grossMarginPercentage / 100) - avgHistoricalDailyExpenses);
     forecastDaily7Days.push({
       date: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
       predictedSales: predSales,
@@ -528,11 +540,7 @@ export function calculateCFOAnalytics(data: CFODataPackage) {
     inventoryShortageRisks,
     peakHours,
     quietHours,
-    seasonalTrends: [
-      'Friday & Saturday evening shifts drive 42% of weekly sales volume.',
-      'Beverage sales surge during lunch peak hours (12 PM - 2 PM).',
-      'Delivery orders increase by 28% during evening rain/quiet hours.'
-    ],
+    seasonalTrends: [],
     historicalDailyTrends,
     forecastDaily7Days
   };
@@ -557,9 +565,9 @@ export function calculateCFOAnalytics(data: CFODataPackage) {
       title: `Optimize Pricing for High-Demand "${item.name}"`,
       description: `Current margin is below target despite high volume (${item.salesCount} sales). Raising price from $${item.price.toFixed(2)} to $${newPrice.toFixed(2)} will capture significant gross profit.`,
       impactScore: 'High',
-      estimatedFinancialGain: gain > 0 ? gain : 250,
+      estimatedFinancialGain: Math.max(0, gain),
       actionLabel: `Increase Price to $${newPrice}`,
-      actionType: 'UPDATE_STOCK',
+      actionType: 'UPDATE_PRODUCT_PRICE',
       actionPayload: { productId: item.id, newPrice }
     });
   }
@@ -574,17 +582,17 @@ export function calculateCFOAnalytics(data: CFODataPackage) {
       title: `Urgent Reorder: "${ing.name}" Stock Critical`,
       description: `Current stock (${ing.stock} ${ing.unit}) is at or below alert threshold (${ing.minStockAlert} ${ing.unit}). Place purchase order to prevent menu stockouts.`,
       impactScore: 'High',
-      estimatedFinancialGain: 400,
-      actionLabel: `Reorder 50 ${ing.unit} from ${ing.supplierName}`,
+      estimatedFinancialGain: 0,
+      actionLabel: `Reorder ${Math.max(0, Number(ing.minStockAlert || 0) - Number(ing.stock || 0))} ${ing.unit} from ${ing.supplierName || 'the configured supplier'}`,
       actionType: 'REGISTER_PURCHASE',
       actionPayload: {
         supplierId: ing.supplierId,
         supplierName: ing.supplierName,
         itemName: ing.name,
-        quantity: 50,
+        quantity: Math.max(0, Number(ing.minStockAlert || 0) - Number(ing.stock || 0)),
         unit: ing.unit,
         unitPrice: ing.costPerUnit,
-        totalCost: 50 * ing.costPerUnit,
+        totalCost: Math.max(0, Number(ing.minStockAlert || 0) - Number(ing.stock || 0)) * Number(ing.costPerUnit || 0),
         status: 'pending'
       }
     });
@@ -596,10 +604,10 @@ export function calculateCFOAnalytics(data: CFODataPackage) {
       id: 'rec_utility_cut',
       category: 'cost_reduction',
       title: 'Optimize Utility & Power Consumption',
-      description: `Utility expenses ($${utilityCosts.toFixed(2)}) are elevated. Transition kitchen equipment to energy-saver standby during quiet hours (3 PM - 5 PM).`,
+      description: `Utility expenses ($${utilityCosts.toFixed(2)}) are elevated. Review recorded operating patterns and schedule energy-saving measures during observed quiet periods.`,
       impactScore: 'Medium',
-      estimatedFinancialGain: 180,
-      actionLabel: 'Set Energy Schedule',
+      estimatedFinancialGain: 0,
+      actionLabel: 'Review Energy Schedule',
       actionType: 'LOG_POLICY',
       actionPayload: { policy: 'Utility reduction policy set' }
     });
@@ -610,9 +618,9 @@ export function calculateCFOAnalytics(data: CFODataPackage) {
     id: 'rec_staff_sched',
     category: 'staff_scheduling',
     title: 'Align Staff Roster with Peak Sales Hours',
-    description: `Peak order volume occurs between ${peakHours[0]?.hourLabel || '1:00 PM'} and ${peakHours[1]?.hourLabel || '7:00 PM'}. Shift waitstaff hours to match peak demand to reduce idle labor cost.`,
+    description: peakHours.length >= 2 ? `Peak order volume occurs between ${peakHours[0].hourLabel} and ${peakHours[1].hourLabel}. Align staffing with observed demand to reduce idle labor cost.` : 'Peak-hour staffing recommendation is unavailable until sufficient order-time data is recorded.',
     impactScore: 'Medium',
-    estimatedFinancialGain: 320,
+    estimatedFinancialGain: 0,
     actionLabel: 'Optimize Roster',
     actionType: 'LOG_POLICY',
     actionPayload: { policy: 'Staff shift alignment updated' }
@@ -623,9 +631,9 @@ export function calculateCFOAnalytics(data: CFODataPackage) {
     id: 'rec_purchasing_strat',
     category: 'purchasing_strategy',
     title: 'Consolidate Supplier Purchases for Volume Discounts',
-    description: `Consolidating raw ingredient orders across top suppliers (${suppliers[0]?.name || 'Primary Supplier'}) can secure a 5-8% bulk procurement discount.`,
+    description: `Consolidating raw ingredient orders across top suppliers (${suppliers[0]?.name || '—'}) may improve purchasing terms; review actual supplier quotes before committing.`,
     impactScore: 'High',
-    estimatedFinancialGain: 450,
+    estimatedFinancialGain: 0,
     actionLabel: 'View Supplier Terms',
     actionType: 'LOG_POLICY'
   });
@@ -643,7 +651,7 @@ export function calculateCFOAnalytics(data: CFODataPackage) {
       title: 'CRITICAL: Net Profit Margin Below Target',
       message: `Net profit margin is currently ${netMarginPercentage.toFixed(1)}%, which is below the executive 20% benchmark target.`,
       thresholdMet: `${netMarginPercentage.toFixed(1)}% < 20%`,
-      timestamp: new Date().toLocaleTimeString()
+      timestamp: new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Mogadishu', hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(new Date())
     });
   }
 
@@ -655,7 +663,7 @@ export function calculateCFOAnalytics(data: CFODataPackage) {
       title: 'ALERT: Unusually High Food Cost Percentage',
       message: `Food costs account for ${foodCostPercentage.toFixed(1)}% of net revenue, indicating potential kitchen waste, over-portioning, or price inflation.`,
       thresholdMet: `${foodCostPercentage.toFixed(1)}% > 35%`,
-      timestamp: new Date().toLocaleTimeString()
+      timestamp: new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Mogadishu', hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(new Date())
     });
   }
 
@@ -667,7 +675,7 @@ export function calculateCFOAnalytics(data: CFODataPackage) {
       title: 'WARNING: Critical Stockout Vulnerability',
       message: `${lowStockItemsCount} menu items or raw ingredients have hit minimum buffer stock levels.`,
       thresholdMet: `${lowStockItemsCount} low items`,
-      timestamp: new Date().toLocaleTimeString()
+      timestamp: new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Mogadishu', hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(new Date())
     });
   }
 
@@ -679,9 +687,30 @@ export function calculateCFOAnalytics(data: CFODataPackage) {
       title: 'HIGH ALERT: Negative Operating Cash Flow',
       message: 'Monthly cash outflows exceed inflows. Immediate working capital adjustment required.',
       thresholdMet: `$${cashFlow.toFixed(2)}`,
-      timestamp: new Date().toLocaleTimeString()
+      timestamp: new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Mogadishu', hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(new Date())
     });
   }
+
+  // Derive menu category performance from recorded completed order lines and product metadata.
+  const categoryStats: Record<string, { revenue: number; cost: number }> = {};
+  for (const order of completedOrders.filter(o => new Date(o.createdAt) >= thirtyDaysAgo)) {
+    for (const line of order.items || []) {
+      const product = products.find(p => p.id === line.productId);
+      const category = String(product?.category || 'Uncategorized').trim() || 'Uncategorized';
+      if (!categoryStats[category]) categoryStats[category] = { revenue: 0, cost: 0 };
+      const lineRevenue = Number(line.totalPrice ?? ((line.unitPrice || 0) * (line.quantity || 0))) || 0;
+      const lineCost = (Number(product?.cost) || 0) * (Number(line.quantity) || 0);
+      categoryStats[category].revenue += lineRevenue;
+      categoryStats[category].cost += lineCost;
+    }
+  }
+  const topCategories = Object.entries(categoryStats).sort((a, b) => b[1].revenue - a[1].revenue).slice(0, 3);
+  const categoryAnswer = topCategories.length > 0
+    ? topCategories.map(([name, stats], index) => {
+        const margin = stats.revenue > 0 ? ((stats.revenue - stats.cost) / stats.revenue) * 100 : 0;
+        return `${index + 1}. **${name}**: $${stats.revenue.toFixed(2)} revenue, ${margin.toFixed(1)}% estimated gross margin.`;
+      }).join('\n')
+    : 'No completed-order category data is available for this analysis period.';
 
   // ============================================
   // ANSWERS TO EXECUTIVE BUSINESS QUESTIONS
@@ -692,14 +721,14 @@ export function calculateCFOAnalytics(data: CFODataPackage) {
       answer: `To increase net profit from the current $${netProfit.toFixed(2)} (${netMarginPercentage.toFixed(1)}% margin):
 1. **Optimize High-Volume Prices**: Increase prices on top 3 selling products by 8-10% to boost gross profit by approx. $${(monthlyRevenue * 0.04).toFixed(0)}/month.
 2. **Reduce Food Costs**: Lower food cost ratio from ${foodCostPercentage.toFixed(1)}% down to 28% through portion control and supplier negotiation (potential gain: $${(netRevenue * 0.05).toFixed(0)}).
-3. **Cut Idle Labor**: Re-schedule staff shifts to match peak hours (${peakHours[0]?.hourLabel || '1 PM'} - ${peakHours[1]?.hourLabel || '7 PM'}), saving $${(laborCosts * 0.1).toFixed(0)} in monthly payroll.`,
+3. **Cut Idle Labor**: Re-schedule staff shifts to match peak hours (${peakHours[0]?.hourLabel || 'No recorded peak'} - ${peakHours[1]?.hourLabel || 'No recorded peak'}), based on recorded payroll and demand.`,
       keyMetrics: [`Current Net Profit: $${netProfit.toFixed(2)}`, `Gross Margin: ${grossMarginPercentage.toFixed(1)}%`, `Potential Profit Gain: +$${(monthlyRevenue * 0.09).toFixed(0)}`]
     },
     sales_decreasing: {
       question: 'Why are my sales decreasing?',
       answer: revenueGrowthWeekOverWeek < 0 
         ? `Weekly sales declined by ${Math.abs(revenueGrowthWeekOverWeek).toFixed(1)}% due to lower order volume during quiet hours (${quietHours.map(q => q.hourLabel).join(', ')}). Average order size is $${averageOrderValue.toFixed(2)}.`
-        : `Sales are currently healthy with a ${revenueGrowthWeekOverWeek.toFixed(1)}% week-over-week growth rate. Top performing sales hours are ${peakHours[0]?.hourLabel || '1 PM'} and ${peakHours[1]?.hourLabel || '7 PM'}.`,
+        : `Sales are currently healthy with a ${revenueGrowthWeekOverWeek.toFixed(1)}% week-over-week growth rate. Top performing sales hours are ${peakHours[0]?.hourLabel || 'No recorded peak'} and ${peakHours[1]?.hourLabel || 'No recorded peak'}.`,
       keyMetrics: [`Week-over-Week Growth: ${revenueGrowthWeekOverWeek.toFixed(1)}%`, `Weekly Sales: $${weeklyRevenue.toFixed(2)}`, `Avg Ticket Size: $${averageOrderValue.toFixed(2)}`]
     },
     most_profitable_products: {
@@ -729,31 +758,31 @@ ${lowMarginProducts.map(p => `- **${p.name}**: Price $${p.price.toFixed(2)} vs C
       answer: `Top 3 CFO priority actions for this week:
 1. **Reorder Critical Stock**: ${lowStockItemsCount} items are near stockout. Order immediately to safeguard sales.
 2. **Menu Margin Optimization**: Adjust prices for items with margins under 25% to capture +$${(monthlyRevenue * 0.03).toFixed(0)} in gross margin.
-3. **Shift Alignment**: Re-assign kitchen & waitstaff shifts to match peak hours (${peakHours[0]?.hourLabel || '1 PM'} - ${peakHours[1]?.hourLabel || '7 PM'}).`,
+3. **Shift Alignment**: Re-assign kitchen & waitstaff shifts to match peak hours (${peakHours[0]?.hourLabel || 'No recorded peak'} - ${peakHours[1]?.hourLabel || 'No recorded peak'}).`,
       keyMetrics: [`Low Stock Items: ${lowStockItemsCount}`, `Overstocked Items: ${overstockedItemsCount}`, `Projected Weekly Sales: $${nextWeekSales.toFixed(2)}`]
     },
     what_to_buy_today: {
       question: 'What should I buy today?',
       answer: lowIngredients.length > 0
         ? `Immediate purchasing requirements today:
-${lowIngredients.map(ing => `- **${ing.name}**: Current Stock = ${ing.stock} ${ing.unit} (Min Alert: ${ing.minStockAlert} ${ing.unit}) -> Reorder 50 ${ing.unit} from ${ing.supplierName}.`).join('\n')}`
+${lowIngredients.map(ing => `- **${ing.name}**: Current Stock = ${ing.stock} ${ing.unit} (Min Alert: ${ing.minStockAlert} ${ing.unit}) -> Reorder ${Math.max(0, Number(ing.minStockAlert || 0) - Number(ing.stock || 0))} ${ing.unit} from ${ing.supplierName || 'the configured supplier'}.`).join('\n')}`
         : 'All raw ingredient inventory levels are above minimum threshold limits today.',
       keyMetrics: [`Critical Reorder Count: ${lowIngredients.length}`, `Pending Supplier Invoices: $${suppliers.reduce((s, sup) => s + sup.pendingAmount, 0).toFixed(2)}`]
     },
     hire_employees: {
       question: 'Should I hire more employees?',
       answer: laborCostPercentage > 30
-        ? `**Recommendation: DO NOT HIRE YET.** Labor cost is already ${laborCostPercentage.toFixed(1)}% of revenue (Target < 28%). Focus on re-scheduling existing staff during peak hours (${peakHours[0]?.hourLabel || '1 PM'} to ${peakHours[1]?.hourLabel || '7 PM'}).`
+        ? `**Recommendation: DO NOT HIRE YET.** Labor cost is already ${laborCostPercentage.toFixed(1)}% of revenue (Target < 28%). Focus on re-scheduling existing staff during peak hours (${peakHours[0]?.hourLabel || 'No recorded peak'} to ${peakHours[1]?.hourLabel || 'No recorded peak'}).`
         : `**Recommendation: OPTIONAL HIRE.** Labor cost ratio is healthy at ${laborCostPercentage.toFixed(1)}%. Revenue per employee is $${revenuePerEmployee.toFixed(2)}. If peak hour wait times are long, hiring 1 waiter/barista is financially viable.`,
       keyMetrics: [`Active Staff: ${activeEmployeeCount}`, `Labor Cost %: ${laborCostPercentage.toFixed(1)}%`, `Revenue / Employee: $${revenuePerEmployee.toFixed(2)}`]
     },
     best_branch_category: {
       question: 'Which branch or category performs best?',
       answer: `Top performing menu category analysis:
-1. **Main Course / Entrees**: Represents 52% of total order revenue.
-2. **Beverages & Desserts**: Highest gross margin items (82% gross margin).
-3. **Appetizers**: High turnover speed during dinner peak hours.`,
-      keyMetrics: [`Top Category: Entrees & Mains`, `Highest Margin Category: Beverages (82% Margin)`]
+${categoryAnswer}`,
+      keyMetrics: topCategories.length > 0
+        ? [`Top Category: ${topCategories[0][0]}`, `Recorded Categories: ${topCategories.length}`]
+        : ['Category data: unavailable']
     }
   };
 

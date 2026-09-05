@@ -1,3 +1,5 @@
+import { useAuth } from '../../context/AuthContext';
+import { translateRawUi } from '../../../i18n/rawUi';
 import React, { useState, useEffect } from 'react';
 import { Customer, CustomerGender, CustomerStatus } from '../../../domain/entities/customer';
 import { CustomerRepositoryImpl } from '../../../data/repositories/CustomerRepositoryImpl';
@@ -36,6 +38,7 @@ export const CustomerListView: React.FC<CustomerListViewProps> = ({
   onOpenWallet,
   onOpenMessage
 }) => {
+  const { t } = useAuth();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -56,7 +59,7 @@ export const CustomerListView: React.FC<CustomerListViewProps> = ({
     profilePhoto: '',
     preferredLanguage: 'so' as 'en' | 'ar' | 'so',
     address: '',
-    city: 'Mogadishu',
+    city: '',
     notes: '',
     status: 'active' as CustomerStatus
   });
@@ -90,7 +93,7 @@ export const CustomerListView: React.FC<CustomerListViewProps> = ({
       profilePhoto: '',
       preferredLanguage: 'so',
       address: '',
-      city: 'Mogadishu',
+      city: '',
       notes: '',
       status: 'active'
     });
@@ -109,7 +112,7 @@ export const CustomerListView: React.FC<CustomerListViewProps> = ({
       profilePhoto: c.profilePhoto || '',
       preferredLanguage: c.preferredLanguage || 'so',
       address: c.address || '',
-      city: c.city || 'Mogadishu',
+      city: c.city || '',
       notes: c.notes || '',
       status: c.status || 'active'
     });
@@ -222,10 +225,10 @@ export const CustomerListView: React.FC<CustomerListViewProps> = ({
         <div>
           <h2 className="text-xl font-black text-white flex items-center gap-2.5">
             <Users className="w-6 h-6 text-emerald-400" />
-            <span>Customer Relationship Directory</span>
+            <span>{t.legacyUi.customerRelationshipDirectory}</span>
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            Manage profiles, lifetime spending histories, communication preferences, and wallet accounts
+            {translateRawUi('Manage profiles, lifetime spending histories, communication preferences, and wallet accounts')}
           </p>
         </div>
 
@@ -235,7 +238,7 @@ export const CustomerListView: React.FC<CustomerListViewProps> = ({
             className="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-emerald-400' : ''}`} />
-            <span>Refresh</span>
+            <span>{t.legacyUi.refreshLabel}</span>
           </button>
 
           <button
@@ -243,7 +246,7 @@ export const CustomerListView: React.FC<CustomerListViewProps> = ({
             className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center gap-2 shadow-lg shadow-emerald-500/20 cursor-pointer"
           >
             <Plus className="w-4 h-4" />
-            <span>New Customer</span>
+            <span>{t.legacyUi.newCustomer}</span>
           </button>
         </div>
       </div>
@@ -256,7 +259,7 @@ export const CustomerListView: React.FC<CustomerListViewProps> = ({
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search customer by name, phone, email or city..."
+            placeholder={translateRawUi('Search customer by name, phone, email or city...')}
             className="w-full pl-10 pr-4 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
           />
         </div>
@@ -267,12 +270,12 @@ export const CustomerListView: React.FC<CustomerListViewProps> = ({
             onChange={(e) => setSelectedTier(e.target.value)}
             className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-300 focus:outline-none focus:border-emerald-500"
           >
-            <option value="all">All Loyalty Tiers</option>
-            <option value="bronze">Bronze Tier</option>
-            <option value="silver">Silver Tier</option>
-            <option value="gold">Gold Tier</option>
-            <option value="platinum">Platinum Tier</option>
-            <option value="vip">VIP Tier</option>
+            <option value="all">{t.legacyUi.allLoyaltyTiers}</option>
+            <option value="bronze">{t.legacyUi.bronzeTier}</option>
+            <option value="silver">{t.legacyUi.silverTier}</option>
+            <option value="gold">{t.legacyUi.goldTier}</option>
+            <option value="platinum">{t.legacyUi.platinumTier}</option>
+            <option value="vip">{t.legacyUi.vipTier}</option>
           </select>
         </div>
 
@@ -282,10 +285,10 @@ export const CustomerListView: React.FC<CustomerListViewProps> = ({
             onChange={(e) => setSelectedStatus(e.target.value)}
             className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-300 focus:outline-none focus:border-emerald-500"
           >
-            <option value="all">All Account Statuses</option>
-            <option value="active">Active Members</option>
-            <option value="vip">VIP Priority</option>
-            <option value="inactive">Inactive</option>
+            <option value="all">{t.legacyUi.allAccountStatuses}</option>
+            <option value="active">{t.legacyUi.activeMembers}</option>
+            <option value="vip">{t.legacyUi.vipPriority}</option>
+            <option value="inactive">{t.legacyUi.inactive}</option>
           </select>
         </div>
       </div>
@@ -294,13 +297,13 @@ export const CustomerListView: React.FC<CustomerListViewProps> = ({
       {loading ? (
         <div className="p-12 text-center text-slate-400 bg-slate-900/50 rounded-3xl border border-slate-800">
           <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-2 text-emerald-400" />
-          <p className="text-xs">Loading customer directory from Firestore...</p>
+          <p className="text-xs">{t.legacyUi.loadingCustomerDirectory}</p>
         </div>
       ) : filteredCustomers.length === 0 ? (
         <div className="p-12 text-center text-slate-400 bg-slate-900/50 rounded-3xl border border-slate-800 space-y-3">
           <Users className="w-10 h-10 mx-auto text-slate-600" />
-          <h3 className="text-sm font-bold text-white">No Customers Found</h3>
-          <p className="text-xs text-slate-500">Try adjusting your search criteria or register a new customer profile.</p>
+          <h3 className="text-sm font-bold text-white">{t.legacyUi.noCustomersFound}</h3>
+          <p className="text-xs text-slate-500">{t.legacyUi.tryCustomerSearch}</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -344,24 +347,24 @@ export const CustomerListView: React.FC<CustomerListViewProps> = ({
                 {/* Details Breakdown */}
                 <div className="bg-slate-950/70 rounded-2xl p-3 border border-slate-800/80 grid grid-cols-2 gap-2 text-[11px]">
                   <div>
-                    <span className="text-slate-500 block">Total Spending</span>
+                    <span className="text-slate-500 block">{t.legacyUi.totalSpending}</span>
                     <span className="font-black text-emerald-400 text-xs">
                       ${(customer.totalSpending || customer.totalSpent || 0).toFixed(2)}
                     </span>
                   </div>
                   <div>
-                    <span className="text-slate-500 block">Total Orders</span>
+                    <span className="text-slate-500 block">{t.legacyUi.totalOrders}</span>
                     <span className="font-bold text-slate-200">{customer.totalOrders || 0} orders</span>
                   </div>
                   <div>
-                    <span className="text-slate-500 block">Avg Order Value</span>
+                    <span className="text-slate-500 block">{t.legacyUi.avgOrderValue}</span>
                     <span className="font-semibold text-slate-300">
                       ${(customer.averageOrderValue || 0).toFixed(2)}
                     </span>
                   </div>
                   <div>
-                    <span className="text-slate-500 block">City / Branch</span>
-                    <span className="font-semibold text-slate-300 truncate block">{customer.city || 'Mogadishu'}</span>
+                    <span className="text-slate-500 block">{t.legacyUi.cityBranch}</span>
+                    <span className="font-semibold text-slate-300 truncate block">{customer.city || '—'}</span>
                   </div>
                 </div>
               </div>
@@ -373,13 +376,13 @@ export const CustomerListView: React.FC<CustomerListViewProps> = ({
                   className="flex-1 py-2 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
                 >
                   <Eye className="w-3.5 h-3.5" />
-                  <span>360° Profile</span>
+                  <span>{t.legacyUi.profile360}</span>
                 </button>
 
                 <button
                   onClick={() => onOpenWallet(customer.id)}
                   className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs transition cursor-pointer"
-                  title="Manage Wallet"
+                  title={translateRawUi('Manage Wallet')}
                 >
                   <Wallet className="w-4 h-4 text-amber-400" />
                 </button>
@@ -387,7 +390,7 @@ export const CustomerListView: React.FC<CustomerListViewProps> = ({
                 <button
                   onClick={() => onOpenMessage(customer)}
                   className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs transition cursor-pointer"
-                  title="Send Message"
+                  title={translateRawUi('Send Message')}
                 >
                   <MessageSquare className="w-4 h-4 text-blue-400" />
                 </button>
@@ -395,7 +398,7 @@ export const CustomerListView: React.FC<CustomerListViewProps> = ({
                 <button
                   onClick={() => openEditModal(customer)}
                   className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs transition cursor-pointer"
-                  title="Edit Customer"
+                  title={translateRawUi('Edit Customer')}
                 >
                   <Edit2 className="w-4 h-4" />
                 </button>
@@ -403,7 +406,7 @@ export const CustomerListView: React.FC<CustomerListViewProps> = ({
                 <button
                   onClick={() => handleDeleteCustomer(customer.id, customer.fullName)}
                   className="p-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 text-xs transition cursor-pointer"
-                  title="Delete Customer"
+                  title={translateRawUi('Delete Customer')}
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>
@@ -434,12 +437,12 @@ export const CustomerListView: React.FC<CustomerListViewProps> = ({
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Full Name */}
                 <div>
-                  <label className="text-xs font-semibold text-slate-300 mb-1 block">Full Name *</label>
+                  <label className="text-xs font-semibold text-slate-300 mb-1 block">{t.legacyUi.fullNameRequired}</label>
                   <input
                     type="text"
                     value={formData.fullName}
                     onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
-                    placeholder="e.g. Amina Sheikh Duale"
+                    placeholder={translateRawUi('e.g. Amina Sheikh Duale')}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
                   />
                   {formErrors.fullName && <p className="text-[10px] text-rose-400 mt-1">{formErrors.fullName}</p>}
@@ -447,12 +450,12 @@ export const CustomerListView: React.FC<CustomerListViewProps> = ({
 
                 {/* Phone */}
                 <div>
-                  <label className="text-xs font-semibold text-slate-300 mb-1 block">Phone Number *</label>
+                  <label className="text-xs font-semibold text-slate-300 mb-1 block">{t.legacyUi.phoneNumberRequired}</label>
                   <input
                     type="text"
                     value={formData.phone}
                     onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                    placeholder="e.g. +252 61 555 7788"
+                    placeholder={translateRawUi('e.g. +252 61 555 7788')}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
                   />
                   {formErrors.phone && <p className="text-[10px] text-rose-400 mt-1">{formErrors.phone}</p>}
@@ -460,12 +463,12 @@ export const CustomerListView: React.FC<CustomerListViewProps> = ({
 
                 {/* Email */}
                 <div>
-                  <label className="text-xs font-semibold text-slate-300 mb-1 block">Email Address</label>
+                  <label className="text-xs font-semibold text-slate-300 mb-1 block">{translateRawUi('Email Address')}</label>
                   <input
                     type="email"
                     value={formData.email}
                     onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                    placeholder="e.g. amina@example.so"
+                    placeholder={translateRawUi('e.g. amina@example.so')}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
                   />
                   {formErrors.email && <p className="text-[10px] text-rose-400 mt-1">{formErrors.email}</p>}
@@ -473,47 +476,47 @@ export const CustomerListView: React.FC<CustomerListViewProps> = ({
 
                 {/* City */}
                 <div>
-                  <label className="text-xs font-semibold text-slate-300 mb-1 block">City / Branch Location</label>
+                  <label className="text-xs font-semibold text-slate-300 mb-1 block">{t.legacyUi.cityBranchLocation}</label>
                   <input
                     type="text"
                     value={formData.city}
                     onChange={(e) => setFormData({ ...formData, city: e.target.value })}
-                    placeholder="e.g. Mogadishu"
+                    placeholder={translateRawUi('e.g. City / Region')}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
                   />
                 </div>
 
                 {/* Gender */}
                 <div>
-                  <label className="text-xs font-semibold text-slate-300 mb-1 block">Gender</label>
+                  <label className="text-xs font-semibold text-slate-300 mb-1 block">{t.legacyUi.gender}</label>
                   <select
                     value={formData.gender}
                     onChange={(e: any) => setFormData({ ...formData, gender: e.target.value })}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-300 focus:outline-none focus:border-emerald-500"
                   >
-                    <option value="unspecified">Unspecified</option>
-                    <option value="male">Male</option>
-                    <option value="female">Female</option>
+                    <option value="unspecified">{translateRawUi('Unspecified')}</option>
+                    <option value="male">{translateRawUi('Male')}</option>
+                    <option value="female">{translateRawUi('Female')}</option>
                   </select>
                 </div>
 
                 {/* Preferred Language */}
                 <div>
-                  <label className="text-xs font-semibold text-slate-300 mb-1 block">Preferred Language</label>
+                  <label className="text-xs font-semibold text-slate-300 mb-1 block">{t.legacyUi.preferredLanguage}</label>
                   <select
                     value={formData.preferredLanguage}
                     onChange={(e: any) => setFormData({ ...formData, preferredLanguage: e.target.value })}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-300 focus:outline-none focus:border-emerald-500"
                   >
-                    <option value="so">Somali (Soomaali)</option>
-                    <option value="ar">Arabic (العربية)</option>
-                    <option value="en">English</option>
+                    <option value="so">{t.legacyUi.somaliLanguageOption}</option>
+                    <option value="ar">{t.legacyUi.arabicLanguage}</option>
+                    <option value="en">{translateRawUi('English')}</option>
                   </select>
                 </div>
 
                 {/* Date of Birth */}
                 <div>
-                  <label className="text-xs font-semibold text-slate-300 mb-1 block">Date of Birth</label>
+                  <label className="text-xs font-semibold text-slate-300 mb-1 block">{t.legacyUi.dateOfBirth}</label>
                   <input
                     type="date"
                     value={formData.dateOfBirth}
@@ -524,39 +527,39 @@ export const CustomerListView: React.FC<CustomerListViewProps> = ({
 
                 {/* Status */}
                 <div>
-                  <label className="text-xs font-semibold text-slate-300 mb-1 block">Account Status</label>
+                  <label className="text-xs font-semibold text-slate-300 mb-1 block">{t.legacyUi.accountStatus}</label>
                   <select
                     value={formData.status}
                     onChange={(e: any) => setFormData({ ...formData, status: e.target.value })}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-300 focus:outline-none focus:border-emerald-500"
                   >
-                    <option value="active">Active</option>
-                    <option value="vip">VIP Priority</option>
-                    <option value="inactive">Inactive</option>
+                    <option value="active">{translateRawUi('Active')}</option>
+                    <option value="vip">{t.legacyUi.vipPriority}</option>
+                    <option value="inactive">{t.legacyUi.inactive}</option>
                   </select>
                 </div>
               </div>
 
               {/* Address */}
               <div>
-                <label className="text-xs font-semibold text-slate-300 mb-1 block">Delivery Address</label>
+                <label className="text-xs font-semibold text-slate-300 mb-1 block">{t.legacyUi.deliveryAddressLabel}</label>
                 <input
                   type="text"
                   value={formData.address}
                   onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                  placeholder="Street name, villa number, district..."
+                  placeholder={translateRawUi('Street name, villa number, district...')}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
                 />
               </div>
 
               {/* Notes */}
               <div>
-                <label className="text-xs font-semibold text-slate-300 mb-1 block">Customer Notes & Dietary Preferences</label>
+                <label className="text-xs font-semibold text-slate-300 mb-1 block">{t.legacyUi.customerNotesDietary}</label>
                 <textarea
                   value={formData.notes}
                   onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
                   rows={2}
-                  placeholder="Special instructions, favorite dishes, spice level..."
+                  placeholder={translateRawUi('Special instructions, favorite dishes, spice level...')}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-emerald-500 resize-none"
                 />
               </div>
@@ -567,7 +570,7 @@ export const CustomerListView: React.FC<CustomerListViewProps> = ({
                   onClick={() => setShowAddModal(false)}
                   className="px-4 py-2.5 rounded-xl bg-slate-800 text-slate-300 text-xs font-semibold hover:bg-slate-700"
                 >
-                  Cancel
+                  {translateRawUi('Cancel')}
                 </button>
                 <button
                   type="submit"

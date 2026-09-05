@@ -107,10 +107,12 @@ export function calculateOperationsAnalytics(data: OperationsDataPackage) {
 
   // Kitchen Metrics
   const preparingOrders = orders.filter(o => o.status === 'preparing' || o.prepStatus === 'preparing');
-  const delayedOrders = orders.filter(o => (o.prepTimeMinutes || 0) > (o.targetPrepTimeMinutes || 15));
+  const delayedOrders = orders.filter(o => Number.isFinite(Number(o.prepTimeMinutes)) && Number.isFinite(Number(o.targetPrepTimeMinutes)) && Number(o.prepTimeMinutes) > Number(o.targetPrepTimeMinutes));
   const delayedOrdersCount = delayedOrders.length;
   const kitchenStatus: 'Optimal' | 'Busy' | 'Overloaded' = delayedOrdersCount > 2 ? 'Overloaded' : delayedOrdersCount > 0 ? 'Busy' : 'Optimal';
-  const kitchenWorkloadPercentage = Math.min(100, Math.max(20, (preparingOrders.length * 15) + (delayedOrdersCount * 20)));
+  const kitchenWorkloadPercentage = preparingOrders.length === 0 && delayedOrdersCount === 0
+    ? 0
+    : Math.min(100, (preparingOrders.length * 15) + (delayedOrdersCount * 20));
 
   const prepOrders = orders.filter(o => (o.prepTimeMinutes || 0) > 0);
   const avgKitchenPrepTimeMinutes = prepOrders.length > 0
@@ -143,6 +145,13 @@ export function calculateOperationsAnalytics(data: OperationsDataPackage) {
     : 0;
   const customerSatisfactionPercentage = ratedOrders.length > 0 ? Math.round((avgCustomerRating / 5) * 100) : 0;
 
+  const configuredPrepTargets = orders
+    .map(o => Number(o.targetPrepTimeMinutes))
+    .filter(v => Number.isFinite(v) && v > 0);
+  const targetPrepTimeMinutes = configuredPrepTargets.length > 0
+    ? Math.round(configuredPrepTargets.reduce((sum, v) => sum + v, 0) / configuredPrepTargets.length)
+    : 0;
+
   const kpis: OperationsKPIs = {
     totalPreparingOrders: preparingOrders.length,
     delayedOrdersCount,
@@ -150,7 +159,7 @@ export function calculateOperationsAnalytics(data: OperationsDataPackage) {
     kitchenWorkloadPercentage,
     avgKitchenPrepTimeMinutes,
     avgPreparationTimeMinutes: avgKitchenPrepTimeMinutes,
-    targetPrepTimeMinutes: 15,
+    targetPrepTimeMinutes,
     deliverySuccessRatePercentage,
     activeDriversCount,
     inTransitDriversCount,
@@ -173,12 +182,12 @@ export function calculateOperationsAnalytics(data: OperationsDataPackage) {
     orderType: o.orderType,
     itemsSummary: o.items ? o.items.map(i => `${i.quantity}x ${i.productName}`).join(', ') : 'Assorted Dishes',
     elapsedMinutes: o.prepTimeMinutes || 0,
-    targetMinutes: o.targetPrepTimeMinutes || 15,
+    targetMinutes: Number.isFinite(Number(o.targetPrepTimeMinutes)) ? Number(o.targetPrepTimeMinutes) : 0,
     prepTimeMinutes: o.prepTimeMinutes || 0,
-    targetPrepTimeMinutes: o.targetPrepTimeMinutes || 15,
+    targetPrepTimeMinutes: Number.isFinite(Number(o.targetPrepTimeMinutes)) ? Number(o.targetPrepTimeMinutes) : 0,
     stationName: (o as any).stationName || 'Kitchen Station',
     assignedChef: (o as any).assignedChef || (o as any).employeeName || 'Staff',
-    severity: (o.prepTimeMinutes || 0) > 20 ? 'high' : 'medium',
+    severity: Number.isFinite(Number(o.targetPrepTimeMinutes)) && Number.isFinite(Number(o.prepTimeMinutes)) && Number(o.prepTimeMinutes) > Number(o.targetPrepTimeMinutes) * 1.5 ? 'high' : 'medium',
     status: o.status
   }));
 
@@ -197,7 +206,7 @@ export function calculateOperationsAnalytics(data: OperationsDataPackage) {
         : 'Kitchen station throughput running optimally.',
       metricLabel: `${delayedOrdersCount} Delayed Orders`,
       actionText: 'Re-balance Stations',
-      timestamp: 'Just now'
+      timestamp: new Date().toISOString()
     },
     {
       id: 'alert_delivery_capacity',
@@ -209,7 +218,7 @@ export function calculateOperationsAnalytics(data: OperationsDataPackage) {
       message: `${pendingDeliveriesCount} pending orders awaiting driver assignment.`,
       metricLabel: `${pendingDeliveriesCount} Pending Orders`,
       actionText: 'Assign Drivers',
-      timestamp: 'Just now'
+      timestamp: new Date().toISOString()
     },
     {
       id: 'alert_inventory_low',
@@ -221,26 +230,25 @@ export function calculateOperationsAnalytics(data: OperationsDataPackage) {
       message: `${lowStockItemsCount} items require immediate supplier purchase order.`,
       metricLabel: `${lowStockItemsCount} Stock Alerts`,
       actionText: 'Generate Purchase Orders',
-      timestamp: '5 mins ago'
+      timestamp: new Date().toISOString()
     }
   ];
 
-  const recommendations: OperationalRecommendation[] = [
-    {
-      id: 'rec_1',
-      title: 'Pre-portion Mandi Rice & Spices for Peak Dinner Shift',
-      description: 'Pre-weigh 500g rice portions between 4 PM and 5:30 PM to reduce prep time by 3.5 minutes per order.',
-      impact: '-20% Kitchen Prep Wait Times',
-      category: 'Kitchen Efficiency'
-    },
-    {
-      id: 'rec_2',
-      title: 'Group Westside Delivery Orders for Shared Driver Routes',
-      description: 'Dispatch orders destined for Westside District in batched batches of 2-3 orders to save 18 mins driver transit.',
-      impact: '+24% Driver Efficiency',
-      category: 'Delivery Optimization'
-    }
-  ];
+  const recommendations: OperationalRecommendation[] = [];
+  if (delayedOrdersCount > 0) {
+    recommendations.push({
+      id: 'rec_kitchen_delay', title: 'Re-balance kitchen workload',
+      description: `${delayedOrdersCount} recorded order(s) exceeded their configured prep-time target. Review station allocation and staffing using current workload data.`,
+      impact: 'Impact to be measured from actual prep-time results', category: 'Kitchen Efficiency'
+    });
+  }
+  if (pendingDeliveriesCount > activeDriversCount && activeDriversCount >= 0) {
+    recommendations.push({
+      id: 'rec_delivery_capacity', title: 'Review delivery capacity',
+      description: `${pendingDeliveriesCount} pending delivery order(s) versus ${activeDriversCount} active driver(s).`,
+      impact: 'Impact depends on actual dispatch times and route data', category: 'Delivery Optimization'
+    });
+  }
 
   const operationalQuestions = {
     kitchen_performance: {
@@ -263,17 +271,17 @@ export function calculateOperationsAnalytics(data: OperationsDataPackage) {
       question_en: 'Are there any delayed orders in the kitchen?',
       question_ar: 'هل توجد طلبات متأخرة في المطبخ؟',
       question_so: 'Ma jiraan odalabyo ku daahay jikada?',
-      answer_en: `**Delayed Orders: ${delayedOrdersCount}**\n${delayedOrdersCount > 0 ? 'Orders have exceeded the 15-minute preparation limit at the Grill Station. Expedite recommended.' : 'Zero delayed orders. Kitchen pipeline is smooth.'}`,
-      answer_ar: `**الطلبات المتأخرة: ${delayedOrdersCount}**\n${delayedOrdersCount > 0 ? 'الطلبات تجاوزت حد الـ 15 دقيقة في محطة المشويات. يوصى بالتعجيل.' : 'لا توجد طلبات متأخرة. تدفق المطبخ يسير بسلاسة كاملة.'}`,
+      answer_en: `**Delayed Orders: ${delayedOrdersCount}**\n${delayedOrdersCount > 0 ? 'Orders have exceeded their configured preparation targets. Expedite and rebalance station workload.' : 'Zero delayed orders. Kitchen pipeline is smooth.'}`,
+      answer_ar: `**الطلبات المتأخرة: ${delayedOrdersCount}**\n${delayedOrdersCount > 0 ? 'الطلبات تجاوزت أهداف زمن التحضير المهيأة لها. يوصى بالتعجيل وإعادة توزيع العمل بين المحطات.' : 'لا توجد طلبات متأخرة. تدفق المطبخ يسير بسلاسة كاملة.'}`,
       answer_so: `**Odalabyada Daahay: ${delayedOrdersCount}**`
     },
     deliveries_pending: {
       question_en: 'What is the delivery and driver status?',
       question_ar: 'ما هي حالة التوصيل والسائقين؟',
       question_so: 'Sidee tahay xaaladda gaarsiinta iyo darawaliinta?',
-      answer_en: `**Delivery Pipeline:**\n- **Success Rate**: ${deliverySuccessRatePercentage}%\n- **Active Drivers**: ${activeDriversCount || 3}\n- **Pending Dispatch**: ${pendingDeliveriesCount} order(s).`,
-      answer_ar: `**مسار التوصيل:**\n- **نسبة نجاح التوصيل**: ${deliverySuccessRatePercentage}%\n- **السائقون المتاحون**: ${activeDriversCount || 3}\n- **قيد الانتظار**: ${pendingDeliveriesCount} طلب.`,
-      answer_so: `**Xaaladda Gaarsiinta:**\n- **Guusha**: ${deliverySuccessRatePercentage}%\n- **Darawaliinta**: ${activeDriversCount || 3}`
+      answer_en: `**Delivery Pipeline:**\n- **Success Rate**: ${deliverySuccessRatePercentage}%\n- **Active Drivers**: ${activeDriversCount}\n- **Pending Dispatch**: ${pendingDeliveriesCount} order(s).`,
+      answer_ar: `**مسار التوصيل:**\n- **نسبة نجاح التوصيل**: ${deliverySuccessRatePercentage}%\n- **السائقون المتاحون**: ${activeDriversCount}\n- **قيد الانتظار**: ${pendingDeliveriesCount} طلب.`,
+      answer_so: `**Xaaladda Gaarsiinta:**\n- **Guusha**: ${deliverySuccessRatePercentage}%\n- **Darawaliinta**: ${activeDriversCount}`
     },
     reorder_ingredients_today: {
       question_en: 'Which ingredients need reordering today?',

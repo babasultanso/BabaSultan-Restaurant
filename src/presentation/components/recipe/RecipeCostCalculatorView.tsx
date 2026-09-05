@@ -1,6 +1,7 @@
+import { translations } from '../../../i18n/translations';
 import React, { useState, useEffect } from 'react';
 import { Recipe } from '../../../domain/entities/recipe';
-import { recipeDict, RecipeLang } from './translations';
+import { recipeDict, RecipeLang } from '../../../i18n';
 import { Calculator, AlertTriangle, RefreshCw, AlertCircle } from 'lucide-react';
 
 interface RecipeCostCalculatorViewProps {
@@ -12,7 +13,7 @@ export const RecipeCostCalculatorView: React.FC<RecipeCostCalculatorViewProps> =
   recipes,
   lang
 }) => {
-  const t = recipeDict[lang] || recipeDict.en;
+  const t = { ...(recipeDict[lang] || recipeDict.en), legacyUi: translations[lang].legacyUi };
 
   const [selectedRecipeId, setSelectedRecipeId] = useState(recipes && recipes.length > 0 ? recipes[0].id : '');
   const activeRecipe = recipes.find((r) => r.id === selectedRecipeId) || (recipes.length > 0 ? recipes[0] : null);
@@ -199,13 +200,13 @@ export const RecipeCostCalculatorView: React.FC<RecipeCostCalculatorViewProps> =
               </div>
 
               <div className="p-4 bg-slate-950 border border-slate-800 rounded-2xl space-y-1">
-                <p className="text-xs text-slate-400 font-bold">Gross Profit / Portion</p>
+                <p className="text-xs text-slate-400 font-bold">{t.legacyUi.grossProfitPortion}</p>
                 <p className="text-xl font-black text-emerald-400 font-mono">${grossProfit.toFixed(2)}</p>
                 <p className="text-[10px] text-slate-500">Margin: {grossMargin.toFixed(1)}%</p>
               </div>
 
               <div className="p-4 bg-slate-950 border border-slate-800 rounded-2xl space-y-1">
-                <p className="text-xs text-slate-400 font-bold">Estimated Profit for 100 Meals</p>
+                <p className="text-xs text-slate-400 font-bold">{t.legacyUi.estimatedProfit100Meals}</p>
                 <p className="text-xl font-black text-white font-mono">${(grossProfit * 100).toFixed(2)}</p>
                 <p className="text-[10px] text-slate-500">Revenue: ${(scenarioPrice * 100).toFixed(2)}</p>
               </div>
@@ -214,7 +215,7 @@ export const RecipeCostCalculatorView: React.FC<RecipeCostCalculatorViewProps> =
             {/* Visual Profit Bar Breakdown */}
             <div className="mt-8 space-y-2">
               <div className="flex items-center justify-between text-xs font-bold text-slate-300">
-                <span>Revenue Breakdown:</span>
+                <span>{t.legacyUi.revenueBreakdown}</span>
                 <span>${scenarioPrice.toFixed(2)} Total</span>
               </div>
 
@@ -222,14 +223,14 @@ export const RecipeCostCalculatorView: React.FC<RecipeCostCalculatorViewProps> =
                 <div
                   style={{ width: `${Math.min(100, Math.max(0, foodCostPct))}%` }}
                   className="bg-amber-500 h-full flex items-center justify-center text-[10px] font-black text-slate-950"
-                  title="Ingredient Cost"
+                  title={t.legacyUi.ingredientCost}
                 >
                   {foodCostPct > 15 && `${foodCostPct.toFixed(0)}% Cost`}
                 </div>
                 <div
                   style={{ width: `${Math.max(0, Math.min(100, 100 - foodCostPct))}%` }}
                   className="bg-emerald-500 h-full flex items-center justify-center text-[10px] font-black text-slate-950"
-                  title="Gross Profit"
+                  title={t.legacyUi.grossProfit}
                 >
                   {(100 - foodCostPct) > 15 && `${(100 - foodCostPct).toFixed(0)}% Profit`}
                 </div>
@@ -240,7 +241,7 @@ export const RecipeCostCalculatorView: React.FC<RecipeCostCalculatorViewProps> =
           <div className="p-4 bg-slate-950/60 rounded-2xl border border-slate-800/80 text-xs text-slate-400 flex items-start gap-3 mt-6">
             <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
             <p>
-              <strong>Profitability Tip:</strong> If ingredient inflation pushes Food Cost above 35%, consider raising the selling price to ${scenarioCost > 0 ? ((scenarioCost / 0.30)).toFixed(2) : '0.00'} to keep your food cost target at 30%.
+              <strong>{t.legacyUi.profitabilityTip}</strong> If ingredient inflation pushes Food Cost above 35%, consider raising the selling price to ${scenarioCost > 0 ? ((scenarioCost / 0.30)).toFixed(2) : '0.00'} to keep your food cost target at 30%.
             </p>
           </div>
         </div>

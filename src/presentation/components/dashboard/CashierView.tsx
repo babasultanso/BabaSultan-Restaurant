@@ -1,3 +1,4 @@
+import { translateRawUi } from '../../../i18n/rawUi';
 import React from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { getMogadishuDateString } from '../../../lib/dateUtils';
@@ -104,9 +105,9 @@ export const CashierView: React.FC<CashierViewProps> = ({ orders, onNavigateToTa
         />
 
         <KPICard
-          title="Cash Drawer Shift Estimate"
-          value={`$${(cashSales + 150).toFixed(2)}`}
-          sublabel="Base Float: $150.00"
+          title={translateRawUi('Cash Sales Today')}
+          value={`$${cashSales.toFixed(2)}`}
+          sublabel="Recorded cash sales; register opening balance is shown in Cash Register Management."
           icon={Banknote}
           iconColor="blue"
         />
@@ -121,7 +122,7 @@ export const CashierView: React.FC<CashierViewProps> = ({ orders, onNavigateToTa
               <Banknote className="w-6 h-6" />
             </div>
             <div>
-              <span className="text-[10px] text-slate-400 uppercase font-bold block">Cash Register</span>
+              <span className="text-[10px] text-slate-400 uppercase font-bold block">{t.legacyUi.cashRegister}</span>
               <span className="text-xl font-extrabold text-white">${cashSales.toFixed(2)}</span>
             </div>
           </div>
@@ -136,7 +137,7 @@ export const CashierView: React.FC<CashierViewProps> = ({ orders, onNavigateToTa
               <CreditCard className="w-6 h-6" />
             </div>
             <div>
-              <span className="text-[10px] text-slate-400 uppercase font-bold block">Card Transactions</span>
+              <span className="text-[10px] text-slate-400 uppercase font-bold block">{t.legacyUi.cardTransactions}</span>
               <span className="text-xl font-extrabold text-white">${cardSales.toFixed(2)}</span>
             </div>
           </div>
@@ -151,7 +152,7 @@ export const CashierView: React.FC<CashierViewProps> = ({ orders, onNavigateToTa
               <Smartphone className="w-6 h-6" />
             </div>
             <div>
-              <span className="text-[10px] text-slate-400 uppercase font-bold block">Mobile Money (Evc/Zaad)</span>
+              <span className="text-[10px] text-slate-400 uppercase font-bold block">{translateRawUi('Mobile Money (Evc/Zaad)')}</span>
               <span className="text-xl font-extrabold text-white">${mobileSales.toFixed(2)}</span>
             </div>
           </div>
@@ -168,7 +169,7 @@ export const CashierView: React.FC<CashierViewProps> = ({ orders, onNavigateToTa
           <div className="flex items-center justify-between border-b border-slate-800 pb-3">
             <h3 className="text-sm font-bold text-white flex items-center gap-2">
               <Receipt className="w-5 h-5 text-emerald-400" />
-              Recent Shift Transactions Feed
+              {translateRawUi('Recent Shift Transactions Feed')}
             </h3>
             {onNavigateToTab && (
               <button

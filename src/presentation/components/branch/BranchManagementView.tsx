@@ -1,3 +1,4 @@
+import { translateRawUi } from '../../../i18n/rawUi';
 import React, { useState, useEffect, useMemo } from 'react';
 import { collection, onSnapshot, query } from 'firebase/firestore';
 import { db, COLLECTIONS } from '../../../lib/firebase';
@@ -101,7 +102,7 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
   initialCustomers = [],
   language
 }) => {
-  const { language: authLang, role } = useAuth();
+  const { language: authLang, role, t } = useAuth();
   const isManagementRole = ['Owner', 'owner', 'Admin', 'admin', 'Manager', 'manager'].includes(role || '');
   const activeLang = (language || authLang || 'en') as Language;
   const [currentLang, setCurrentLang] = useState<Language>(activeLang);
@@ -164,7 +165,7 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
     workingHours: '08:00 AM - 11:00 PM',
     timeZone: 'Africa/Mogadishu (UTC+3)',
     currency: 'USD',
-    taxRate: 5.0,
+    taxRate: 0,
     taxId: '',
     status: 'active',
     hierarchyType: 'standard',
@@ -214,7 +215,7 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
     workingHours: data?.workingHours || '08:00 AM - 10:00 PM',
     timeZone: data?.timeZone || 'Africa/Mogadishu (UTC+3)',
     currency: data?.currency || 'USD',
-    taxRate: typeof data?.taxRate === 'number' ? data.taxRate : 5.0,
+    taxRate: typeof data?.taxRate === 'number' ? data.taxRate : 0,
     taxId: data?.taxId || '',
     status: (data?.status as BranchStatus) || 'active',
     hierarchyType: (data?.hierarchyType as BranchHierarchyType) || 'standard',
@@ -406,8 +407,14 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
 
   // Handle Approve / Reject Transfer
   const handleApproveTransfer = async (transferId: string) => {
-    await approveBranchTransfer(transferId, 'Head Office Manager');
-    showToast('Transfer approved and ledger adjusted.');
+    try {
+      await approveBranchTransfer(transferId, 'Head Office Manager');
+      showToast('Transfer approved and ledger adjusted.');
+    } catch (err: any) {
+      // Fail closed: a transfer must never appear approved unless the server
+      // has actually moved the underlying asset(s).
+      alert(err?.message || 'Transfer approval is unavailable until the server transfer engine is active.');
+    }
   };
 
   const handleRejectTransfer = async (transferId: string) => {
@@ -460,7 +467,7 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
           <div>
             <div className="flex items-center gap-2 mb-2">
               <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-wider flex items-center gap-1.5 shadow-sm">
-                <Crown className="w-3.5 h-3.5 text-amber-400" /> Phase 13 Multi-Branch Management
+                <Crown className="w-3.5 h-3.5 text-amber-400" /> {translateRawUi('Phase 13 Multi-Branch Management')}
               </span>
               <span className="bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-[10px] font-bold px-3 py-1 rounded-full flex items-center gap-1.5">
                 <GitFork className="w-3.5 h-3.5 text-indigo-400" /> {analytics.totalBranchesCount} Active Outlets
@@ -469,10 +476,10 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
 
             <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white flex items-center gap-3">
               <Building2 className="w-8 h-8 text-emerald-400" />
-              Head Office Multi-Branch Enterprise HQ
+              {translateRawUi('Head Office Multi-Branch Enterprise HQ')}
             </h1>
             <p className="text-slate-300 text-xs sm:text-sm mt-1 max-w-3xl leading-relaxed">
-              Consolidated multi-branch architecture. Real-time sales consolidation, inter-branch inventory & cash transfers, employee roster management, financial comparison & ranking models.
+              {translateRawUi('Consolidated multi-branch architecture. Real-time sales consolidation, inter-branch inventory & cash transfers, employee roster management, financial comparison & ranking models.')}
             </p>
           </div>
 
@@ -486,15 +493,15 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
                     code: `BR-0${branches.length + 1}`,
                     logo: '',
                     address: '',
-                    city: 'Mogadishu',
+                    city: '',
                     country: 'Somalia',
                     gpsLocation: '',
-                    phone: '+252 61 ',
+                    phone: '',
                     email: '',
                     workingHours: '08:00 AM - 11:00 PM',
                     timeZone: 'Africa/Mogadishu (UTC+3)',
                     currency: 'USD',
-                    taxRate: 5.0,
+                    taxRate: 0,
                     taxId: '',
                     status: 'active',
                     hierarchyType: 'standard',
@@ -505,7 +512,7 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
                 }}
                 className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold px-4 py-2.5 rounded-2xl text-xs transition flex items-center gap-2 cursor-pointer shadow-lg shadow-emerald-500/20"
               >
-                <Plus className="w-4 h-4" /> Add New Branch
+                <Plus className="w-4 h-4" /> {translateRawUi('Add New Branch')}
               </button>
             )}
 
@@ -514,7 +521,7 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
                 onClick={() => setShowTransferModal(true)}
                 className="bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold px-4 py-2.5 rounded-2xl text-xs transition flex items-center gap-2 cursor-pointer shadow-lg shadow-indigo-600/20"
               >
-                <ArrowRightLeft className="w-4 h-4" /> Inter-Branch Transfer
+                <ArrowRightLeft className="w-4 h-4" /> {translateRawUi('Inter-Branch Transfer')}
               </button>
             )}
 
@@ -522,7 +529,7 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
               onClick={handleExportExcel}
               className="bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold px-4 py-2.5 rounded-2xl text-xs transition flex items-center gap-2 cursor-pointer border border-slate-700"
             >
-              <FileSpreadsheet className="w-4 h-4 text-emerald-400" /> Export HQ Audit (.XLSX)
+              <FileSpreadsheet className="w-4 h-4 text-emerald-400" /> {translateRawUi('Export HQ Audit (.XLSX)')}
             </button>
           </div>
         </div>
@@ -530,32 +537,32 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
         {/* Consolidated KPI Ribbon */}
         <div className="mt-6 pt-6 border-t border-slate-800 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 relative z-10">
           <div className="bg-slate-900/80 p-3.5 rounded-2xl border border-slate-800">
-            <span className="text-[10px] text-slate-400 uppercase font-bold block">Consolidated Sales</span>
+            <span className="text-[10px] text-slate-400 uppercase font-bold block">{t.legacyUi.consolidatedSales}</span>
             <span className="text-sm font-extrabold text-emerald-400 mt-0.5 block">${safeNum(analytics?.totalConsolidatedSales).toFixed(2)}</span>
           </div>
 
           <div className="bg-slate-900/80 p-3.5 rounded-2xl border border-slate-800">
-            <span className="text-[10px] text-slate-400 uppercase font-bold block">Consolidated Profit</span>
+            <span className="text-[10px] text-slate-400 uppercase font-bold block">{t.legacyUi.consolidatedProfit}</span>
             <span className="text-sm font-extrabold text-indigo-400 mt-0.5 block">${safeNum(analytics?.totalConsolidatedProfit).toFixed(2)}</span>
           </div>
 
           <div className="bg-slate-900/80 p-3.5 rounded-2xl border border-slate-800">
-            <span className="text-[10px] text-slate-400 uppercase font-bold block">Total Orders</span>
+            <span className="text-[10px] text-slate-400 uppercase font-bold block">{t.legacyUi.totalOrders}</span>
             <span className="text-sm font-extrabold text-white mt-0.5 block">{safeNum(analytics?.totalConsolidatedOrders)} Orders</span>
           </div>
 
           <div className="bg-slate-900/80 p-3.5 rounded-2xl border border-slate-800">
-            <span className="text-[10px] text-slate-400 uppercase font-bold block">Inventory Valuation</span>
+            <span className="text-[10px] text-slate-400 uppercase font-bold block">{t.legacyUi.inventoryValuation}</span>
             <span className="text-sm font-extrabold text-teal-400 mt-0.5 block">${safeNum(analytics?.totalInventoryValuation).toLocaleString()}</span>
           </div>
 
           <div className="bg-slate-900/80 p-3.5 rounded-2xl border border-slate-800">
-            <span className="text-[10px] text-slate-400 uppercase font-bold block">Total Workforce</span>
+            <span className="text-[10px] text-slate-400 uppercase font-bold block">{t.legacyUi.totalWorkforce}</span>
             <span className="text-sm font-extrabold text-purple-400 mt-0.5 block">{safeNum(analytics?.totalEmployeesCount)} Employees</span>
           </div>
 
           <div className="bg-slate-900/80 p-3.5 rounded-2xl border border-slate-800">
-            <span className="text-[10px] text-slate-400 uppercase font-bold block">Pending Transfers</span>
+            <span className="text-[10px] text-slate-400 uppercase font-bold block">{t.legacyUi.pendingTransfers}</span>
             <span className="text-sm font-extrabold text-amber-400 mt-0.5 block">{(analytics?.pendingTransfers || []).length} Requests</span>
           </div>
         </div>
@@ -573,7 +580,7 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
             }`}
           >
             <Crown className="w-4 h-4" />
-            Head Office Central Dashboard
+            {translateRawUi('Head Office Central Dashboard')}
           </button>
 
           <button
@@ -597,7 +604,7 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
             }`}
           >
             <BarChart3 className="w-4 h-4" />
-            Individual Branch Dashboard
+            {translateRawUi('Individual Branch Dashboard')}
           </button>
 
           <button
@@ -621,7 +628,7 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
             }`}
           >
             <TrendingUp className="w-4 h-4" />
-            Consolidated Comparison & Ranking
+            {translateRawUi('Consolidated Comparison & Ranking')}
           </button>
         </div>
       </div>
@@ -644,15 +651,15 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
 
                 <div className="grid grid-cols-3 gap-3 mt-4 pt-4 border-t border-emerald-500/20 text-xs">
                   <div>
-                    <span className="text-slate-400 block text-[10px]">Total Revenue</span>
+                    <span className="text-slate-400 block text-[10px]">{t.legacyUi.totalRevenue}</span>
                     <span className="font-extrabold text-emerald-400 text-sm">${safeNum(analytics.topBranch.sales).toFixed(2)}</span>
                   </div>
                   <div>
-                    <span className="text-slate-400 block text-[10px]">Net Profit</span>
+                    <span className="text-slate-400 block text-[10px]">{t.legacyUi.netProfitLabel2}</span>
                     <span className="font-extrabold text-indigo-400 text-sm">${safeNum(analytics.topBranch.netProfit).toFixed(2)}</span>
                   </div>
                   <div>
-                    <span className="text-slate-400 block text-[10px]">Orders Handled</span>
+                    <span className="text-slate-400 block text-[10px]">{t.legacyUi.ordersHandled}</span>
                     <span className="font-extrabold text-white text-sm">{safeNum(analytics.topBranch.ordersCount)}</span>
                   </div>
                 </div>
@@ -663,7 +670,7 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
               <div className="bg-gradient-to-br from-slate-900 to-slate-950 border border-slate-800 rounded-3xl p-6">
                 <div className="flex items-center justify-between mb-4">
                   <span className="bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[10px] font-black px-3 py-1 rounded-full uppercase flex items-center gap-1">
-                    <ShieldAlert className="w-3.5 h-3.5 text-amber-400" /> Needs Growth Support
+                    <ShieldAlert className="w-3.5 h-3.5 text-amber-400" /> {translateRawUi('Needs Growth Support')}
                   </span>
                   <span className="text-xs font-bold text-slate-400">{analytics.lowestBranch.branchCode}</span>
                 </div>
@@ -672,15 +679,15 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
 
                 <div className="grid grid-cols-3 gap-3 mt-4 pt-4 border-t border-slate-800 text-xs">
                   <div>
-                    <span className="text-slate-400 block text-[10px]">Total Revenue</span>
+                    <span className="text-slate-400 block text-[10px]">{t.legacyUi.totalRevenue}</span>
                     <span className="font-extrabold text-amber-400 text-sm">${safeNum(analytics.lowestBranch.sales).toFixed(2)}</span>
                   </div>
                   <div>
-                    <span className="text-slate-400 block text-[10px]">Net Profit</span>
+                    <span className="text-slate-400 block text-[10px]">{t.legacyUi.netProfitLabel2}</span>
                     <span className="font-extrabold text-slate-300 text-sm">${safeNum(analytics.lowestBranch.netProfit).toFixed(2)}</span>
                   </div>
                   <div>
-                    <span className="text-slate-400 block text-[10px]">Active Staff</span>
+                    <span className="text-slate-400 block text-[10px]">{t.legacyUi.activeStaff}</span>
                     <span className="font-extrabold text-white text-sm">{safeNum(analytics.lowestBranch.employeeCount)}</span>
                   </div>
                 </div>
@@ -693,9 +700,9 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-base font-bold text-white flex items-center gap-2">
-                  <Crown className="w-5 h-5 text-amber-400" /> Branch Performance Ranking & Consolidation
+                  <Crown className="w-5 h-5 text-amber-400" /> {translateRawUi('Branch Performance Ranking & Consolidation')}
                 </h3>
-                <p className="text-xs text-slate-400 mt-0.5">Real-time ranking based on sales volume, net margin, and order completion efficiency.</p>
+                <p className="text-xs text-slate-400 mt-0.5">{t.legacyUi.realTimeRankingHelp}</p>
               </div>
 
               <button
@@ -717,7 +724,7 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
                 }}
                 className="bg-slate-800 hover:bg-slate-700 text-emerald-400 font-bold px-3 py-1.5 rounded-xl text-xs flex items-center gap-2 cursor-pointer border border-slate-700"
               >
-                <Printer className="w-4 h-4" /> Print Rankings
+                <Printer className="w-4 h-4" /> {translateRawUi('Print Rankings')}
               </button>
             </div>
 
@@ -725,14 +732,14 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
                   <tr className="border-b border-slate-800 text-slate-400 font-bold uppercase text-[10px]">
-                    <th className="py-3 px-3">Rank</th>
-                    <th className="py-3 px-3">Branch Details</th>
-                    <th className="py-3 px-3">Location</th>
-                    <th className="py-3 px-3">Sales Volume</th>
-                    <th className="py-3 px-3">Net Profit</th>
-                    <th className="py-3 px-3">Margin %</th>
-                    <th className="py-3 px-3">Staff</th>
-                    <th className="py-3 px-3">Status</th>
+                    <th className="py-3 px-3">{translateRawUi('Rank')}</th>
+                    <th className="py-3 px-3">{t.legacyUi.branchDetails}</th>
+                    <th className="py-3 px-3">{translateRawUi('Location')}</th>
+                    <th className="py-3 px-3">{t.legacyUi.salesVolume}</th>
+                    <th className="py-3 px-3">{t.legacyUi.netProfitLabel2}</th>
+                    <th className="py-3 px-3">{t.legacyUi.marginPercent}</th>
+                    <th className="py-3 px-3">{t.legacyUi.staffLabel}</th>
+                    <th className="py-3 px-3">{t.legacyUi.status}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60">
@@ -777,7 +784,7 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search branches by name, city, or code..."
+                placeholder={translateRawUi('Search branches by name, city, or code...')}
                 className="w-full bg-slate-950 border border-slate-800 rounded-2xl pl-10 pr-4 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
               />
             </div>
@@ -790,8 +797,8 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
           {filteredBranches.length === 0 ? (
             <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 text-center text-slate-400 space-y-3">
               <Building2 className="w-10 h-10 text-slate-600 mx-auto" />
-              <p className="text-sm font-bold text-white">No Branches Found</p>
-              <p className="text-xs text-slate-400">No branch records match your search query or no branches exist yet.</p>
+              <p className="text-sm font-bold text-white">{t.legacyUi.noBranchesFound}</p>
+              <p className="text-xs text-slate-400">{t.legacyUi.noBranchRecordsMatch}</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -849,7 +856,7 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
                     }}
                     className="flex-1 bg-slate-950 hover:bg-slate-800 text-emerald-400 font-bold py-2 rounded-xl text-xs text-center border border-slate-800 cursor-pointer"
                   >
-                    View Branch Dashboard
+                    {translateRawUi('View Branch Dashboard')}
                   </button>
 
                   {isManagementRole && (
@@ -857,7 +864,7 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
                       <button
                         onClick={() => openEditModal(b)}
                         className="p-2 bg-slate-950 hover:bg-slate-800 text-slate-300 rounded-xl border border-slate-800 cursor-pointer"
-                        title="Edit Branch"
+                        title={translateRawUi('Edit Branch')}
                       >
                         <Edit className="w-4 h-4" />
                       </button>
@@ -877,7 +884,7 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
                       <button
                         onClick={() => handleDeleteBranch(b)}
                         className="p-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 rounded-xl border border-rose-500/20 cursor-pointer"
-                        title="Delete Branch"
+                        title={translateRawUi('Delete Branch')}
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -898,7 +905,7 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-3 w-full sm:w-auto">
               <Building2 className="w-5 h-5 text-emerald-400" />
-              <span className="text-xs font-bold text-white uppercase">Select Branch to View:</span>
+              <span className="text-xs font-bold text-white uppercase">{t.legacyUi.selectBranchToView}</span>
               <select
                 value={selectedBranchId}
                 onChange={(e) => setSelectedBranchId(e.target.value)}
@@ -914,7 +921,7 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
 
             {currentBranch && (
               <div className="text-xs text-slate-400 font-semibold">
-                Status: <span className="text-emerald-400 uppercase font-bold">{currentBranch.status}</span> • Currency: {currentBranch.currency} • Tax Rate: {currentBranch.taxRate}%
+                {translateRawUi('Status:')} <span className="text-emerald-400 uppercase font-bold">{currentBranch.status}</span> • Currency: {currentBranch.currency} • Tax Rate: {currentBranch.taxRate}%
               </div>
             )}
           </div>
@@ -922,22 +929,22 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
           {currentBranchMetrics && (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 space-y-1">
-                <span className="text-xs text-slate-400 font-bold block uppercase">Branch Total Sales</span>
+                <span className="text-xs text-slate-400 font-bold block uppercase">{t.legacyUi.branchTotalSales}</span>
                 <span className="text-xl font-black text-emerald-400">${safeNum(currentBranchMetrics.sales).toFixed(2)}</span>
               </div>
 
               <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 space-y-1">
-                <span className="text-xs text-slate-400 font-bold block uppercase">Branch Net Profit</span>
+                <span className="text-xs text-slate-400 font-bold block uppercase">{t.legacyUi.branchNetProfit}</span>
                 <span className="text-xl font-black text-indigo-400">${safeNum(currentBranchMetrics.netProfit).toFixed(2)}</span>
               </div>
 
               <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 space-y-1">
-                <span className="text-xs text-slate-400 font-bold block uppercase">Orders Completed</span>
+                <span className="text-xs text-slate-400 font-bold block uppercase">{t.legacyUi.ordersCompleted}</span>
                 <span className="text-xl font-black text-white">{safeNum(currentBranchMetrics.ordersCount)} Orders</span>
               </div>
 
               <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 space-y-1">
-                <span className="text-xs text-slate-400 font-bold block uppercase">Branch Workforce</span>
+                <span className="text-xs text-slate-400 font-bold block uppercase">{t.legacyUi.branchWorkforce}</span>
                 <span className="text-xl font-black text-purple-400">{safeNum(currentBranchMetrics.employeeCount)} Staff</span>
               </div>
             </div>
@@ -952,9 +959,9 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-base font-bold text-white flex items-center gap-2">
-                  <ArrowRightLeft className="w-5 h-5 text-indigo-400" /> Inter-Branch Transfer Hub & Approval Workflow
+                  <ArrowRightLeft className="w-5 h-5 text-indigo-400" /> {translateRawUi('Inter-Branch Transfer Hub & Approval Workflow')}
                 </h3>
-                <p className="text-xs text-slate-400 mt-0.5">Manage inventory re-allocation, cash balancing & temporary or permanent employee re-assignments.</p>
+                <p className="text-xs text-slate-400 mt-0.5">{t.legacyUi.branchTransferHelp}</p>
               </div>
 
               {isManagementRole && (
@@ -962,7 +969,7 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
                   onClick={() => setShowTransferModal(true)}
                   className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold px-4 py-2 rounded-2xl text-xs flex items-center gap-2 cursor-pointer"
                 >
-                  <Plus className="w-4 h-4" /> Request New Transfer
+                  <Plus className="w-4 h-4" /> {translateRawUi('Request New Transfer')}
                 </button>
               )}
             </div>
@@ -975,7 +982,7 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
 
               {(analytics?.pendingTransfers || []).length === 0 ? (
                 <div className="p-6 rounded-2xl bg-slate-950 border border-slate-800 text-center text-xs text-slate-400">
-                  No pending inter-branch transfer requests at this moment.
+                  {translateRawUi('No pending inter-branch transfer requests at this moment.')}
                 </div>
               ) : (
                 (analytics?.pendingTransfers || []).map((t) => (
@@ -986,7 +993,7 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
                         <span className="bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase">{t.transferType}</span>
                       </div>
                       <p className="text-slate-300 mt-1">
-                        <strong>From:</strong> {t.sourceBranchName} → <strong>To:</strong> {t.destinationBranchName}
+                        <strong>{translateRawUi('From:')}</strong> {t.sourceBranchName} → <strong>{translateRawUi('To:')}</strong> {t.destinationBranchName}
                       </p>
                       <p className="text-slate-400 mt-0.5 font-sans">Reason: {t.reason}</p>
                     </div>
@@ -997,14 +1004,14 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
                           onClick={() => handleApproveTransfer(t.id)}
                           className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold px-3 py-1.5 rounded-xl text-xs cursor-pointer shadow-sm"
                         >
-                          Approve & Execute
+                          {translateRawUi('Approve & Execute')}
                         </button>
 
                         <button
                           onClick={() => handleRejectTransfer(t.id)}
                           className="bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 font-bold px-3 py-1.5 rounded-xl text-xs cursor-pointer border border-rose-500/30"
                         >
-                          Reject
+                          {translateRawUi('Reject')}
                         </button>
                       </div>
                     )}
@@ -1021,7 +1028,7 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
         <div className="space-y-6">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-6">
             <h3 className="text-base font-bold text-white flex items-center gap-2">
-              <TrendingUp className="w-5 h-5 text-emerald-400" /> Multi-Branch Sales & Margin Comparison Chart
+              <TrendingUp className="w-5 h-5 text-emerald-400" /> {translateRawUi('Multi-Branch Sales & Margin Comparison Chart')}
             </h3>
 
             <div className="h-80 w-full">
@@ -1058,31 +1065,31 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
             <form onSubmit={handleSaveBranch} className="space-y-4 text-xs">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-slate-400 font-bold mb-1">Branch Name *</label>
+                  <label className="block text-slate-400 font-bold mb-1">{t.legacyUi.branchNameRequired}</label>
                   <input
                     type="text"
                     required
                     value={branchForm.name}
                     onChange={(e) => setBranchForm({ ...branchForm, name: e.target.value })}
-                    placeholder="e.g. Hargeisa Downtown"
+                    placeholder={translateRawUi('e.g. Hargeisa Downtown')}
                     className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-3.5 py-2.5 text-white focus:outline-none focus:border-emerald-500"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-slate-400 font-bold mb-1">Branch Code *</label>
+                  <label className="block text-slate-400 font-bold mb-1">{t.legacyUi.branchCodeRequired}</label>
                   <input
                     type="text"
                     required
                     value={branchForm.code}
                     onChange={(e) => setBranchForm({ ...branchForm, code: e.target.value })}
-                    placeholder="e.g. BR-HAR-01"
+                    placeholder={translateRawUi('e.g. BR-HAR-01')}
                     className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-3.5 py-2.5 text-white focus:outline-none focus:border-emerald-500"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-slate-400 font-bold mb-1">City *</label>
+                  <label className="block text-slate-400 font-bold mb-1">{t.legacyUi.cityRequired}</label>
                   <input
                     type="text"
                     required
@@ -1093,7 +1100,7 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-slate-400 font-bold mb-1">Country *</label>
+                  <label className="block text-slate-400 font-bold mb-1">{t.legacyUi.countryRequired}</label>
                   <input
                     type="text"
                     required
@@ -1104,7 +1111,7 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-slate-400 font-bold mb-1">Address *</label>
+                  <label className="block text-slate-400 font-bold mb-1">{t.legacyUi.addressRequired}</label>
                   <input
                     type="text"
                     required
@@ -1115,7 +1122,7 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-slate-400 font-bold mb-1">Phone Number *</label>
+                  <label className="block text-slate-400 font-bold mb-1">{t.legacyUi.phoneNumber} *</label>
                   <input
                     type="text"
                     required
@@ -1126,7 +1133,7 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-slate-400 font-bold mb-1">Working Hours</label>
+                  <label className="block text-slate-400 font-bold mb-1">{t.legacyUi.workingHours}</label>
                   <input
                     type="text"
                     value={branchForm.workingHours}
@@ -1136,7 +1143,7 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-slate-400 font-bold mb-1">Tax Rate (%)</label>
+                  <label className="block text-slate-400 font-bold mb-1">{t.legacyUi.taxRate}</label>
                   <input
                     type="number"
                     step="0.1"
@@ -1153,14 +1160,14 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
                   onClick={() => setShowCreateModal(false)}
                   className="px-4 py-2.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold"
                 >
-                  Cancel
+                  {translateRawUi('Cancel')}
                 </button>
 
                 <button
                   type="submit"
                   className="px-5 py-2.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold shadow-lg shadow-emerald-500/20"
                 >
-                  Save Branch
+                  {translateRawUi('Save Branch')}
                 </button>
               </div>
             </form>
@@ -1175,7 +1182,7 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
             <div className="flex items-center justify-between border-b border-slate-800 pb-4">
               <h3 className="text-lg font-black text-white flex items-center gap-2">
                 <ArrowRightLeft className="w-5 h-5 text-indigo-400" />
-                New Inter-Branch Transfer Request
+                {translateRawUi('New Inter-Branch Transfer Request')}
               </h3>
               <button onClick={() => setShowTransferModal(false)} className="text-slate-400 hover:text-white">
                 <XCircle className="w-5 h-5" />
@@ -1184,29 +1191,29 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
 
             <form onSubmit={handleCreateTransfer} className="space-y-4 text-xs">
               <div>
-                <label className="block text-slate-400 font-bold mb-1">Transfer Type</label>
+                <label className="block text-slate-400 font-bold mb-1">{t.legacyUi.transferType}</label>
                 <select
                   value={transferForm.transferType}
                   onChange={(e) => setTransferForm({ ...transferForm, transferType: e.target.value as TransferType })}
                   className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-3.5 py-2.5 text-white focus:outline-none focus:border-emerald-500"
                 >
-                  <option value="inventory">Kitchen Inventory (Ingredients)</option>
-                  <option value="product">Finished Products</option>
-                  <option value="cash">Cash / Vault Funds</option>
-                  <option value="employee">Employee Re-assignment</option>
+                  <option value="inventory">{t.legacyUi.kitchenInventoryIngredients}</option>
+                  <option value="product">{t.legacyUi.finishedProducts}</option>
+                  <option value="cash">{t.legacyUi.cashVaultFunds}</option>
+                  <option value="employee">{t.legacyUi.employeeReassignment}</option>
                 </select>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-slate-400 font-bold mb-1">Source Branch *</label>
+                  <label className="block text-slate-400 font-bold mb-1">{t.legacyUi.sourceBranchRequired}</label>
                   <select
                     required
                     value={transferForm.sourceBranchId}
                     onChange={(e) => setTransferForm({ ...transferForm, sourceBranchId: e.target.value })}
                     className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-3.5 py-2.5 text-white focus:outline-none focus:border-emerald-500"
                   >
-                    <option value="">Select Source</option>
+                    <option value="">{t.legacyUi.selectSource}</option>
                     {branches.map((b) => (
                       <option key={b.id} value={b.id}>{b.name}</option>
                     ))}
@@ -1214,14 +1221,14 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-slate-400 font-bold mb-1">Destination Branch *</label>
+                  <label className="block text-slate-400 font-bold mb-1">{t.legacyUi.destinationBranchRequired}</label>
                   <select
                     required
                     value={transferForm.destinationBranchId}
                     onChange={(e) => setTransferForm({ ...transferForm, destinationBranchId: e.target.value })}
                     className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-3.5 py-2.5 text-white focus:outline-none focus:border-emerald-500"
                   >
-                    <option value="">Select Destination</option>
+                    <option value="">{t.legacyUi.selectDestination}</option>
                     {branches.map((b) => (
                       <option key={b.id} value={b.id}>{b.name}</option>
                     ))}
@@ -1231,7 +1238,7 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
 
               {transferForm.transferType === 'cash' ? (
                 <div>
-                  <label className="block text-slate-400 font-bold mb-1">Cash Amount ($USD)</label>
+                  <label className="block text-slate-400 font-bold mb-1">{t.legacyUi.cashAmountUsd}</label>
                   <input
                     type="number"
                     required
@@ -1243,32 +1250,32 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
                 </div>
               ) : transferForm.transferType === 'employee' ? (
                 <div>
-                  <label className="block text-slate-400 font-bold mb-1">Employee Name</label>
+                  <label className="block text-slate-400 font-bold mb-1">{t.legacyUi.employeeName}</label>
                   <input
                     type="text"
                     required
                     value={transferForm.employeeName}
                     onChange={(e) => setTransferForm({ ...transferForm, employeeName: e.target.value })}
-                    placeholder="e.g. Hassan Ahmed"
+                    placeholder={translateRawUi('e.g. Hassan Ahmed')}
                     className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-3.5 py-2.5 text-white focus:outline-none focus:border-emerald-500"
                   />
                 </div>
               ) : (
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-slate-400 font-bold mb-1">Item Description</label>
+                    <label className="block text-slate-400 font-bold mb-1">{t.legacyUi.itemDescription}</label>
                     <input
                       type="text"
                       required
                       value={transferForm.transferItemName}
                       onChange={(e) => setTransferForm({ ...transferForm, transferItemName: e.target.value })}
-                      placeholder="e.g. Basmati Rice 25kg"
+                      placeholder={translateRawUi('e.g. Basmati Rice 25kg')}
                       className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-3.5 py-2.5 text-white focus:outline-none focus:border-emerald-500"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-slate-400 font-bold mb-1">Quantity</label>
+                    <label className="block text-slate-400 font-bold mb-1">{t.legacyUi.quantity}</label>
                     <input
                       type="number"
                       required
@@ -1282,13 +1289,13 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
               )}
 
               <div>
-                <label className="block text-slate-400 font-bold mb-1">Transfer Justification / Reason *</label>
+                <label className="block text-slate-400 font-bold mb-1">{t.legacyUi.transferJustificationReason}</label>
                 <textarea
                   required
                   rows={2}
                   value={transferForm.reason}
                   onChange={(e) => setTransferForm({ ...transferForm, reason: e.target.value })}
-                  placeholder="Reason for inter-branch transfer..."
+                  placeholder={translateRawUi('Reason for inter-branch transfer...')}
                   className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-3.5 py-2.5 text-white focus:outline-none focus:border-emerald-500"
                 />
               </div>
@@ -1299,14 +1306,14 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
                   onClick={() => setShowTransferModal(false)}
                   className="px-4 py-2.5 rounded-2xl bg-slate-800 text-slate-300 font-bold"
                 >
-                  Cancel
+                  {translateRawUi('Cancel')}
                 </button>
 
                 <button
                   type="submit"
                   className="px-5 py-2.5 rounded-2xl bg-emerald-500 text-slate-950 font-extrabold shadow-lg shadow-emerald-500/20"
                 >
-                  Submit Transfer Request
+                  {translateRawUi('Submit Transfer Request')}
                 </button>
               </div>
             </form>

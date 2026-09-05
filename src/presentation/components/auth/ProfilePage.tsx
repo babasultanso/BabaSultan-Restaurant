@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { translateRawUi } from '../../../i18n';
 import { useAuth } from '../../context/AuthContext';
 import { collection, query, where, orderBy, limit, onSnapshot } from 'firebase/firestore';
 import { db, COLLECTIONS } from '../../../lib/firebase';
@@ -139,7 +140,7 @@ export const ProfilePage: React.FC = () => {
             </h1>
             <p className="text-xs text-slate-400 flex items-center gap-1.5 mt-1">
               <Mail className="w-3.5 h-3.5 text-slate-500" />
-              <span>{user?.email || 'user@restaurant-erp.internal'}</span>
+              <span>{user?.email || '—'}</span>
             </p>
           </div>
         </div>
@@ -227,7 +228,7 @@ export const ProfilePage: React.FC = () => {
                   </label>
                   <input
                     type="text"
-                    value={userRecord?.branch || 'Main Flagship Branch'}
+                    value={userRecord?.branch || '—'}
                     disabled
                     className="w-full bg-slate-950/50 border border-slate-800/80 rounded-xl px-3 py-2 text-xs text-slate-300 cursor-not-allowed"
                   />
@@ -273,7 +274,7 @@ export const ProfilePage: React.FC = () => {
                   type="password"
                   value={currentPassword}
                   onChange={(e) => setCurrentPassword(e.target.value)}
-                  placeholder="••••••••"
+                  placeholder={translateRawUi('••••••••')}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500/50"
                   required
                 />
@@ -288,7 +289,7 @@ export const ProfilePage: React.FC = () => {
                     type="password"
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
-                    placeholder="••••••••"
+                    placeholder={translateRawUi('••••••••')}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500/50"
                     required
                   />
@@ -302,7 +303,7 @@ export const ProfilePage: React.FC = () => {
                     type="password"
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
-                    placeholder="••••••••"
+                    placeholder={translateRawUi('••••••••')}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500/50"
                     required
                   />
@@ -338,7 +339,7 @@ export const ProfilePage: React.FC = () => {
                 <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
                 <div>
                   <p className="text-xs font-bold text-emerald-400">{t.profile.emailVerified}</p>
-                  <p className="text-[10px] text-slate-400">Your email address is verified and active.</p>
+                  <p className="text-[10px] text-slate-400">{translateRawUi('Your email address is verified and active.')}</p>
                 </div>
               </div>
             ) : (
@@ -347,7 +348,7 @@ export const ProfilePage: React.FC = () => {
                   <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0" />
                   <div>
                     <p className="text-xs font-bold text-amber-400">{t.profile.emailNotVerified}</p>
-                    <p className="text-[10px] text-slate-400">Please verify your email address to ensure full account protection.</p>
+                    <p className="text-[10px] text-slate-400">{translateRawUi('Please verify your email address to ensure full account protection.')}</p>
                   </div>
                 </div>
 

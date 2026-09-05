@@ -12,22 +12,22 @@ import { ref, uploadBytes, getBytes } from 'firebase/storage';
 
 let testEnv: RulesTestEnvironment;
 
-describe('FIREBASE STORAGE SECURITY RULES EMULATOR SUITE', () => {
+describe.skipIf(!process.env.FIREBASE_STORAGE_EMULATOR_HOST)('FIREBASE STORAGE SECURITY RULES EMULATOR SUITE', () => {
   beforeAll(async () => {
     const firestoreRules = fs.readFileSync(path.resolve(process.cwd(), 'firestore.rules'), 'utf8');
     const storageRules = fs.readFileSync(path.resolve(process.cwd(), 'storage.rules'), 'utf8');
 
     testEnv = await initializeTestEnvironment({
-      projectId: 'babasultan-restaurant-erp',
+      projectId: process.env.GCLOUD_PROJECT || process.env.FIREBASE_PROJECT_ID || 'babasultan-restaurant',
       firestore: {
         rules: firestoreRules,
-        host: '127.0.0.1',
-        port: 8080
+        host: (process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8081').split(':')[0],
+        port: Number((process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8081').split(':')[1])
       },
       storage: {
         rules: storageRules,
-        host: '127.0.0.1',
-        port: 9199
+        host: (process.env.FIREBASE_STORAGE_EMULATOR_HOST || '127.0.0.1:9199').split(':')[0],
+        port: Number((process.env.FIREBASE_STORAGE_EMULATOR_HOST || '127.0.0.1:9199').split(':')[1])
       }
     });
   });
@@ -115,15 +115,45 @@ describe('FIREBASE STORAGE SECURITY RULES EMULATOR SUITE', () => {
   });
 
   // 4. FINANCIAL ATTACHMENTS (ACCOUNTANT & MANAGEMENT ONLY)
-  it('4. Accountant and Manager can read/write financial attachments; standard employee cannot', async () => {
+  it('4. Accountant and Manager can read/write branch financial attachments; standard employees cannot', async () => {
     const acctStorage = testEnv.authenticatedContext('acct_001').storage();
-    const empStorage = testEnv.authenticatedContext('emp_001').storage();
+    const mgrStorage = testEnv.authenticatedContext('mgr_001').storage();
+    const emp1Storage = testEnv.authenticatedContext('emp_001').storage();
+    const emp2Storage = testEnv.authenticatedContext('emp_002').storage();
     const pdfBytes = new Uint8Array([1, 2, 3, 4]);
 
-    // Accountant uploads financial receipt
-    await assertSucceeds(uploadBytes(ref(acctStorage, 'financial_attachments/receipt_001.pdf'), pdfBytes, { contentType: 'application/pdf' }));
-    // Standard employee cannot upload or read financial attachments
-    await assertFails(uploadBytes(ref(empStorage, 'financial_attachments/receipt_002.pdf'), pdfBytes, { contentType: 'application/pdf' }));
-    await assertFails(getBytes(ref(empStorage, 'financial_attachments/receipt_001.pdf')));
+    const branchReceipt1 = 'branches/BR-001/financial_attachments/receipt_001.pdf';
+    const branchReceipt2 = 'branches/BR-001/financial_attachments/receipt_002.pdf';
+
+    // Accountant in BR-001 can upload and read BR-001 financial attachments.
+    await assertSucceeds(
+      uploadBytes(ref(acctStorage, branchReceipt1), pdfBytes, { contentType: 'application/pdf' })
+    );
+    await assertSucceeds(getBytes(ref(acctStorage, branchReceipt1)));
+
+    // Manager in BR-001 can upload to the same branch.
+    await assertSucceeds(
+      uploadBytes(ref(mgrStorage, branchReceipt2), pdfBytes, { contentType: 'application/pdf' })
+    );
+
+    // Accountant in BR-001 can read a Manager-uploaded branch financial attachment.
+    await assertSucceeds(getBytes(ref(acctStorage, branchReceipt2)));
+
+    // Standard employee cannot upload or read financial attachments.
+    await assertFails(
+      uploadBytes(ref(emp1Storage, 'branches/BR-001/financial_attachments/receipt_003.pdf'), pdfBytes, { contentType: 'application/pdf' })
+    );
+    await assertFails(getBytes(ref(emp1Storage, branchReceipt1)));
+
+    // Cross-branch employee cannot access BR-001 financial attachments.
+    await assertFails(getBytes(ref(emp2Storage, branchReceipt1)));
+    await assertFails(
+      uploadBytes(ref(emp2Storage, 'branches/BR-001/financial_attachments/receipt_004.pdf'), pdfBytes, { contentType: 'application/pdf' })
+    );
+
+    // Legacy root financial path remains HQ-only; branch users must use the branch-scoped path above.
+    await assertFails(
+      uploadBytes(ref(acctStorage, 'financial_attachments/legacy_receipt.pdf'), pdfBytes, { contentType: 'application/pdf' })
+    );
   });
 });

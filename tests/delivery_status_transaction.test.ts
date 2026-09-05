@@ -292,4 +292,78 @@ describe('DELIVERY STATUS TRANSACTION ORDERING & STATE MACHINE REGRESSION SUITE'
     const r5 = await request(app).post(`/api/deliveries/${deliveryId}/status`).set('Authorization', OWNER_TOKEN).send({ status: 'delivered' });
     expect(r5.status).toBe(200);
   });
+
+  // Test 9 — Kitchen completion on delivery order does not mark order as completed
+  it('Test 9 — Kitchen completion on delivery order maps order to ready_for_pickup, NOT completed', async () => {
+    const db = getAdminDb();
+    const orderId = 'ord_del_kitch_009';
+    const ticketId = 'ord_del_kitch_009';
+    const delId = 'del_kitch_009';
+
+    await db.collection('orders').doc(orderId).set({
+      id: orderId,
+      branchId: BRANCH_ID,
+      orderType: 'delivery',
+      status: 'confirmed',
+      kitchenStatus: 'cooking'
+    });
+
+    await db.collection('kitchen_orders').doc(ticketId).set({
+      id: ticketId,
+      orderId,
+      branchId: BRANCH_ID,
+      orderType: 'delivery',
+      prepStatus: 'cooking',
+      items: [
+        { productId: 'p1', productName: 'Pizza', quantity: 2, itemStatus: 'cooking' }
+      ]
+    });
+
+    await db.collection('deliveries').doc(delId).set({
+      id: delId,
+      orderId,
+      branchId: BRANCH_ID,
+      status: 'assigned'
+    });
+
+    // Kitchen sets ready_for_pickup then completed
+    const rReady = await request(app)
+      .post(`/api/kitchen/${ticketId}/status`)
+      .set('Authorization', OWNER_TOKEN)
+      .send({ status: 'ready_for_pickup' });
+    expect(rReady.status).toBe(200);
+
+    const res = await request(app)
+      .post(`/api/kitchen/${ticketId}/status`)
+      .set('Authorization', OWNER_TOKEN)
+      .send({ status: 'completed' });
+
+    expect(res.status).toBe(200);
+
+    const ordSnap = await db.collection('orders').doc(orderId).get();
+    expect(ordSnap.data()?.status).toBe('ready_for_pickup');
+    expect(ordSnap.data()?.kitchenStatus).toBe('completed');
+    expect(ordSnap.data()?.completedAt).toBeUndefined(); // Delivery not finished yet!
+  });
+
+  // Test 10 — Kitchen Station Status Update endpoint
+  it('Test 10 — POST /api/kitchen/stations/:stationId/status updates station load and chef', async () => {
+    const db = getAdminDb();
+    const stationId = 'grill';
+
+    const res = await request(app)
+      .post(`/api/kitchen/stations/${stationId}/status`)
+      .set('Authorization', OWNER_TOKEN)
+      .send({
+        status: 'overloaded',
+        chefName: 'Chef Tariq'
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('success');
+
+    const stSnap = await db.collection('stations').doc(stationId).get();
+    expect(stSnap.data()?.status).toBe('overloaded');
+    expect(stSnap.data()?.assignedChef).toBe('Chef Tariq');
+  });
 });

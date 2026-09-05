@@ -1,9 +1,11 @@
+import { translateRawUi } from '../../../i18n';
+import { translations } from '../../../i18n/translations';
 import React, { useState, useEffect, useMemo } from 'react';
 import { RecipeRepositoryImpl } from '../../../data/repositories/RecipeRepositoryImpl';
 import { RecipeController } from '../../../controllers/RecipeController';
 import { Recipe, Ingredient, UnitConversion, WasteRecord } from '../../../domain/entities/recipe';
 import { Product } from '../../../types';
-import { recipeDict, RecipeLang } from './translations';
+import { recipeDict, RecipeLang } from '../../../i18n';
 
 import { RecipeBuilderView } from './RecipeBuilderView';
 import { IngredientManagerView } from './IngredientManagerView';
@@ -94,7 +96,7 @@ export const RecipeEngineMainView: React.FC<RecipeEngineMainViewProps> = ({
     };
   }, [controller, effectiveBranchId]);
 
-  const t = recipeDict[lang] || recipeDict.en;
+  const t = { ...(recipeDict[lang] || recipeDict.en), legacyUi: translations[lang].legacyUi };
 
   // Header Calculations
   const avgFoodCost =
@@ -129,10 +131,10 @@ export const RecipeEngineMainView: React.FC<RecipeEngineMainViewProps> = ({
           <div>
             <div className="flex items-center gap-2 mb-1">
               <span className="px-3 py-1 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[10px] font-black tracking-widest uppercase">
-                PHASE 16 ENGINE
+                {translateRawUi('PHASE 16 ENGINE')}
               </span>
               <span className="px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-black uppercase">
-                AUTO DEDUCTION ACTIVE
+                {translateRawUi('AUTO DEDUCTION ACTIVE')}
               </span>
             </div>
             <h1 className="text-2xl font-black text-white flex items-center gap-3">
@@ -152,7 +154,7 @@ export const RecipeEngineMainView: React.FC<RecipeEngineMainViewProps> = ({
                   lang === 'en' ? 'bg-amber-500 text-slate-950' : 'text-slate-400 hover:text-white'
                 }`}
               >
-                EN
+                {translateRawUi('EN')}
               </button>
               <button
                 onClick={() => handleLanguageSwitch('ar')}
@@ -168,7 +170,7 @@ export const RecipeEngineMainView: React.FC<RecipeEngineMainViewProps> = ({
                   lang === 'so' ? 'bg-amber-500 text-slate-950' : 'text-slate-400 hover:text-white'
                 }`}
               >
-                SO
+                {translateRawUi('SO')}
               </button>
             </div>
           </div>
@@ -177,22 +179,22 @@ export const RecipeEngineMainView: React.FC<RecipeEngineMainViewProps> = ({
         {/* Global KPI Metrics Ribbon */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-6 pt-6 border-t border-slate-800">
           <div className="p-3 bg-slate-950/80 rounded-2xl border border-slate-800">
-            <p className="text-[10px] text-slate-400 font-bold uppercase">Total Recipes</p>
+            <p className="text-[10px] text-slate-400 font-bold uppercase">{t.legacyUi.totalRecipes}</p>
             <p className="text-lg font-black text-white font-mono mt-0.5">{recipes.length}</p>
           </div>
 
           <div className="p-3 bg-slate-950/80 rounded-2xl border border-slate-800">
-            <p className="text-[10px] text-slate-400 font-bold uppercase">Average Food Cost %</p>
+            <p className="text-[10px] text-slate-400 font-bold uppercase">{t.legacyUi.avgFoodCostPercent}</p>
             <p className="text-lg font-black text-amber-400 font-mono mt-0.5">{avgFoodCost}%</p>
           </div>
 
           <div className="p-3 bg-slate-950/80 rounded-2xl border border-slate-800">
-            <p className="text-[10px] text-slate-400 font-bold uppercase">Inventory Valuation</p>
+            <p className="text-[10px] text-slate-400 font-bold uppercase">{t.legacyUi.inventoryValuation}</p>
             <p className="text-lg font-black text-emerald-400 font-mono mt-0.5">${totalInventoryValuation}</p>
           </div>
 
           <div className="p-3 bg-slate-950/80 rounded-2xl border border-slate-800">
-            <p className="text-[10px] text-slate-400 font-bold uppercase">Total Waste Recorded</p>
+            <p className="text-[10px] text-slate-400 font-bold uppercase">{t.legacyUi.totalWasteRecorded}</p>
             <p className="text-lg font-black text-rose-400 font-mono mt-0.5">${totalWaste}</p>
           </div>
         </div>

@@ -5,13 +5,12 @@ import {
   getDoc,
   setDoc,
   updateDoc,
-  deleteDoc,
   query,
   orderBy,
   where,
   addDoc
 } from 'firebase/firestore';
-import { db, auth, COLLECTIONS, rechargeWalletFirestore, deductWalletFirestore, refundToWalletFirestore } from '../../lib/firebase';
+import { db, auth, COLLECTIONS, rechargeWalletFirestore, deductWalletFirestore, refundToWalletFirestore, getEffectiveBranchId } from '../../lib/firebase';
 import { getApiUrl } from '../../lib/apiConfig';
 import { ICustomerRepository } from '../../domain/repositories/ICustomerRepository';
 import {
@@ -35,7 +34,8 @@ export class CustomerRepositoryImpl implements ICustomerRepository {
 
   async fetchCustomers(): Promise<Customer[]> {
     try {
-      const q = query(collection(db, COLLECTIONS.CUSTOMERS), orderBy('createdAt', 'desc'));
+      const branchId = getEffectiveBranchId();
+      const q = query(collection(db, COLLECTIONS.CUSTOMERS), where('branchId', '==', branchId), orderBy('createdAt', 'desc'));
       const snap = await getDocs(q);
       const list = snap.docs.map(docSnap => {
         const data = docSnap.data();
@@ -50,7 +50,7 @@ export class CustomerRepositoryImpl implements ICustomerRepository {
           profilePhoto: data.profilePhoto || '',
           preferredLanguage: data.preferredLanguage || 'so',
           address: data.address || '',
-          city: data.city || 'Mogadishu',
+          city: data.city || '',
           notes: data.notes || '',
           registrationDate: data.registrationDate || data.createdAt || new Date().toISOString(),
           createdAt: data.createdAt || new Date().toISOString(),
@@ -64,7 +64,7 @@ export class CustomerRepositoryImpl implements ICustomerRepository {
           favoriteProducts: data.favoriteProducts || [],
           cancelledOrders: data.cancelledOrders || 0,
           refundHistoryCount: data.refundHistoryCount || 0,
-          orderFrequencyDays: data.orderFrequencyDays || 7
+          orderFrequencyDays: Number.isFinite(Number(data.orderFrequencyDays)) ? Number(data.orderFrequencyDays) : 0
         } as Customer;
       });
       return list;
@@ -77,8 +77,10 @@ export class CustomerRepositoryImpl implements ICustomerRepository {
   async addCustomer(customerData: Omit<Customer, 'id'>): Promise<Customer> {
     const newRef = doc(collection(db, COLLECTIONS.CUSTOMERS));
     const now = new Date().toISOString();
+    const effectiveBranchId = getEffectiveBranchId(customerData.branchId || (customerData as any).branch);
     const fullCustomer: Customer = {
       ...customerData,
+      branchId: effectiveBranchId,
       id: newRef.id,
       fullName: customerData.fullName || customerData.name || 'Unnamed Customer',
       name: customerData.name || customerData.fullName || 'Unnamed Customer',
@@ -108,7 +110,11 @@ export class CustomerRepositoryImpl implements ICustomerRepository {
 
   async deleteCustomer(id: string): Promise<void> {
     const custRef = doc(db, COLLECTIONS.CUSTOMERS, id);
-    await deleteDoc(custRef);
+    await updateDoc(custRef, {
+      status: 'archived',
+      isDeleted: true,
+      updatedAt: new Date().toISOString()
+    });
   }
 
   // ==========================================
@@ -117,7 +123,11 @@ export class CustomerRepositoryImpl implements ICustomerRepository {
 
   async fetchCustomerWallets(): Promise<CustomerWallet[]> {
     try {
-      const snap = await getDocs(collection(db, COLLECTIONS.CUSTOMER_WALLETS));
+      const branchId = getEffectiveBranchId();
+      const q = branchId === 'all'
+        ? collection(db, COLLECTIONS.CUSTOMER_WALLETS)
+        : query(collection(db, COLLECTIONS.CUSTOMER_WALLETS), where('branchId', '==', branchId));
+      const snap = await getDocs(q);
       const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as CustomerWallet));
       return list;
     } catch (error: any) {
@@ -128,7 +138,10 @@ export class CustomerRepositoryImpl implements ICustomerRepository {
 
   async fetchCustomerWallet(customerId: string): Promise<CustomerWallet | null> {
     try {
-      const q = query(collection(db, COLLECTIONS.CUSTOMER_WALLETS), where('customerId', '==', customerId));
+      const branchId = getEffectiveBranchId();
+      const q = branchId === 'all'
+        ? query(collection(db, COLLECTIONS.CUSTOMER_WALLETS), where('customerId', '==', customerId))
+        : query(collection(db, COLLECTIONS.CUSTOMER_WALLETS), where('customerId', '==', customerId), where('branchId', '==', branchId));
       const snap = await getDocs(q);
       if (!snap.empty) {
         const matchingDoc = snap.docs.find(d => d.data().customerId === customerId);
@@ -150,16 +163,8 @@ export class CustomerRepositoryImpl implements ICustomerRepository {
       };
       return defaultWallet;
     } catch (error: any) {
-      console.warn('Note fetching customer wallet for ID:', customerId, error?.message || error);
-      return {
-        id: `wall_${customerId}`,
-        customerId,
-        customerName: 'Customer #' + customerId.substring(0, 5),
-        balance: 50,
-        currency: 'USD',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      };
+      console.warn('Failed to fetch customer wallet for ID:', customerId, error?.message || error);
+      return null;
     }
   }
 
@@ -179,17 +184,17 @@ export class CustomerRepositoryImpl implements ICustomerRepository {
     });
 
     return {
-      id: res.transactionId || 'tx_' + Date.now(),
+      id: res.transactionId,
       walletId: res.walletId,
       customerId,
-      customerName: 'Customer',
+      customerName: '',
       type: 'recharge',
       amount,
       balanceAfter: res.newBalance,
       paymentMethod,
-      referenceNumber: referenceNumber || 'REF-' + Date.now().toString().substring(6),
+      referenceNumber: referenceNumber || res.transactionId,
       notes: notes || 'Wallet recharge balance addition',
-      createdBy: createdBy || 'Cashier',
+      createdBy: createdBy || '',
       createdAt: new Date().toISOString()
     };
   }
@@ -209,10 +214,10 @@ export class CustomerRepositoryImpl implements ICustomerRepository {
     });
 
     return {
-      id: res.transactionId || 'tx_' + Date.now(),
+      id: res.transactionId,
       walletId: res.walletId,
       customerId,
-      customerName: 'Customer',
+      customerName: '',
       type: 'payment',
       amount: -amount,
       balanceAfter: res.newBalance,
@@ -238,10 +243,10 @@ export class CustomerRepositoryImpl implements ICustomerRepository {
     });
 
     return {
-      id: res.transactionId || 'tx_' + Date.now(),
+      id: res.transactionId,
       walletId: res.walletId,
       customerId,
-      customerName: 'Customer',
+      customerName: '',
       type: 'refund',
       amount,
       balanceAfter: res.newBalance,
@@ -273,7 +278,11 @@ export class CustomerRepositoryImpl implements ICustomerRepository {
 
   async fetchCustomerPointsList(): Promise<CustomerPoints[]> {
     try {
-      const snap = await getDocs(collection(db, COLLECTIONS.CUSTOMER_POINTS));
+      const branchId = getEffectiveBranchId();
+      const q = branchId === 'all'
+        ? collection(db, COLLECTIONS.CUSTOMER_POINTS)
+        : query(collection(db, COLLECTIONS.CUSTOMER_POINTS), where('branchId', '==', branchId));
+      const snap = await getDocs(q);
       const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as CustomerPoints));
       return list;
     } catch (error: any) {
@@ -284,7 +293,10 @@ export class CustomerRepositoryImpl implements ICustomerRepository {
 
   async fetchCustomerPoints(customerId: string): Promise<CustomerPoints | null> {
     try {
-      const q = query(collection(db, COLLECTIONS.CUSTOMER_POINTS), where('customerId', '==', customerId));
+      const branchId = getEffectiveBranchId();
+      const q = branchId === 'all'
+        ? query(collection(db, COLLECTIONS.CUSTOMER_POINTS), where('customerId', '==', customerId))
+        : query(collection(db, COLLECTIONS.CUSTOMER_POINTS), where('customerId', '==', customerId), where('branchId', '==', branchId));
       const snap = await getDocs(q);
       if (!snap.empty) {
         const matchingDoc = snap.docs.find(d => d.data().customerId === customerId);
@@ -306,7 +318,8 @@ export class CustomerRepositoryImpl implements ICustomerRepository {
     description?: string
   ): Promise<void> {
     const token = await auth.currentUser?.getIdToken().catch(() => null);
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    const idempotencyKey = `loyalty-add:${customerId}:${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
+    const headers: Record<string, string> = { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey };
     if (token) headers['Authorization'] = `Bearer ${token}`;
 
     const res = await fetch(getApiUrl('/api/crm/points/add'), {
@@ -316,7 +329,9 @@ export class CustomerRepositoryImpl implements ICustomerRepository {
         customerId,
         points,
         orderId,
-        description
+        description,
+        reason: description || 'Manual loyalty point award',
+        idempotencyKey
       })
     });
 
@@ -328,7 +343,10 @@ export class CustomerRepositoryImpl implements ICustomerRepository {
 
   async fetchRewards(): Promise<CustomerReward[]> {
     try {
-      const q = query(collection(db, COLLECTIONS.CUSTOMER_REWARDS), orderBy('pointsRequired', 'asc'));
+      const branchId = getEffectiveBranchId();
+      const q = branchId === 'all'
+        ? query(collection(db, COLLECTIONS.CUSTOMER_REWARDS), orderBy('pointsRequired', 'asc'))
+        : query(collection(db, COLLECTIONS.CUSTOMER_REWARDS), where('branchId', 'in', [branchId, 'all']), orderBy('pointsRequired', 'asc'));
       const snap = await getDocs(q);
       return snap.docs.map(d => ({ id: d.id, ...d.data() } as CustomerReward));
     } catch (error: any) {
@@ -339,13 +357,14 @@ export class CustomerRepositoryImpl implements ICustomerRepository {
 
   async createReward(data: Omit<CustomerReward, 'id' | 'createdAt' | 'currentRedemptions'>): Promise<CustomerReward> {
     const token = await auth.currentUser?.getIdToken().catch(() => null);
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    const idempotencyKey = globalThis.crypto?.randomUUID?.() || `reward-create:${Date.now()}`;
+    const headers: Record<string, string> = { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey };
     if (token) headers['Authorization'] = `Bearer ${token}`;
 
     const res = await fetch(getApiUrl('/api/crm/rewards'), {
       method: 'POST',
       headers,
-      body: JSON.stringify(data)
+      body: JSON.stringify({ ...data, idempotencyKey })
     });
 
     if (!res.ok) {
@@ -358,13 +377,14 @@ export class CustomerRepositoryImpl implements ICustomerRepository {
 
   async updateReward(id: string, data: Partial<CustomerReward>): Promise<void> {
     const token = await auth.currentUser?.getIdToken().catch(() => null);
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    const idempotencyKey = globalThis.crypto?.randomUUID?.() || `reward-update:${id}:${Date.now()}`;
+    const headers: Record<string, string> = { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey };
     if (token) headers['Authorization'] = `Bearer ${token}`;
 
-    const res = await fetch(getApiUrl(`/api/crm/rewards/${id}`), {
-      method: 'PATCH',
+    const res = await fetch(getApiUrl(`/api/crm/rewards/${id}/update`), {
+      method: 'POST',
       headers,
-      body: JSON.stringify(data)
+      body: JSON.stringify({ ...data, idempotencyKey })
     });
 
     if (!res.ok) {
@@ -375,7 +395,8 @@ export class CustomerRepositoryImpl implements ICustomerRepository {
 
   async redeemPointsForReward(customerId: string, rewardId: string): Promise<ClaimedReward> {
     const token = await auth.currentUser?.getIdToken().catch(() => null);
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    const idempotencyKey = `loyalty-redeem:${customerId}:${rewardId}:${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
+    const headers: Record<string, string> = { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey };
     if (token) headers['Authorization'] = `Bearer ${token}`;
 
     const res = await fetch(getApiUrl('/api/crm/points/redeem'), {
@@ -383,7 +404,8 @@ export class CustomerRepositoryImpl implements ICustomerRepository {
       headers,
       body: JSON.stringify({
         customerId,
-        rewardId
+        rewardId,
+        idempotencyKey
       })
     });
 
@@ -401,24 +423,32 @@ export class CustomerRepositoryImpl implements ICustomerRepository {
 
   async fetchCoupons(): Promise<CustomerCoupon[]> {
     try {
-      const q = query(collection(db, COLLECTIONS.CUSTOMER_COUPONS), orderBy('createdAt', 'desc'));
+      const branchId = getEffectiveBranchId();
+      const q = branchId === 'all'
+        ? query(collection(db, COLLECTIONS.CUSTOMER_COUPONS), orderBy('createdAt', 'desc'))
+        : query(collection(db, COLLECTIONS.CUSTOMER_COUPONS), where('branchId', 'in', [branchId, 'all']), orderBy('createdAt', 'desc'));
       const snap = await getDocs(q);
       return snap.docs.map(d => ({ id: d.id, ...d.data() } as CustomerCoupon));
     } catch (error: any) {
-      console.warn('Note fetching customer coupons from Firestore:', error?.message || error);
-      return [];
+      const message = String(error?.message || error);
+      if (/Branch ID is required for this operation/i.test(message)) {
+        return [];
+      }
+      console.error('Failed to fetch customer coupons from Firestore:', error);
+      throw error;
     }
   }
 
   async createCoupon(data: Omit<CustomerCoupon, 'id' | 'createdAt' | 'usageCount'>): Promise<CustomerCoupon> {
     const token = await auth.currentUser?.getIdToken().catch(() => null);
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    const idempotencyKey = globalThis.crypto?.randomUUID?.() || `coupon-create:${Date.now()}`;
+    const headers: Record<string, string> = { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey };
     if (token) headers['Authorization'] = `Bearer ${token}`;
 
     const res = await fetch(getApiUrl('/api/crm/coupons'), {
       method: 'POST',
       headers,
-      body: JSON.stringify(data)
+      body: JSON.stringify({ ...data, idempotencyKey })
     });
 
     if (!res.ok) {
@@ -431,13 +461,14 @@ export class CustomerRepositoryImpl implements ICustomerRepository {
 
   async updateCoupon(id: string, data: Partial<CustomerCoupon>): Promise<void> {
     const token = await auth.currentUser?.getIdToken().catch(() => null);
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    const idempotencyKey = globalThis.crypto?.randomUUID?.() || `coupon-update:${id}:${Date.now()}`;
+    const headers: Record<string, string> = { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey };
     if (token) headers['Authorization'] = `Bearer ${token}`;
 
-    const res = await fetch(getApiUrl(`/api/crm/coupons/${id}`), {
-      method: 'PATCH',
+    const res = await fetch(getApiUrl(`/api/crm/coupons/${id}/update`), {
+      method: 'POST',
       headers,
-      body: JSON.stringify(data)
+      body: JSON.stringify({ ...data, idempotencyKey })
     });
 
     if (!res.ok) {

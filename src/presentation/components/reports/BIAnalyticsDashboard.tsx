@@ -1,5 +1,8 @@
+import { useAuth } from '../../context/AuthContext';
+import { translateRawUi } from '../../../i18n/rawUi';
 import React from 'react';
 import { getMogadishuDateString } from '../../../lib/dateUtils';
+import { employeeMonthlyPayrollEquivalent } from '../../../lib/payroll';
 import {
   ResponsiveContainer,
   LineChart,
@@ -57,12 +60,17 @@ export const BIAnalyticsDashboard: React.FC<BIAnalyticsDashboardProps> = ({
   suppliers,
   customers,
 }) => {
+  const { t } = useAuth();
   // 1. Core Financial Calculations
-  const completedOrders = orders.filter((o) => o.status === 'completed' || o.paymentStatus === 'paid');
+  const completedOrders = orders.filter((o) => {
+    const status = String(o.status || '').toLowerCase();
+    const prepStatus = String(o.prepStatus || '').toLowerCase();
+    return status === 'completed' || prepStatus === 'delivered';
+  });
   const grossSales = completedOrders.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
   const totalCogs = completedOrders.reduce((sum, o) => sum + (o.cogs || 0), 0);
   const totalExpenses = expenses.reduce((sum, e) => sum + (e.amount || 0), 0);
-  const totalPayroll = employees.reduce((sum, e) => sum + (e.salary || 0), 0);
+  const totalPayroll = employees.reduce((sum, e) => sum + employeeMonthlyPayrollEquivalent(e), 0);
 
   const grossProfit = grossSales - totalCogs;
   const netProfit = grossProfit - totalExpenses - totalPayroll;
@@ -171,7 +179,7 @@ export const BIAnalyticsDashboard: React.FC<BIAnalyticsDashboardProps> = ({
       if (!productSalesMap[name]) {
         productSalesMap[name] = { qty: 0, revenue: 0 };
       }
-      productSalesMap[name].qty += item.quantity || 1;
+      productSalesMap[name].qty += Number(item.quantity ?? 0);
       productSalesMap[name].revenue += item.totalPrice || item.unitPrice * item.quantity || 0;
     });
   });
@@ -243,7 +251,7 @@ export const BIAnalyticsDashboard: React.FC<BIAnalyticsDashboardProps> = ({
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl flex flex-col justify-between">
           <div className="flex justify-between items-start">
             <div>
-              <p className="text-xs text-slate-400 font-semibold">Daily Sales (Today)</p>
+              <p className="text-xs text-slate-400 font-semibold">{t.legacyUi.dailySalesToday}</p>
               <h3 className="text-2xl font-black text-emerald-400 mt-1">${dailySales.toFixed(2)}</h3>
             </div>
             <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl text-emerald-400">
@@ -251,8 +259,8 @@ export const BIAnalyticsDashboard: React.FC<BIAnalyticsDashboardProps> = ({
             </div>
           </div>
           <div className="mt-4 pt-3 border-t border-slate-800/80 flex justify-between text-[11px] text-slate-400">
-            <span>Weekly: <strong className="text-white">${weeklySales.toFixed(0)}</strong></span>
-            <span>Monthly: <strong className="text-white">${monthlySales.toFixed(0)}</strong></span>
+            <span>{translateRawUi('Weekly:')} <strong className="text-white">${weeklySales.toFixed(0)}</strong></span>
+            <span>{translateRawUi('Monthly:')} <strong className="text-white">${monthlySales.toFixed(0)}</strong></span>
           </div>
         </div>
 
@@ -260,7 +268,7 @@ export const BIAnalyticsDashboard: React.FC<BIAnalyticsDashboardProps> = ({
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl flex flex-col justify-between">
           <div className="flex justify-between items-start">
             <div>
-              <p className="text-xs text-slate-400 font-semibold">Net Profit & Margin</p>
+              <p className="text-xs text-slate-400 font-semibold">{t.legacyUi.netProfitMarginCombined}</p>
               <h3 className={`text-2xl font-black mt-1 ${netProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                 ${netProfit.toFixed(2)}
               </h3>
@@ -270,8 +278,8 @@ export const BIAnalyticsDashboard: React.FC<BIAnalyticsDashboardProps> = ({
             </div>
           </div>
           <div className="mt-4 pt-3 border-t border-slate-800/80 flex justify-between text-[11px] text-slate-400">
-            <span>Gross Profit: <strong className="text-white">${grossProfit.toFixed(0)}</strong></span>
-            <span>Margin: <strong className={netProfitMargin >= 15 ? 'text-emerald-400' : 'text-amber-400'}>{netProfitMargin.toFixed(1)}%</strong></span>
+            <span>{translateRawUi('Gross Profit:')} <strong className="text-white">${grossProfit.toFixed(0)}</strong></span>
+            <span>{translateRawUi('Margin:')} <strong className={netProfitMargin >= 15 ? 'text-emerald-400' : 'text-amber-400'}>{netProfitMargin.toFixed(1)}%</strong></span>
           </div>
         </div>
 
@@ -279,17 +287,17 @@ export const BIAnalyticsDashboard: React.FC<BIAnalyticsDashboardProps> = ({
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl flex flex-col justify-between">
           <div className="flex justify-between items-start">
             <div>
-              <p className="text-xs text-slate-400 font-semibold">Food Cost & Labor %</p>
+              <p className="text-xs text-slate-400 font-semibold">{t.legacyUi.foodCostLaborPercent}</p>
               <div className="flex items-center gap-3 mt-1">
                 <div>
-                  <span className="text-xs text-slate-400">Food:</span>
+                  <span className="text-xs text-slate-400">{translateRawUi('Food:')}</span>
                   <p className={`text-lg font-bold ${foodCostPercentage <= 35 ? 'text-emerald-400' : 'text-amber-400'}`}>
                     {foodCostPercentage.toFixed(1)}%
                   </p>
                 </div>
                 <div className="w-px h-6 bg-slate-800" />
                 <div>
-                  <span className="text-xs text-slate-400">Labor:</span>
+                  <span className="text-xs text-slate-400">{translateRawUi('Labor:')}</span>
                   <p className={`text-lg font-bold ${laborCostPercentage <= 30 ? 'text-emerald-400' : 'text-amber-400'}`}>
                     {laborCostPercentage.toFixed(1)}%
                   </p>
@@ -301,8 +309,8 @@ export const BIAnalyticsDashboard: React.FC<BIAnalyticsDashboardProps> = ({
             </div>
           </div>
           <div className="mt-3 pt-2.5 border-t border-slate-800/80 text-[11px] text-slate-400 flex justify-between">
-            <span>Target Food &lt; 35%</span>
-            <span>Target Labor &lt; 30%</span>
+            <span>{t.legacyUi.targetFood}</span>
+            <span>{t.legacyUi.targetLabor}</span>
           </div>
         </div>
 
@@ -310,7 +318,7 @@ export const BIAnalyticsDashboard: React.FC<BIAnalyticsDashboardProps> = ({
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl flex flex-col justify-between">
           <div className="flex justify-between items-start">
             <div>
-              <p className="text-xs text-slate-400 font-semibold">Inventory Valuation</p>
+              <p className="text-xs text-slate-400 font-semibold">{t.legacyUi.inventoryValuation}</p>
               <h3 className="text-2xl font-black text-indigo-400 mt-1">${totalInventoryValue.toFixed(2)}</h3>
             </div>
             <div className="p-2.5 bg-indigo-500/10 border border-indigo-500/20 rounded-2xl text-indigo-400">
@@ -318,8 +326,8 @@ export const BIAnalyticsDashboard: React.FC<BIAnalyticsDashboardProps> = ({
             </div>
           </div>
           <div className="mt-4 pt-3 border-t border-slate-800/80 flex justify-between text-[11px] text-slate-400">
-            <span>Turnover Ratio: <strong className="text-white">{inventoryTurnover.toFixed(2)}x</strong></span>
-            <span>Ingredients: <strong className="text-white">${ingredientsValuation.toFixed(0)}</strong></span>
+            <span>{translateRawUi('Turnover Ratio:')} <strong className="text-white">{inventoryTurnover.toFixed(2)}x</strong></span>
+            <span>{translateRawUi('Ingredients:')} <strong className="text-white">${ingredientsValuation.toFixed(0)}</strong></span>
           </div>
         </div>
       </div>
@@ -332,13 +340,13 @@ export const BIAnalyticsDashboard: React.FC<BIAnalyticsDashboardProps> = ({
               <Flame className="w-6 h-6 animate-pulse" />
             </div>
             <div>
-              <p className="text-xs text-amber-400 font-bold uppercase tracking-wider">Identified Peak Hours</p>
+              <p className="text-xs text-amber-400 font-bold uppercase tracking-wider">{t.legacyUi.identifiedPeakHours}</p>
               <h4 className="text-lg font-black text-white mt-0.5">{peakHourStr}</h4>
-              <p className="text-xs text-slate-400 mt-0.5">Highest order velocity & sales generation</p>
+              <p className="text-xs text-slate-400 mt-0.5">{t.legacyUi.highestOrderVelocity}</p>
             </div>
           </div>
           <div className="text-right">
-            <p className="text-xs text-slate-400">Peak Revenue</p>
+            <p className="text-xs text-slate-400">{t.legacyUi.peakRevenue}</p>
             <p className="text-lg font-bold text-amber-400">${maxHourlySales > 0 ? maxHourlySales.toFixed(2) : '0.00'}</p>
           </div>
         </div>
@@ -349,13 +357,13 @@ export const BIAnalyticsDashboard: React.FC<BIAnalyticsDashboardProps> = ({
               <Clock className="w-6 h-6" />
             </div>
             <div>
-              <p className="text-xs text-blue-400 font-bold uppercase tracking-wider">Identified Slow Hours</p>
+              <p className="text-xs text-blue-400 font-bold uppercase tracking-wider">{t.legacyUi.identifiedSlowHours}</p>
               <h4 className="text-lg font-black text-white mt-0.5">{slowHourStr !== 'N/A' ? slowHourStr : 'Late Night / Off-Peak'}</h4>
-              <p className="text-xs text-slate-400 mt-0.5">Ideal window for kitchen prep & staff shifts</p>
+              <p className="text-xs text-slate-400 mt-0.5">{t.legacyUi.idealPrepShiftWindow}</p>
             </div>
           </div>
           <div className="text-right">
-            <p className="text-xs text-slate-400">Slow Revenue</p>
+            <p className="text-xs text-slate-400">{t.legacyUi.slowRevenue}</p>
             <p className="text-lg font-bold text-blue-400">${minHourlySales !== Infinity ? minHourlySales.toFixed(2) : '0.00'}</p>
           </div>
         </div>
@@ -370,7 +378,7 @@ export const BIAnalyticsDashboard: React.FC<BIAnalyticsDashboardProps> = ({
               <Activity className="w-4 h-4 text-emerald-400" />
               14-Day Sales Revenue & Profit Trend
             </h3>
-            <span className="text-xs text-slate-400">Real-time Firestore</span>
+            <span className="text-xs text-slate-400">{t.legacyUi.realtimeFirestore}</span>
           </div>
 
           <div className="h-64 w-full">
@@ -406,9 +414,9 @@ export const BIAnalyticsDashboard: React.FC<BIAnalyticsDashboardProps> = ({
           <div className="flex justify-between items-center">
             <h3 className="text-sm font-bold text-white flex items-center gap-2">
               <BarChart2 className="w-4 h-4 text-amber-400" />
-              Hourly Sales Distribution (00:00 - 23:00)
+              {translateRawUi('Hourly Sales Distribution (00:00 - 23:00)')}
             </h3>
-            <span className="text-xs text-amber-400 font-semibold">Peak Hours Peak</span>
+            <span className="text-xs text-amber-400 font-semibold">{t.legacyUi.peakHoursPeak}</span>
           </div>
 
           <div className="h-64 w-full">
@@ -434,17 +442,17 @@ export const BIAnalyticsDashboard: React.FC<BIAnalyticsDashboardProps> = ({
           <div>
             <h3 className="text-sm font-bold text-white flex items-center gap-2">
               <Flame className="w-4 h-4 text-amber-400" />
-              Peak Hours Heat Map (24-Hour Intensity Grid)
+              {translateRawUi('Peak Hours Heat Map (24-Hour Intensity Grid)')}
             </h3>
             <p className="text-xs text-slate-400 mt-0.5">
-              Hourly order volume and revenue generation matrix across operational hours
+              {translateRawUi('Hourly order volume and revenue generation matrix across operational hours')}
             </p>
           </div>
           <div className="flex items-center gap-3 text-[11px] text-slate-400">
-            <span className="flex items-center gap-1"><div className="w-3 h-3 bg-slate-950 border border-slate-800 rounded" /> Zero</span>
-            <span className="flex items-center gap-1"><div className="w-3 h-3 bg-emerald-900/60 rounded" /> Low</span>
-            <span className="flex items-center gap-1"><div className="w-3 h-3 bg-amber-600/80 rounded" /> Moderate</span>
-            <span className="flex items-center gap-1"><div className="w-3 h-3 bg-rose-600/90 rounded" /> Peak</span>
+            <span className="flex items-center gap-1"><div className="w-3 h-3 bg-slate-950 border border-slate-800 rounded" /> {translateRawUi('Zero')}</span>
+            <span className="flex items-center gap-1"><div className="w-3 h-3 bg-emerald-900/60 rounded" /> {translateRawUi('Low')}</span>
+            <span className="flex items-center gap-1"><div className="w-3 h-3 bg-amber-600/80 rounded" /> {translateRawUi('Moderate')}</span>
+            <span className="flex items-center gap-1"><div className="w-3 h-3 bg-rose-600/90 rounded" /> {translateRawUi('Peak')}</span>
           </div>
         </div>
 
@@ -463,7 +471,7 @@ export const BIAnalyticsDashboard: React.FC<BIAnalyticsDashboardProps> = ({
               <div
                 key={idx}
                 className={`p-2 rounded-xl border text-center transition hover:scale-105 cursor-pointer flex flex-col justify-between ${bgClass}`}
-                title={`Hour ${item.hour}: $${item.sales.toFixed(2)} (${item.orders} orders)`}
+                title={`${translateRawUi('Hour')} ${item.hour}: $${item.sales.toFixed(2)} (${item.orders} ${translateRawUi('orders')})`}
               >
                 <span className="text-[10px] font-mono opacity-80">{item.hour}</span>
                 <span className="text-xs font-black mt-1">${item.sales > 0 ? item.sales.toFixed(0) : '0'}</span>
@@ -478,11 +486,11 @@ export const BIAnalyticsDashboard: React.FC<BIAnalyticsDashboardProps> = ({
         {/* Best Selling Products */}
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4">
           <h3 className="text-sm font-bold text-white flex items-center gap-2">
-            <Award className="w-4 h-4 text-emerald-400" /> Best Selling Products
+            <Award className="w-4 h-4 text-emerald-400" /> {translateRawUi('Best Selling Products')}
           </h3>
           <div className="space-y-2.5">
             {bestSellingProducts.length === 0 ? (
-              <p className="text-xs text-slate-500 py-4 text-center">No sales recorded yet</p>
+              <p className="text-xs text-slate-500 py-4 text-center">{t.legacyUi.noSalesRecorded}</p>
             ) : (
               bestSellingProducts.map((p, idx) => (
                 <div key={idx} className="bg-slate-950 p-3 rounded-2xl border border-slate-800 flex justify-between items-center">
@@ -505,11 +513,11 @@ export const BIAnalyticsDashboard: React.FC<BIAnalyticsDashboardProps> = ({
         {/* Worst Selling / Slow Moving Products */}
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4">
           <h3 className="text-sm font-bold text-white flex items-center gap-2">
-            <TrendingDown className="w-4 h-4 text-rose-400" /> Worst Selling Products
+            <TrendingDown className="w-4 h-4 text-rose-400" /> {translateRawUi('Worst Selling Products')}
           </h3>
           <div className="space-y-2.5">
             {worstSellingProducts.length === 0 ? (
-              <p className="text-xs text-slate-500 py-4 text-center">No low velocity products</p>
+              <p className="text-xs text-slate-500 py-4 text-center">{t.legacyUi.noLowVelocityProducts}</p>
             ) : (
               worstSellingProducts.map((p, idx) => (
                 <div key={idx} className="bg-slate-950 p-3 rounded-2xl border border-slate-800 flex justify-between items-center">
@@ -532,13 +540,13 @@ export const BIAnalyticsDashboard: React.FC<BIAnalyticsDashboardProps> = ({
         {/* Category Performance Pie Chart */}
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4">
           <h3 className="text-sm font-bold text-white flex items-center gap-2">
-            <PieIcon className="w-4 h-4 text-indigo-400" /> Category Performance
+            <PieIcon className="w-4 h-4 text-indigo-400" /> {translateRawUi('Category Performance')}
           </h3>
           <div className="h-52 w-full">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
-                  data={categoryChartData.length > 0 ? categoryChartData : [{ name: 'Default', value: 100 }]}
+                  data={categoryChartData}
                   cx="50%"
                   cy="50%"
                   innerRadius={50}
@@ -564,9 +572,9 @@ export const BIAnalyticsDashboard: React.FC<BIAnalyticsDashboardProps> = ({
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl flex items-center justify-between">
           <div>
-            <p className="text-xs text-slate-400 font-semibold">Total Customer Base</p>
+            <p className="text-xs text-slate-400 font-semibold">{t.legacyUi.totalCustomerBase}</p>
             <h4 className="text-2xl font-black text-white mt-1">{totalUniqueCustomers}</h4>
-            <p className="text-[11px] text-emerald-400 mt-1">Unique Buyers Recorded</p>
+            <p className="text-[11px] text-emerald-400 mt-1">{t.legacyUi.uniqueBuyersRecorded}</p>
           </div>
           <div className="p-3 bg-emerald-500/10 text-emerald-400 rounded-2xl border border-emerald-500/20">
             <Users className="w-6 h-6" />
@@ -575,7 +583,7 @@ export const BIAnalyticsDashboard: React.FC<BIAnalyticsDashboardProps> = ({
 
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl flex items-center justify-between">
           <div>
-            <p className="text-xs text-slate-400 font-semibold">Repeat / Retention Rate</p>
+            <p className="text-xs text-slate-400 font-semibold">{t.legacyUi.repeatRetentionRate}</p>
             <h4 className="text-2xl font-black text-indigo-400 mt-1">{retentionRate.toFixed(1)}%</h4>
             <p className="text-[11px] text-slate-400 mt-1">{repeatCustomers} Returning Customers</p>
           </div>
@@ -586,7 +594,7 @@ export const BIAnalyticsDashboard: React.FC<BIAnalyticsDashboardProps> = ({
 
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl flex items-center justify-between">
           <div>
-            <p className="text-xs text-slate-400 font-semibold">Average Ticket Value</p>
+            <p className="text-xs text-slate-400 font-semibold">{t.legacyUi.averageTicketValue}</p>
             <h4 className="text-2xl font-black text-amber-400 mt-1">
               ${completedOrders.length > 0 ? (grossSales / completedOrders.length).toFixed(2) : '0.00'}
             </h4>

@@ -1,7 +1,9 @@
+import { translateRawUi } from '../../../i18n';
+import { translations } from '../../../i18n/translations';
 import React, { useState, useEffect } from 'react';
 import { UnitConversion } from '../../../domain/entities/recipe';
 import { RecipeController } from '../../../controllers/RecipeController';
-import { recipeDict, RecipeLang } from './translations';
+import { recipeDict, RecipeLang } from '../../../i18n';
 import { Scale, Plus, Trash2, ArrowRightLeft, CheckCircle2 } from 'lucide-react';
 
 interface UnitConversionsViewProps {
@@ -10,7 +12,7 @@ interface UnitConversionsViewProps {
 }
 
 export const UnitConversionsView: React.FC<UnitConversionsViewProps> = ({ controller, lang }) => {
-  const t = recipeDict[lang] || recipeDict.en;
+  const t = { ...(recipeDict[lang] || recipeDict.en), legacyUi: translations[lang].legacyUi };
 
   const [conversions, setConversions] = useState<UnitConversion[]>([]);
   const [showModal, setShowModal] = useState(false);
@@ -51,7 +53,7 @@ export const UnitConversionsView: React.FC<UnitConversionsViewProps> = ({ contro
             {t.conversions.title}
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            Define custom packaging and metric conversion multipliers used by the recipe &amp; inventory deduction engine.
+            {translateRawUi('Define custom packaging and metric conversion multipliers used by the recipe &amp; inventory deduction engine.')}
           </p>
         </div>
 
@@ -87,7 +89,7 @@ export const UnitConversionsView: React.FC<UnitConversionsViewProps> = ({ contro
 
               <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800 text-center space-y-1">
                 <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                  Conversion Factor
+                  {translateRawUi('Conversion Factor')}
                 </p>
                 <p className="text-xl font-black text-white font-mono">
                   1 {conv.fromUnit} = {conv.factor} {conv.toUnit}
@@ -101,7 +103,7 @@ export const UnitConversionsView: React.FC<UnitConversionsViewProps> = ({ contro
 
         {conversions.length === 0 && (
           <div className="col-span-full p-12 text-center bg-slate-900 border border-slate-800 rounded-3xl text-slate-400 text-xs">
-            No custom conversion rules created yet. Default metric rules (kg to g, L to ml) are active automatically.
+            {translateRawUi('No custom conversion rules created yet. Default metric rules (kg to g, L to ml) are active automatically.')}
           </div>
         )}
       </div>
@@ -134,7 +136,7 @@ export const UnitConversionsView: React.FC<UnitConversionsViewProps> = ({ contro
                     required
                     value={fromUnit}
                     onChange={(e) => setFromUnit(e.target.value)}
-                    placeholder="e.g. box"
+                    placeholder={translateRawUi('e.g. box')}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
                   />
                 </div>
@@ -148,7 +150,7 @@ export const UnitConversionsView: React.FC<UnitConversionsViewProps> = ({ contro
                     required
                     value={toUnit}
                     onChange={(e) => setToUnit(e.target.value)}
-                    placeholder="e.g. pcs"
+                    placeholder={translateRawUi('e.g. pcs')}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
                   />
                 </div>
@@ -178,7 +180,7 @@ export const UnitConversionsView: React.FC<UnitConversionsViewProps> = ({ contro
                   type="text"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  placeholder="e.g. 1 Bakery Box contains 24 sesame buns"
+                  placeholder={translateRawUi('e.g. 1 Bakery Box contains 24 sesame buns')}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
                 />
               </div>

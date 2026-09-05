@@ -70,9 +70,10 @@ export class FinancialsRepositoryImpl implements IFinancialsRepository {
   }
 
   async getActiveTaxConfig(branchId?: string): Promise<any> {
-    const taxesSnap = await getDocs(collection(db, COLLECTIONS.TAXES));
+    if (!branchId || branchId === 'all') throw new Error('A concrete branchId is required to resolve tax configuration.');
+    const taxesSnap = await getDocs(query(collection(db, COLLECTIONS.TAXES), where('branchId', '==', branchId)));
     if (taxesSnap.empty) {
-      throw new Error('No active tax configuration found.');
+      throw new Error(`No active tax configuration found for branch ${branchId}.`);
     }
     const activeTaxes = taxesSnap.docs
       .map(d => ({ id: d.id, ...d.data() } as any))
@@ -89,10 +90,7 @@ export class FinancialsRepositoryImpl implements IFinancialsRepository {
         throw new Error(`No active tax configuration found for branch ${branchId}.`);
       }
     } else {
-      selectedTax = activeTaxes.find(t => t.branchId === 'all' || !t.branchId || t.isDefault);
-      if (!selectedTax) {
-        throw new Error('No active tax configuration found.');
-      }
+      throw new Error(`No active tax configuration found for branch ${branchId}.`);
     }
 
     if (!selectedTax || typeof selectedTax.rate !== 'number' || !Number.isFinite(selectedTax.rate)) {

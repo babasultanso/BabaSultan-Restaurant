@@ -1,3 +1,4 @@
+import { translateRawUi } from '../../../i18n/rawUi';
 import React, { useState } from 'react';
 import { Ingredient, Product, Supplier, Order } from '../../../types';
 import { AlertTriangle, ShieldAlert, Clock, X, ChevronRight } from 'lucide-react';
@@ -28,7 +29,7 @@ export const NotificationsBanner: React.FC<NotificationsBannerProps> = ({
     if (o.status !== 'in_preparation' && o.prepStatus !== 'preparing') return false;
     if (!o.createdAt) return false;
     const mins = (Date.now() - new Date(o.createdAt).getTime()) / 60000;
-    return mins > (o.targetPrepTimeMinutes || 15);
+    return Number.isFinite(Number(o.targetPrepTimeMinutes)) && mins > Number(o.targetPrepTimeMinutes);
   });
 
   const hasAlerts = totalLowStock > 0 || overdueSuppliers.length > 0 || delayedOrders.length > 0;
@@ -40,7 +41,7 @@ export const NotificationsBanner: React.FC<NotificationsBannerProps> = ({
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0" />
-          <span className="font-extrabold text-amber-300 text-sm">System Operational Alerts Attention Required</span>
+          <span className="font-extrabold text-amber-300 text-sm">{translateRawUi('System Operational Alerts Attention Required')}</span>
         </div>
         <button
           onClick={() => setDismissed(true)}

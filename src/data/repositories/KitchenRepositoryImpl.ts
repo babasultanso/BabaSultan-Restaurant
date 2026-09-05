@@ -11,7 +11,7 @@ import {
   orderBy,
   where
 } from 'firebase/firestore';
-import { db, COLLECTIONS, deductProductIngredientsStockFirestore, updateKitchenStatusFirestore, updateKitchenTicketFirestore, recordInventoryMovementFirestore, getAuthToken } from '../../lib/firebase';
+import { db, COLLECTIONS, deductProductIngredientsStockFirestore, updateKitchenStatusFirestore, updateKitchenTicketFirestore, updateStationStatusFirestore, recordInventoryMovementFirestore, getAuthToken } from '../../lib/firebase';
 import { getApiUrl } from '../../lib/apiConfig';
 import {
   KitchenTicket,
@@ -87,15 +87,24 @@ export function routeProductToStation(productName: string, category?: string): K
 
 export class KitchenRepositoryImpl implements KitchenRepository {
 
-  subscribeKitchenTickets(callback: (tickets: KitchenTicket[]) => void, branchId?: string, isHQ?: boolean, onError?: (err: Error) => void): () => void {
+  subscribeKitchenTickets(
+    callback: (tickets: KitchenTicket[]) => void,
+    branchId?: string,
+    isHQ?: boolean,
+    onError?: (err: Error) => void,
+    onNewTickets?: (newTickets: KitchenTicket[]) => void
+  ): () => void {
     const isBranchScoped = !isHQ && branchId && branchId !== 'all';
     const q = isBranchScoped
       ? query(collection(db, COLLECTIONS.KITCHEN_ORDERS), where('branchId', '==', branchId))
       : query(collection(db, COLLECTIONS.KITCHEN_ORDERS), orderBy('createdAt', 'desc'));
     
+    let isInitialSnapshot = true;
+    const knownTicketIds = new Set<string>();
+
     const unsubscribe = onSnapshot(q, (snap) => {
       try {
-        const tickets: KitchenTicket[] = snap.docs.map(d => {
+        const parseTicketDoc = (d: any): KitchenTicket => {
           const data = d.data();
           const createdTimestamp = data.createdAt || data.orderTime || new Date().toISOString();
           return {
@@ -112,11 +121,30 @@ export class KitchenRepositoryImpl implements KitchenRepository {
             items: data.items || [],
             prepStatus: (data.prepStatus || 'new') as KitchenPrepStatus,
             priority: (data.priority || 'normal') as KitchenOrderPriority,
-            estimatedPrepTimeMinutes: data.estimatedPrepTimeMinutes || 15,
+            estimatedPrepTimeMinutes: Number.isFinite(Number(data.estimatedPrepTimeMinutes)) ? Number(data.estimatedPrepTimeMinutes) : 0,
             notes: data.notes || '',
             ...data
           } as KitchenTicket;
-        });
+        };
+
+        const tickets: KitchenTicket[] = snap.docs.map(parseTicketDoc);
+
+        // Track new tickets using docChanges
+        if (isInitialSnapshot) {
+          snap.docs.forEach(d => knownTicketIds.add(d.id));
+          isInitialSnapshot = false;
+        } else if (onNewTickets && snap.docChanges) {
+          const newAddedTickets: KitchenTicket[] = [];
+          snap.docChanges().forEach((change) => {
+            if (change.type === 'added' && !knownTicketIds.has(change.doc.id)) {
+              knownTicketIds.add(change.doc.id);
+              newAddedTickets.push(parseTicketDoc(change.doc));
+            }
+          });
+          if (newAddedTickets.length > 0) {
+            onNewTickets(newAddedTickets);
+          }
+        }
 
         // Ensure robust sorting by descending creation time
         tickets.sort((a, b) => new Date(b.createdAt || b.orderTime || 0).getTime() - new Date(a.createdAt || a.orderTime || 0).getTime());
@@ -133,8 +161,16 @@ export class KitchenRepositoryImpl implements KitchenRepository {
     return unsubscribe;
   }
 
-  subscribeKitchenStations(callback: (stations: KitchenStation[]) => void, onError?: (err: Error) => void): () => void {
-    const q = query(collection(db, COLLECTIONS.STATIONS));
+  subscribeKitchenStations(
+    callback: (stations: KitchenStation[]) => void,
+    branchId?: string,
+    isHQ?: boolean,
+    onError?: (err: Error) => void
+  ): () => void {
+    const isBranchScoped = !isHQ && branchId && branchId !== 'all';
+    const q = isBranchScoped
+      ? query(collection(db, COLLECTIONS.STATIONS), where('branchId', 'in', [branchId, 'all']))
+      : query(collection(db, COLLECTIONS.STATIONS));
     return onSnapshot(q, (snap) => {
       const stations: KitchenStation[] = snap.docs.map(d => ({
         id: d.id,
@@ -170,7 +206,7 @@ export class KitchenRepositoryImpl implements KitchenRepository {
         items: data.items || [],
         prepStatus: (data.prepStatus || 'new') as KitchenPrepStatus,
         priority: (data.priority || 'normal') as KitchenOrderPriority,
-        estimatedPrepTimeMinutes: data.estimatedPrepTimeMinutes || 15,
+        estimatedPrepTimeMinutes: Number.isFinite(Number(data.estimatedPrepTimeMinutes)) ? Number(data.estimatedPrepTimeMinutes) : 0,
         notes: data.notes || '',
         ...data
       } as KitchenTicket;
@@ -180,8 +216,12 @@ export class KitchenRepositoryImpl implements KitchenRepository {
     return tickets;
   }
 
-  async getKitchenStations(): Promise<KitchenStation[]> {
-    const snap = await getDocs(collection(db, COLLECTIONS.STATIONS));
+  async getKitchenStations(branchId?: string, isHQ?: boolean): Promise<KitchenStation[]> {
+    const isBranchScoped = !isHQ && branchId && branchId !== 'all';
+    const q = isBranchScoped
+      ? query(collection(db, COLLECTIONS.STATIONS), where('branchId', 'in', [branchId, 'all']))
+      : query(collection(db, COLLECTIONS.STATIONS));
+    const snap = await getDocs(q);
     return snap.docs.map(d => ({ id: d.id, ...d.data() } as KitchenStation));
   }
 
@@ -238,10 +278,7 @@ export class KitchenRepositoryImpl implements KitchenRepository {
   }
 
   async updateStationStatus(stationId: string, status: 'normal' | 'busy' | 'overloaded', chefName?: string): Promise<void> {
-    const stationRef = doc(db, COLLECTIONS.STATIONS, stationId);
-    const updates: any = { status };
-    if (chefName) updates.assignedChef = chefName;
-    await updateDoc(stationRef, updates);
+    await updateStationStatusFirestore(stationId, status, chefName);
   }
 
   async createKitchenTicketFromOrder(order: any): Promise<KitchenTicket> {
@@ -252,7 +289,7 @@ export class KitchenRepositoryImpl implements KitchenRepository {
       quantity: i.quantity,
       notes: i.notes || '',
       selectedOptions: i.selectedOptions || [],
-      assignedStation: routeProductToStation(i.productName, i.category),
+      assignedStation: (i.productionStation || i.station || i.stationId || routeProductToStation('', i.category)) as KitchenStationType,
       itemStatus: 'new'
     }));
 
@@ -280,13 +317,15 @@ export class KitchenRepositoryImpl implements KitchenRepository {
 
   async logKitchenWaste(wasteData: Omit<KitchenWasteLog, 'id' | 'createdAt'>): Promise<string> {
     const token = await getAuthToken();
+    const idempotencyKey = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const response = await fetch(getApiUrl('/api/kitchen/waste'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'Idempotency-Key': idempotencyKey,
         ...(token ? { 'Authorization': `Bearer ${token}` } : {})
       },
-      body: JSON.stringify({ wasteData })
+      body: JSON.stringify({ wasteData: { ...wasteData, idempotencyKey } })
     });
 
     if (!response.ok) {

@@ -53,9 +53,27 @@ import {
   DeliveryDriver
 } from '../types';
 import { getApiUrl } from './apiConfig';
+export { getApiUrl };
 
-// Build active Firebase config using Environment Variables if present, otherwise default to config JSON
+// Build active Firebase config using explicit environment values when supplied.
+// VITE_FIREBASE_PROJECT_ID is required for production builds.
+// Production builds must explicitly name their Firebase project to prevent a bundled
+// test configuration from silently becoming the production data source.
 const env = (import.meta as any).env || {};
+const requiredProductionFirebaseEnv = [
+  'VITE_FIREBASE_PROJECT_ID',
+  'VITE_FIREBASE_API_KEY',
+  'VITE_FIREBASE_AUTH_DOMAIN',
+  'VITE_FIREBASE_STORAGE_BUCKET',
+  'VITE_FIREBASE_MESSAGING_SENDER_ID',
+  'VITE_FIREBASE_APP_ID'
+] as const;
+if (env.PROD) {
+  const missing = requiredProductionFirebaseEnv.filter((name) => !env[name] || String(env[name]).trim() === '');
+  if (missing.length > 0) {
+    throw new Error(`Missing required Firebase production configuration: ${missing.join(', ')}`);
+  }
+}
 const resolvedFirebaseConfig = {
   apiKey: env.VITE_FIREBASE_API_KEY || defaultFirebaseConfig.apiKey,
   authDomain: env.VITE_FIREBASE_AUTH_DOMAIN || defaultFirebaseConfig.authDomain,
@@ -82,7 +100,7 @@ export async function getAuthToken(): Promise<string> {
 }
 
 // Initialize Firestore using named database ID from config or env if provided
-const firestoreDbId = env.VITE_FIREBASE_DATABASE_ID || (defaultFirebaseConfig as any).firestoreDatabaseId;
+const firestoreDbId = env.VITE_FIREBASE_DATABASE_ID || (!env.PROD ? (defaultFirebaseConfig as any).firestoreDatabaseId : undefined);
 export const db = firestoreDbId ? getFirestore(app, firestoreDbId) : getFirestore(app);
 
 
@@ -124,9 +142,10 @@ export const COLLECTIONS = {
   REVENUES: 'revenues',
   AI_SETTINGS: 'ai_settings',
   PERMISSIONS: 'permissions',
+  PRODUCT_OPTIONS: 'product_options',
 
   // Operations Manager Collections
-  DELIVERY_DRIVERS: 'delivery_drivers',
+  DELIVERY_DRIVERS: 'drivers',
   STATIONS: 'kitchen_stations',
   ATTENDANCE: 'employee_attendance',
   RESERVATIONS: 'reservations',
@@ -160,7 +179,7 @@ export const COLLECTIONS = {
 
   // Phase 9 HRM Collections
   HRM_EMPLOYEES: 'employees',
-  HRM_ATTENDANCE: 'attendance',
+  HRM_ATTENDANCE: 'employee_attendance',
   HRM_SHIFTS: 'shifts',
   HRM_PAYROLL: 'payroll',
   HRM_LEAVE_REQUESTS: 'leave_requests',
@@ -219,13 +238,15 @@ export async function executeAIActionFirestore(actionType: string, payload: any)
 
 export async function addExpenseFirestore(data: Omit<Expense, 'id' | 'createdAt'>) {
   const token = await getAuthToken();
+  const idempotencyKey = (data as any).idempotencyKey || `expense:${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
   const response = await fetch(getApiUrl('/api/expenses'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'Idempotency-Key': idempotencyKey,
       ...(token ? { 'Authorization': `Bearer ${token}` } : {})
     },
-    body: JSON.stringify({ expenseData: data })
+    body: JSON.stringify({ expenseData: { ...data, idempotencyKey } })
   });
 
   if (!response.ok) {
@@ -239,13 +260,15 @@ export async function addExpenseFirestore(data: Omit<Expense, 'id' | 'createdAt'
 
 export async function addPurchaseFirestore(data: Omit<Purchase, 'id' | 'createdAt'>) {
   const token = await getAuthToken();
+  const idempotencyKey = (data as any).idempotencyKey || `purchase:${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
   const response = await fetch(getApiUrl('/api/purchases'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'Idempotency-Key': idempotencyKey,
       ...(token ? { 'Authorization': `Bearer ${token}` } : {})
     },
-    body: JSON.stringify({ purchaseData: data })
+    body: JSON.stringify({ purchaseData: { ...data, idempotencyKey } })
   });
 
   if (!response.ok) {
@@ -259,13 +282,15 @@ export async function addPurchaseFirestore(data: Omit<Purchase, 'id' | 'createdA
 
 export async function addSalaryFirestore(data: Omit<SalaryPayment, 'id' | 'paidDate'>) {
   const token = await getAuthToken();
+  const idempotencyKey = (data as any).idempotencyKey || `salary:${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
   const response = await fetch(getApiUrl('/api/salaries'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'Idempotency-Key': idempotencyKey,
       ...(token ? { 'Authorization': `Bearer ${token}` } : {})
     },
-    body: JSON.stringify({ salaryData: data })
+    body: JSON.stringify({ salaryData: { ...data, idempotencyKey } })
   });
 
   if (!response.ok) {
@@ -277,15 +302,22 @@ export async function addSalaryFirestore(data: Omit<SalaryPayment, 'id' | 'paidD
   return result.id;
 }
 
-export async function recordInventoryMovementFirestore(data: Omit<InventoryMovement, 'id' | 'createdAt'>) {
+export async function recordInventoryMovementFirestore(data: Omit<InventoryMovement, 'id' | 'createdAt'> & { itemType?: 'inventory' | 'ingredient' | 'product' }) {
   const token = await getAuthToken();
+  const idempotencyKey = globalThis.crypto?.randomUUID?.() || `inventory-movement:${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const movementData = {
+    ...data,
+    itemType: data.itemType || 'inventory',
+    idempotencyKey
+  };
   const response = await fetch(getApiUrl('/api/inventory/adjust'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'Idempotency-Key': idempotencyKey,
       ...(token ? { 'Authorization': `Bearer ${token}` } : {})
     },
-    body: JSON.stringify({ movementData: data })
+    body: JSON.stringify({ movementData })
   });
 
   if (!response.ok) {
@@ -299,13 +331,15 @@ export async function recordInventoryMovementFirestore(data: Omit<InventoryMovem
 
 export async function updateProductStockFirestore(productId: string, newStock: number) {
   const token = await getAuthToken();
+  const idempotencyKey = `product-stock:${productId}:${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
   const response = await fetch(getApiUrl('/api/inventory/stock'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'Idempotency-Key': idempotencyKey,
       ...(token ? { 'Authorization': `Bearer ${token}` } : {})
     },
-    body: JSON.stringify({ productId, newStock })
+    body: JSON.stringify({ productId, newStock, idempotencyKey })
   });
 
   if (!response.ok) {
@@ -324,16 +358,19 @@ export async function addRefundFirestore(data: Omit<CustomerRefund, 'id' | 'crea
   }
 
   const token = await getAuthToken();
+  const idempotencyKey = (data as any).idempotencyKey || `REF-${data.orderId}-${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
   const response = await fetch(getApiUrl(`/api/orders/${data.orderId}/refund`), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'Idempotency-Key': idempotencyKey,
       ...(token ? { 'Authorization': `Bearer ${token}` } : {})
     },
     body: JSON.stringify({
       amount: data.amount,
       reason: data.reason,
-      paymentMethod: (data as any).paymentMethod
+      paymentMethod: (data as any).paymentMethod,
+      idempotencyKey
     })
   });
 
@@ -348,13 +385,15 @@ export async function addRefundFirestore(data: Omit<CustomerRefund, 'id' | 'crea
 
 export async function addBankTransactionFirestore(data: Omit<BankTransaction, 'id' | 'createdAt'>) {
   const token = await getAuthToken();
+  const idempotencyKey = (data as any).idempotencyKey || `bank-transaction:${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
   const response = await fetch(getApiUrl('/api/bank-transactions'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'Idempotency-Key': idempotencyKey,
       ...(token ? { 'Authorization': `Bearer ${token}` } : {})
     },
-    body: JSON.stringify({ bankTransactionData: data })
+    body: JSON.stringify({ bankTransactionData: { ...data, idempotencyKey } })
   });
 
   if (!response.ok) {
@@ -372,13 +411,6 @@ export async function updateAccountBalanceFirestore(accountId: string, newBalanc
 }
 
 // Operational Actions
-export async function updateStationStatusFirestore(stationId: string, status: 'normal' | 'busy' | 'overloaded', assignedChef?: string) {
-  const stationRef = doc(db, COLLECTIONS.STATIONS, stationId);
-  const updates: any = { status };
-  if (assignedChef) updates.assignedChef = assignedChef;
-  await updateDoc(stationRef, updates);
-}
-
 export async function assignDriverToOrderFirestore(orderId: string, driverId: string, driverName: string) {
   await assignDeliveryDriverFirestore(orderId, driverId, driverName);
 }
@@ -480,20 +512,22 @@ export async function addProductFirestore(data: Omit<Product, 'id'>, branchIdOve
 }
 
 export async function updateProductFirestore(productId: string, data: Partial<Product>) {
+  const idempotencyKey = globalThis.crypto?.randomUUID?.() || `product-update:${productId}:${Date.now()}`;
   const { stock, currentStock, quantityOnHand, reservedStock, salesCount, branchId, ...safeData } = data as any;
   if (stock !== undefined) {
-    try {
-      const token = await getAuthToken();
-      await fetch(getApiUrl('/api/inventory/stock'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-        },
-        body: JSON.stringify({ productId, newStock: Number(stock) })
-      });
-    } catch (err) {
-      console.warn('Backend stock update note:', err);
+    const token = await getAuthToken();
+    const res = await fetch(getApiUrl('/api/inventory/stock'), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': idempotencyKey,
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify({ productId, newStock: Number(stock), idempotencyKey })
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error || `Failed to update product stock: HTTP ${res.status}`);
     }
   }
 
@@ -508,7 +542,12 @@ export async function updateProductFirestore(productId: string, data: Partial<Pr
 
 export async function deleteProductFirestore(productId: string) {
   const productRef = doc(db, COLLECTIONS.PRODUCTS, productId);
-  await deleteDoc(productRef);
+  await updateDoc(productRef, {
+    isActive: false,
+    isArchived: true,
+    deletedAt: new Date().toISOString(),
+    availabilityStatus: 'disabled'
+  });
 }
 
 export async function toggleProductAvailabilityFirestore(productId: string, status: 'enabled' | 'disabled' | 'out_of_stock') {
@@ -539,7 +578,11 @@ export async function updateCategoryFirestore(categoryId: string, data: Partial<
 
 export async function deleteCategoryFirestore(categoryId: string) {
   const catRef = doc(db, COLLECTIONS.CATEGORIES, categoryId);
-  await deleteDoc(catRef);
+  await updateDoc(catRef, {
+    isActive: false,
+    isArchived: true,
+    deletedAt: new Date().toISOString()
+  });
 }
 
 export async function reorderCategoriesFirestore(categories: { id: string; order: number }[]) {
@@ -553,29 +596,19 @@ export async function reorderCategoriesFirestore(categories: { id: string; order
 
 // Recipe & Ingredient Operations
 export async function addRecipeFirestore(recipe: Omit<Recipe, 'id'>, branchIdOverride?: string) {
-  const createdAt = new Date().toISOString();
-  const effectiveBranchId = getEffectiveBranchId(recipe.branchId || branchIdOverride);
-  const docRef = await addDoc(collection(db, COLLECTIONS.RECIPES), {
-    ...recipe,
-    branchId: effectiveBranchId,
-    branch: recipe.branch || effectiveBranchId,
-    createdAt,
-    updatedAt: createdAt
-  });
-  return docRef.id;
+  const token=await getAuthToken(); const idempotencyKey=globalThis.crypto?.randomUUID?.()||`${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const effectiveBranchId=getEffectiveBranchId(recipe.branchId||branchIdOverride);
+  const response=await fetch(getApiUrl('/api/recipes'),{method:'POST',headers:{'Content-Type':'application/json','Idempotency-Key':idempotencyKey,...(token?{'Authorization':`Bearer ${token}`}:{})},body:JSON.stringify({recipeData:{...recipe,branchId:effectiveBranchId}})}); const data=await response.json().catch(()=>({})); if(!response.ok)throw new Error(data.error||`Recipe creation failed (${response.status})`); return (data.recipe||data).id;
 }
 
 export async function updateRecipeFirestore(recipeId: string, data: Partial<Recipe>) {
-  const recipeRef = doc(db, COLLECTIONS.RECIPES, recipeId);
-  await updateDoc(recipeRef, {
-    ...data,
-    updatedAt: new Date().toISOString()
-  });
+  const token=await getAuthToken(); const idempotencyKey=globalThis.crypto?.randomUUID?.()||`${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const response=await fetch(getApiUrl(`/api/recipes/${encodeURIComponent(recipeId)}/update`),{method:'POST',headers:{'Content-Type':'application/json','Idempotency-Key':idempotencyKey,...(token?{'Authorization':`Bearer ${token}`}:{})},body:JSON.stringify({recipeData:data})}); const out=await response.json().catch(()=>({})); if(!response.ok)throw new Error(out.error||`Recipe update failed (${response.status})`);
 }
 
 export async function deleteRecipeFirestore(recipeId: string) {
-  const recipeRef = doc(db, COLLECTIONS.RECIPES, recipeId);
-  await deleteDoc(recipeRef);
+  const token=await getAuthToken(); const idempotencyKey=globalThis.crypto?.randomUUID?.()||`${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const response=await fetch(getApiUrl(`/api/recipes/${encodeURIComponent(recipeId)}`),{method:'DELETE',headers:{'Content-Type':'application/json','Idempotency-Key':idempotencyKey,...(token?{'Authorization':`Bearer ${token}`}:{})}}); const out=await response.json().catch(()=>({})); if(!response.ok)throw new Error(out.error||`Recipe deletion failed (${response.status})`);
 }
 
 export async function addIngredientFirestore(ingredient: Omit<Ingredient, 'id'>, branchIdOverride?: string) {
@@ -592,42 +625,40 @@ export async function addIngredientFirestore(ingredient: Omit<Ingredient, 'id'>,
 }
 
 export async function updateIngredientFirestore(ingredientId: string, data: Partial<Ingredient>) {
-  const { stock, currentQuantity, currentStock, quantityOnHand, currentStockUsageUnit, reservedStock, branchId, ...safeData } = data as any;
-  if (stock !== undefined || currentQuantity !== undefined || currentStockUsageUnit !== undefined) {
-    const qty = stock !== undefined ? stock : currentQuantity !== undefined ? currentQuantity : currentStockUsageUnit;
-    try {
-      const token = await getAuthToken();
-      await fetch(getApiUrl('/api/inventory/adjust'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-        },
-        body: JSON.stringify({
-          type: 'adjustment',
-          itemType: 'ingredient',
-          itemId: ingredientId,
-          quantity: Number(qty),
-          reason: 'Client-triggered ingredient stock adjustment'
-        })
-      });
-    } catch (err) {
-      console.warn('Backend ingredient stock adjustment note:', err);
+  const { stock, currentStock, currentStockUsageUnit, ...safeData } = data as any;
+  if (stock !== undefined || currentStock !== undefined || currentStockUsageUnit !== undefined) {
+    const qty = Number(stock ?? currentStock ?? currentStockUsageUnit);
+    if (!Number.isFinite(qty) || qty < 0) throw new Error('Ingredient stock must be a finite non-negative number.');
+    const token = await getAuthToken();
+    const idempotencyKey = globalThis.crypto?.randomUUID?.() || `ingredient-stock:${ingredientId}:${Date.now()}`;
+    const res = await fetch(getApiUrl('/api/inventory/adjust'), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': idempotencyKey,
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify({ itemType: 'ingredient', itemId: ingredientId, mode: 'set', quantity: qty, reason: 'Ingredient stock set from management', idempotencyKey })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `Failed to set ingredient stock: HTTP ${res.status}`);
     }
   }
-
   if (Object.keys(safeData).length > 0) {
-    const ingRef = doc(db, COLLECTIONS.INGREDIENTS, ingredientId);
-    await updateDoc(ingRef, {
-      ...safeData,
-      updatedAt: new Date().toISOString()
-    });
+    const ingredientRef = doc(db, COLLECTIONS.INGREDIENTS, ingredientId);
+    await updateDoc(ingredientRef, { ...safeData, updatedAt: new Date().toISOString() });
   }
 }
 
 export async function deleteIngredientFirestore(ingredientId: string) {
   const ingRef = doc(db, COLLECTIONS.INGREDIENTS, ingredientId);
-  await deleteDoc(ingRef);
+  await updateDoc(ingRef, {
+    isActive: false,
+    isArchived: true,
+    deletedAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  });
 }
 
 // Equipment Operations
@@ -653,18 +684,24 @@ export async function deleteEquipmentItemFirestore(itemId: string) {
 
 // Product Options Operations
 export async function addProductOptionFirestore(data: Omit<ProductOption, 'id'>) {
-  const docRef = await addDoc(collection(db, COLLECTIONS.PERMISSIONS /* or product_options collection */), data);
-  return docRef.id;
+  const token = await getAuthToken();
+  const branchId = getEffectiveBranchId((data as any).branchId);
+  const idempotencyKey = `product-option-create:${branchId}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+  const res = await fetch(getApiUrl('/api/product-options'), { method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${token}`,'Idempotency-Key':idempotencyKey}, body:JSON.stringify({ optionData:{...data,branchId,idempotencyKey} }) });
+  if(!res.ok){ let message='Failed to create product option.'; try{message=(await res.json())?.error||message;}catch{} throw new Error(message); }
+  return String((await res.json()).id);
 }
 
 export async function updateProductOptionFirestore(optionId: string, data: Partial<ProductOption>) {
-  const optRef = doc(db, 'product_options', optionId);
-  await updateDoc(optRef, data);
+  const token = await getAuthToken(); const idempotencyKey=`product-option-update:${optionId}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+  const res=await fetch(getApiUrl(`/api/product-options/${encodeURIComponent(optionId)}`),{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${token}`,'Idempotency-Key':idempotencyKey},body:JSON.stringify({...data,idempotencyKey})});
+  if(!res.ok){let message='Failed to update product option.';try{message=(await res.json())?.error||message;}catch{}throw new Error(message);}
 }
 
 export async function deleteProductOptionFirestore(optionId: string) {
-  const optRef = doc(db, 'product_options', optionId);
-  await deleteDoc(optRef);
+  const token = await getAuthToken(); const idempotencyKey=`product-option-delete:${optionId}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+  const res=await fetch(getApiUrl(`/api/product-options/${encodeURIComponent(optionId)}`),{method:'DELETE',headers:{'Content-Type':'application/json','Authorization':`Bearer ${token}`,'Idempotency-Key':idempotencyKey},body:JSON.stringify({idempotencyKey})});
+  if(!res.ok){let message='Failed to delete product option.';try{message=(await res.json())?.error||message;}catch{}throw new Error(message);}
 }
 
 /**
@@ -762,26 +799,37 @@ export function routeProductToStation(productName: string, category?: string): '
 
 export async function createOrderFirestore(orderData: Omit<Order, 'id'>): Promise<Order> {
   const token = await getAuthToken();
-  const idempotencyKey = (orderData as any).idempotencyKey || `POS-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+  const idempotencyKey = (orderData as any).idempotencyKey || (globalThis.crypto?.randomUUID ? `POS-${globalThis.crypto.randomUUID()}` : `POS-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`);
 
-  const enrichedOrderData: any = { ...orderData };
-  const rawMethod = String(enrichedOrderData.paymentMethod || 'cash').toLowerCase();
-  const isCredit = rawMethod === 'credit' || rawMethod === 'unpaid' || enrichedOrderData.isCredit === true || enrichedOrderData.paymentStatus === 'unpaid';
+  // Never forward client-authoritative financial/operational state to checkout.
+  // The trusted backend derives these values from the canonical catalog and branch configuration.
+  const {
+    status: _clientStatus,
+    paymentStatus: _clientPaymentStatus,
+    deliveryStatus: _clientDeliveryStatus,
+    paidAmount: _clientPaidAmount,
+    paymentAmount: _clientPaymentAmount,
+    changeDue: _clientChangeDue,
+    amountTendered: _clientAmountTendered,
+    cogs: _clientCogs,
+    profit: _clientProfit,
+    pointsEarnedAtCheckout: _clientPointsEarned,
+    loyaltyPointsEarned: _clientLoyaltyPoints,
+    idempotencyKey: _clientIdempotencyKey,
+    ...clientIntent
+  } = orderData as any;
 
-  if (!isCredit && enrichedOrderData.paidAmount === undefined && enrichedOrderData.paymentAmount === undefined) {
-    if (enrichedOrderData.amountTendered !== undefined && enrichedOrderData.amountTendered !== null) {
-      enrichedOrderData.paidAmount = enrichedOrderData.amountTendered;
-      enrichedOrderData.paymentAmount = enrichedOrderData.amountTendered;
-    } else if (enrichedOrderData.totalAmount !== undefined && enrichedOrderData.totalAmount !== null) {
-      enrichedOrderData.paidAmount = enrichedOrderData.totalAmount;
-      enrichedOrderData.paymentAmount = enrichedOrderData.totalAmount;
-    }
+  const enrichedOrderData: any = { ...clientIntent };
+  // Cash tender is an input; the server computes paidAmount/changeDue.
+  if (String(orderData.paymentMethod || '').toLowerCase() === 'cash' && orderData.amountTendered !== undefined) {
+    enrichedOrderData.amountTendered = orderData.amountTendered;
   }
 
   const response = await fetch(getApiUrl('/api/pos/complete'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'Idempotency-Key': idempotencyKey,
       ...(token ? { 'Authorization': `Bearer ${token}` } : {})
     },
     body: JSON.stringify({ orderData: enrichedOrderData, idempotencyKey })
@@ -811,13 +859,15 @@ export async function postCancellationReversalJournalFirestore(order: Order, rea
 
 export async function updateOrderFirestore(orderId: string, data: Partial<Order>): Promise<void> {
   const token = await getAuthToken();
+  const idempotencyKey = globalThis.crypto?.randomUUID?.() || `order-update:${orderId}:${Date.now()}`;
   const response = await fetch(getApiUrl(`/api/orders/${orderId}/update`), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'Idempotency-Key': idempotencyKey,
       ...(token ? { 'Authorization': `Bearer ${token}` } : {})
     },
-    body: JSON.stringify(data)
+    body: JSON.stringify({ ...data, idempotencyKey })
   });
 
   if (!response.ok) {
@@ -831,13 +881,15 @@ export async function updateOrderStatusFirestore(orderId: string, status: OrderS
 
   if (status === 'cancelled') {
     const token = await getAuthToken();
+    const idempotencyKey = globalThis.crypto?.randomUUID?.() || `order-cancel:${orderId}:${Date.now()}`;
     const response = await fetch(getApiUrl(`/api/orders/${orderId}/cancel`), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'Idempotency-Key': idempotencyKey,
         ...(token ? { 'Authorization': `Bearer ${token}` } : {})
       },
-      body: JSON.stringify({ reason: reason || 'Order Cancellation' })
+      body: JSON.stringify({ reason: reason || 'Order Cancellation', idempotencyKey })
     });
 
     if (!response.ok) {
@@ -847,15 +899,24 @@ export async function updateOrderStatusFirestore(orderId: string, status: OrderS
 
     return;
   } else {
-    // Non-cancellation status updates route through trusted kitchen/order status backend
-    const statusStr = String(status);
-    let mappedStatus: string = statusStr;
-    if (statusStr === 'pending') mappedStatus = 'new';
-    else if (statusStr === 'in_preparation' || statusStr === 'preparing' || statusStr === 'in_progress') mappedStatus = 'cooking';
-    else if (statusStr === 'confirmed') mappedStatus = 'accepted';
-    else if (statusStr === 'ready') mappedStatus = 'ready_for_pickup';
-    else if (statusStr === 'delivered') mappedStatus = 'completed';
-    await updateKitchenStatusFirestore(orderId, mappedStatus);
+    // Order lifecycle is distinct from Kitchen lifecycle. Route order status
+    // changes to the trusted order-update endpoint rather than translating an
+    // order state into a kitchen state.
+    const token = await getAuthToken();
+    const idempotencyKey = globalThis.crypto?.randomUUID?.() || `order-status:${orderId}:${Date.now()}`;
+    const response = await fetch(getApiUrl(`/api/orders/${orderId}/update`), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': idempotencyKey,
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify({ status, reason: reason || 'Order status update', idempotencyKey })
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `Order Status Update Failed (${response.status})`);
+    }
   }
 }
 
@@ -890,6 +951,23 @@ export async function updateKitchenTicketFirestore(ticketId: string, updates: Re
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
     throw new Error(errorData.error || `Kitchen Ticket Update Failed (${response.status})`);
+  }
+}
+
+export async function updateStationStatusFirestore(stationId: string, status: 'normal' | 'busy' | 'overloaded', chefName?: string): Promise<void> {
+  const token = await getAuthToken();
+  const response = await fetch(getApiUrl(`/api/kitchen/stations/${stationId}/status`), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+    },
+    body: JSON.stringify({ status, chefName })
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.error || `Station Status Update Failed (${response.status})`);
   }
 }
 
@@ -1032,7 +1110,7 @@ export async function deleteHoldOrderFirestore(holdId: string): Promise<void> {
   }
 }
 
-// Initial Setup Wizard Batch Firestore Persist
+// Initial Setup Wizard -> Trusted Backend Persist
 export interface InitialSetupData {
   restaurant: {
     name: string;
@@ -1134,144 +1212,32 @@ export interface InitialSetupData {
 }
 
 export async function saveInitialSetupWizardData(setupData: InitialSetupData): Promise<{ mode: 'firestore'; success: boolean }> {
-  const batch = writeBatch(db);
-
-  // 1. Restaurant Settings & Tax/Payment Config
-  const settingsRef = doc(db, COLLECTIONS.BRANCH_SETTINGS, 'system_config');
-  batch.set(settingsRef, {
-    id: 'system_config',
-    restaurant: setupData.restaurant,
-    tax: setupData.tax,
-    payments: setupData.payments,
-    isInitialSetupCompleted: true,
-    setupCompletedAt: new Date().toISOString()
-  }, { merge: true });
-
-  // 2. Primary Branch
-  const branchRef = doc(db, COLLECTIONS.BRANCHES, setupData.branch.code || 'HQ-MAIN');
-  batch.set(branchRef, {
-    id: setupData.branch.code || 'HQ-MAIN',
-    branchName: setupData.branch.name,
-    code: setupData.branch.code,
-    city: setupData.branch.city,
-    address: setupData.branch.address,
-    managerName: setupData.branch.managerName,
-    managerPhone: setupData.branch.managerPhone,
-    tableCount: setupData.branch.tableCount,
-    isPrimary: setupData.branch.isPrimary,
-    status: 'active',
-    createdAt: new Date().toISOString()
-  }, { merge: true });
-
-  // 3. Admin Account User
-  const adminEmail = setupData.admin.email || 'admin@restaurant.com';
-  const adminDocId = 'user_admin_' + adminEmail.replace(/[^a-zA-Z0-9]/g, '_');
-  const adminRef = doc(db, COLLECTIONS.USERS, adminDocId);
-  batch.set(adminRef, {
-    uid: adminDocId,
-    email: setupData.admin.email,
-    displayName: setupData.admin.name,
-    role: setupData.admin.role || 'Admin',
-    phoneNumber: setupData.admin.phone,
-    securityPin: setupData.admin.pin || '',
-    status: 'active',
-    branch: setupData.branch.name,
-    createdAt: new Date().toISOString()
-  }, { merge: true });
-
-  // 4. Employees
-  (setupData.employees || []).forEach((emp, idx) => {
-    const empId = `emp_${idx + 1}_${Date.now()}`;
-    const empRef = doc(db, COLLECTIONS.EMPLOYEES, empId);
-    batch.set(empRef, {
-      id: empId,
-      employeeId: empId,
-      name: emp.name,
-      fullName: emp.name,
-      role: emp.role,
-      jobTitle: emp.role,
-      email: emp.email,
-      phone: emp.phone,
-      salary: emp.salary,
-      monthlySalary: emp.salary,
-      shift: emp.shift || 'Full Time',
-      branch: setupData.branch.name,
-      employmentStatus: 'Active',
-      status: 'active',
-      hireDate: new Date().toISOString()
-    }, { merge: true });
+  const token = await getAuthToken();
+  if (!token) throw new Error('Authentication is required to complete initial setup.');
+  const idempotencyKey = `initial-setup:${setupData.branch.code || 'HQ-MAIN'}:${setupData.admin.email || 'admin'}:${Date.now()}`;
+  const response = await fetch(getApiUrl('/api/setup/initial'), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+      'Idempotency-Key': idempotencyKey
+    },
+    body: JSON.stringify(setupData)
   });
-
-  // 5. Suppliers
-  (setupData.suppliers || []).forEach((sup, idx) => {
-    const supId = `sup_${idx + 1}_${Date.now()}`;
-    const supRef = doc(db, COLLECTIONS.SUPPLIERS, supId);
-    batch.set(supRef, {
-      id: supId,
-      name: sup.name,
-      companyName: sup.name,
-      contactPerson: sup.contactName || sup.name,
-      phone: sup.phone,
-      email: sup.email || 'supplier@example.com',
-      category: sup.category || 'General Supplies',
-      address: setupData.branch.city,
-      rating: 5.0,
-      createdAt: new Date().toISOString()
-    }, { merge: true });
-  });
-
-  // 6. Inventory Items (Ingredients)
-  (setupData.inventory || []).forEach((item, idx) => {
-    const ingId = `ing_${idx + 1}_${Date.now()}`;
-    const ingRef = doc(db, COLLECTIONS.INGREDIENTS, ingId);
-    batch.set(ingRef, {
-      id: ingId,
-      name: item.name,
-      nameAr: item.nameAr || item.name,
-      nameSo: item.nameSo || item.name,
-      unit: item.unit,
-      minAlertStock: item.minAlertStock,
-      costPerUnit: item.costPerUnit,
-      currentQuantity: item.currentQuantity,
-      quantity: item.currentQuantity,
-      stock: item.currentQuantity,
-      category: item.category,
-      lastRestocked: new Date().toISOString()
-    }, { merge: true });
-  });
-
-  // 7. Products
-  (setupData.products || []).forEach((prod, idx) => {
-    const prodId = `prod_${idx + 1}_${Date.now()}`;
-    const prodRef = doc(db, COLLECTIONS.PRODUCTS, prodId);
-    batch.set(prodRef, {
-      id: prodId,
-      name: prod.name,
-      nameEn: prod.name,
-      nameAr: prod.nameAr || prod.name,
-      nameSo: prod.nameSo || prod.name,
-      category: prod.category,
-      price: prod.price,
-      cost: prod.cost,
-      imageUrl: prod.imageUrl || '',
-      prepTimeMinutes: prod.prepTimeMinutes || 15,
-      isAvailable: true,
-      createdAt: new Date().toISOString()
-    }, { merge: true });
-  });
-
-  await batch.commit();
-
-  return {
-    mode: 'firestore',
-    success: true
-  };
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data?.error || `Initial setup failed (${response.status})`);
+  return { mode: 'firestore', success: true };
 }
 
+
 // Dining Tables Helpers
-export async function fetchTablesFirestore(): Promise<DiningTable[]> {
+export async function fetchTablesFirestore(branchId?: string): Promise<DiningTable[]> {
   try {
-    const snap = await getDocs(collection(db, COLLECTIONS.TABLES));
+    const effectiveBranchId = getEffectiveBranchId(branchId);
+    const tablesQuery = effectiveBranchId === 'all'
+      ? query(collection(db, COLLECTIONS.TABLES))
+      : query(collection(db, COLLECTIONS.TABLES), where('branchId', '==', effectiveBranchId));
+    const snap = await getDocs(tablesQuery);
     return snap.docs.map(d => ({ id: d.id, ...d.data() } as DiningTable));
   } catch (err) {
     console.error('Error fetching tables from Firestore:', err);
@@ -1279,8 +1245,9 @@ export async function fetchTablesFirestore(): Promise<DiningTable[]> {
   }
 }
 
-export async function updateTableStatusFirestore(tableNumber: string, status: string, orderId?: string): Promise<void> {
-  const q = query(collection(db, COLLECTIONS.TABLES), where('tableNumber', '==', tableNumber));
+export async function updateTableStatusFirestore(tableNumber: string, status: string, orderId?: string, branchId?: string): Promise<void> {
+  const effectiveBranchId = getEffectiveBranchId(branchId);
+  const q = query(collection(db, COLLECTIONS.TABLES), where('branchId', '==', effectiveBranchId), where('tableNumber', '==', tableNumber));
   const snap = await getDocs(q);
   if (!snap.empty) {
     const docRef = snap.docs[0].ref;
@@ -1295,6 +1262,7 @@ export async function updateTableStatusFirestore(tableNumber: string, status: st
     await setDoc(newRef, {
       id: newRef.id,
       tableNumber,
+      branchId: effectiveBranchId,
       section: 'indoor',
       capacity: 4,
       status,
@@ -1307,7 +1275,8 @@ export async function updateTableStatusFirestore(tableNumber: string, status: st
 // Customers Helpers
 export async function fetchCustomersFirestore(): Promise<Customer[]> {
   try {
-    const snap = await getDocs(collection(db, COLLECTIONS.CUSTOMERS));
+    const branchId = getEffectiveBranchId();
+    const snap = await getDocs(query(collection(db, COLLECTIONS.CUSTOMERS), where('branchId', '==', branchId)));
     return snap.docs.map(d => ({ id: d.id, ...d.data() } as Customer));
   } catch (err) {
     console.error('Error fetching customers from Firestore:', err);
@@ -1317,8 +1286,10 @@ export async function fetchCustomersFirestore(): Promise<Customer[]> {
 
 export async function addCustomerFirestore(data: Omit<Customer, 'id'>): Promise<Customer> {
   const newRef = doc(collection(db, COLLECTIONS.CUSTOMERS));
+  const branchId = getEffectiveBranchId(data.branchId || (data as any).branch);
   const customer: Customer = {
     ...data,
+    branchId,
     id: newRef.id
   };
   await setDoc(newRef, customer);

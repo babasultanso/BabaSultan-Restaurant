@@ -1,3 +1,4 @@
+import { translateRawUi } from '../../../i18n/rawUi';
 import React, { useState } from 'react';
 import {
   Wand2,
@@ -48,116 +49,79 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
 
   // 1. Restaurant Info State
   const [restaurant, setRestaurant] = useState({
-    name: 'Somali Golden Feast',
-    nameAr: 'مطعم الوليمة الذهبية',
-    nameSo: 'Cunta-kariye Somali Golden Feast',
-    slogan: 'Authentic Spiced Cuisine & Fine Dining',
-    phone: '+252 61 555 0000',
-    email: 'info@somaligoldenfeast.so',
-    address: 'KM4 Junction, Maka Al Mukarama Road, Mogadishu',
-    city: 'Mogadishu',
-    currency: 'USD ($)',
+    name: '',
+    nameAr: '',
+    nameSo: '',
+    slogan: '',
+    phone: '',
+    email: '',
+    address: '',
+    city: '',
+    currency: '',
     defaultLanguage: 'en',
     workingHours: '07:00 AM - 11:00 PM',
-    logoUrl: 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?auto=format&fit=crop&w=400&q=80',
-    taxRegNumber: 'TRN-SO-994201'
+    logoUrl: '',
+    taxRegNumber: ''
   });
 
   // 2. Branch State
   const [branch, setBranch] = useState({
-    name: 'Mogadishu Central HQ',
-    code: 'HQ-MOG-01',
-    city: 'Mogadishu',
-    address: 'KM4 Junction, Maka Al Mukarama Road',
-    managerName: 'Farah Abdi',
-    managerPhone: '+252 61 555 1111',
-    tableCount: 30,
+    name: '',
+    code: '',
+    city: '',
+    address: '',
+    managerName: '',
+    managerPhone: '',
+    tableCount: 0,
     isPrimary: true
   });
 
   // 3. Admin Account State
   const [admin, setAdmin] = useState({
-    name: 'System Admin',
-    email: 'admin@somaligoldenfeast.so',
+    name: '',
+    email: '',
     role: 'Admin',
-    phone: '+252 61 500 0000',
+    phone: '',
     pin: ''
   });
 
   // 4. Employees State
-  const [employees, setEmployees] = useState([
-    { name: 'Amina Mohamed', role: 'Cashier', email: 'amina@somaligoldenfeast.so', phone: '+252 61 555 2222', salary: 450, shift: 'Morning Shift' },
-    { name: 'Hassan Jama', role: 'Head Chef', email: 'hassan@somaligoldenfeast.so', phone: '+252 61 555 3333', salary: 750, shift: 'All-Day' },
-    { name: 'Khadra Ali', role: 'Waiter', email: 'khadra@somaligoldenfeast.so', phone: '+252 61 555 4444', salary: 380, shift: 'Evening Shift' },
-    { name: 'Omar Yusuf', role: 'Accountant', email: 'omar@somaligoldenfeast.so', phone: '+252 61 555 5555', salary: 650, shift: 'Morning Shift' }
-  ]);
+  const [employees, setEmployees] = useState<any[]>([]);
 
   // 5. Suppliers State
-  const [suppliers, setSuppliers] = useState([
-    { name: 'Mogadishu Fresh Meat Co', contactName: 'Dahir Warsame', phone: '+252 61 700 1111', email: 'orders@mogmeat.so', category: 'Meat & Poultry' },
-    { name: 'Somali Dairy & Produce', contactName: 'Fartun Ahmed', phone: '+252 61 700 2222', email: 'sales@somalidairy.so', category: 'Dairy & Milk' },
-    { name: 'Banadir Spice Imports', contactName: 'Sheikh Ali', phone: '+252 61 700 3333', email: 'spices@banadir.so', category: 'Spices & Grains' }
-  ]);
+  const [suppliers, setSuppliers] = useState<any[]>([]);
 
   // 6. Inventory Items State
-  const [inventory, setInventory] = useState([
-    { name: 'Chicken Breast', nameAr: 'صدر دجاج', nameSo: 'Sinaad Gallay', unit: 'kg', minAlertStock: 25, costPerUnit: 4.5, currentQuantity: 120, category: 'Meat' },
-    { name: 'Basmati Rice', nameAr: 'أرز بسمتي', nameSo: 'Bariis Basaasati', unit: 'kg', minAlertStock: 50, costPerUnit: 1.8, currentQuantity: 300, category: 'Grains' },
-    { name: 'Cooking Oil', nameAr: 'زيت طهي', nameSo: 'Saliid Cunto', unit: 'liters', minAlertStock: 20, costPerUnit: 2.2, currentQuantity: 100, category: 'Oils' },
-    { name: 'Espresso Coffee Beans', nameAr: 'حبوب البن', nameSo: 'Buni Buuxa', unit: 'kg', minAlertStock: 10, costPerUnit: 12.0, currentQuantity: 45, category: 'Beverages' },
-    { name: 'Fresh Whole Milk', nameAr: 'حليب طازج', nameSo: 'Caano Caadi ah', unit: 'liters', minAlertStock: 30, costPerUnit: 1.2, currentQuantity: 80, category: 'Dairy' }
-  ]);
+  const [inventory, setInventory] = useState<any[]>([]);
 
   // 7. Recipes State
-  const [recipes, setRecipes] = useState([
-    {
-      productId: 'prod_1',
-      productName: 'Somali Chicken Suqaar with Canjeero',
-      ingredients: [
-        { ingredientId: 'ing_1', ingredientName: 'Chicken Breast', quantityRequired: 0.25, unit: 'kg' },
-        { ingredientId: 'ing_3', ingredientName: 'Cooking Oil', quantityRequired: 0.05, unit: 'liters' }
-      ]
-    },
-    {
-      productId: 'prod_2',
-      productName: 'Traditional Somali Bariis Iskukaris',
-      ingredients: [
-        { ingredientId: 'ing_2', ingredientName: 'Basmati Rice', quantityRequired: 0.35, unit: 'kg' },
-        { ingredientId: 'ing_3', ingredientName: 'Cooking Oil', quantityRequired: 0.04, unit: 'liters' }
-      ]
-    }
-  ]);
+  const [recipes, setRecipes] = useState<any[]>([]);
 
   // 8. Products State
-  const [products, setProducts] = useState([
-    { name: 'Somali Chicken Suqaar with Canjeero', nameAr: 'صقار دجاج صومالي مع عنجيرو', nameSo: 'Suqaar Gallay ah iyo Canjeero', category: 'Main Course', price: 14.50, cost: 4.80, imageUrl: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=800&q=80', prepTimeMinutes: 15 },
-    { name: 'Traditional Somali Bariis Iskukaris', nameAr: 'أرز صومالي اسكوكرس', nameSo: 'Bariis Iskukaris ah', category: 'Main Course', price: 16.00, cost: 5.20, imageUrl: 'https://images.unsplash.com/photo-1512058564366-18510be2db19?auto=format&fit=crop&w=800&q=80', prepTimeMinutes: 20 },
-    { name: 'Special Spiced Camel Milk Tea (Shaah Hawaash)', nameAr: 'شاي بحليب الإبل والبهارات', nameSo: 'Shaah Caanaha Geela & Hawaash', category: 'Beverages', price: 3.50, cost: 0.80, imageUrl: 'https://images.unsplash.com/photo-1576092768241-dec231879fc3?auto=format&fit=crop&w=800&q=80', prepTimeMinutes: 5 },
-    { name: 'Flame-Grilled Camel Steak Burger', nameAr: 'برجر لحم إبل مشوي', nameSo: 'Burger Hilib Geel Ah', category: 'Burgers & Sandwiches', price: 12.99, cost: 4.10, imageUrl: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?auto=format&fit=crop&w=800&q=80', prepTimeMinutes: 12 }
-  ]);
+  const [products, setProducts] = useState<any[]>([]);
 
   // 9. Taxes State
   const [tax, setTax] = useState({
-    taxName: 'VAT / Sales Tax',
-    taxRate: 5.0,
-    serviceCharge: 2.5,
-    discountSettings: 'Standard Member & Promotional Discount Enabled',
-    trnNumber: 'TRN-SO-994201',
+    taxName: '',
+    taxRate: 0,
+    serviceCharge: 0,
+    discountSettings: '',
+    trnNumber: '',
     isInclusive: false
   });
 
   // 10. Payment Methods State
   const [payments, setPayments] = useState({
-    cashEnabled: true,
-    cardEnabled: true,
-    evcPlusEnabled: true,
-    zaadEnabled: true,
-    sahalEnabled: true,
-    eDahabEnabled: true,
-    paypalEnabled: true,
-    bankTransferEnabled: true,
-    defaultPosMethod: 'cash',
-    merchantId: 'MERCHANT-EVC-ZAAD-8842'
+    cashEnabled: false,
+    cardEnabled: false,
+    evcPlusEnabled: false,
+    zaadEnabled: false,
+    sahalEnabled: false,
+    eDahabEnabled: false,
+    paypalEnabled: false,
+    bankTransferEnabled: false,
+    defaultPosMethod: '',
+    merchantId: ''
   });
 
   if (!isOpen) return null;
@@ -290,7 +254,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
             <div className="space-y-6">
               <div className="p-4 rounded-2xl flex items-center gap-3 text-sm font-bold border bg-emerald-500/10 border-emerald-500/30 text-emerald-400">
                 <CheckCircle2 className="w-6 h-6 shrink-0" />
-                <span>Setup completed successfully. Data synchronized with Firestore.</span>
+                <span>{t.legacyUi.setupCompleted}</span>
               </div>
 
               <div className="bg-slate-950 border border-slate-800 p-6 rounded-2xl space-y-5">
@@ -298,12 +262,12 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                   <div>
                     <h3 className="text-lg font-bold text-white flex items-center gap-2">
                       <Sparkles className="w-5 h-5 text-emerald-400" />
-                      ERP Initial Setup Summary
+                      {translateRawUi('ERP Initial Setup Summary')}
                     </h3>
-                    <p className="text-xs text-slate-400">Review your configured modules before launching the operational dashboard.</p>
+                    <p className="text-xs text-slate-400">{t.legacyUi.reviewConfiguredModules}</p>
                   </div>
                   <span className="px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-400 text-xs font-bold border border-emerald-500/20">
-                    System Ready
+                    {translateRawUi('System Ready')}
                   </span>
                 </div>
 
@@ -311,27 +275,27 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                   {/* Restaurant */}
                   <div className="bg-slate-900 border border-slate-800 p-3.5 rounded-xl space-y-1">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block flex items-center justify-between">
-                      <span className="flex items-center gap-1.5"><Building2 className="w-3.5 h-3.5 text-emerald-400" /> 1. Restaurant</span>
+                      <span className="flex items-center gap-1.5"><Building2 className="w-3.5 h-3.5 text-emerald-400" /> {translateRawUi('1. Restaurant')}</span>
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
                     </span>
                     <p className="text-xs font-extrabold text-white truncate">{restaurant.name}</p>
-                    <p className="text-[11px] text-slate-400 truncate">{restaurant.city || 'Mogadishu'} • {restaurant.currency}</p>
+                    <p className="text-[11px] text-slate-400 truncate">{restaurant.city || '—'} • {restaurant.currency}</p>
                   </div>
 
                   {/* Branches */}
                   <div className="bg-slate-900 border border-slate-800 p-3.5 rounded-xl space-y-1">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block flex items-center justify-between">
-                      <span className="flex items-center gap-1.5"><GitBranch className="w-3.5 h-3.5 text-blue-400" /> 2. Branch</span>
+                      <span className="flex items-center gap-1.5"><GitBranch className="w-3.5 h-3.5 text-blue-400" /> {translateRawUi('2. Branch')}</span>
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
                     </span>
-                    <p className="text-xs font-extrabold text-white truncate">1 HQ Branch</p>
+                    <p className="text-xs font-extrabold text-white truncate">{t.legacyUi.oneHqBranch}</p>
                     <p className="text-[11px] text-slate-400 truncate">{branch.name} ({branch.code})</p>
                   </div>
 
                   {/* Admin Account */}
                   <div className="bg-slate-900 border border-slate-800 p-3.5 rounded-xl space-y-1">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block flex items-center justify-between">
-                      <span className="flex items-center gap-1.5"><ShieldCheck className="w-3.5 h-3.5 text-teal-400" /> 3. Admin User</span>
+                      <span className="flex items-center gap-1.5"><ShieldCheck className="w-3.5 h-3.5 text-teal-400" /> {translateRawUi('3. Admin User')}</span>
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
                     </span>
                     <p className="text-xs font-extrabold text-white truncate">{admin.name}</p>
@@ -341,57 +305,57 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                   {/* Employees */}
                   <div className="bg-slate-900 border border-slate-800 p-3.5 rounded-xl space-y-1">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block flex items-center justify-between">
-                      <span className="flex items-center gap-1.5"><Users className="w-3.5 h-3.5 text-purple-400" /> 4. Employees</span>
+                      <span className="flex items-center gap-1.5"><Users className="w-3.5 h-3.5 text-purple-400" /> {translateRawUi('4. Employees')}</span>
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
                     </span>
                     <p className="text-xs font-extrabold text-white">{employees.length} Staff Records</p>
-                    <p className="text-[11px] text-slate-400 truncate">Chefs, Cashiers, Waiters</p>
+                    <p className="text-[11px] text-slate-400 truncate">{t.legacyUi.chefsCashiersWaiters}</p>
                   </div>
 
                   {/* Suppliers */}
                   <div className="bg-slate-900 border border-slate-800 p-3.5 rounded-xl space-y-1">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block flex items-center justify-between">
-                      <span className="flex items-center gap-1.5"><Truck className="w-3.5 h-3.5 text-amber-400" /> 5. Suppliers</span>
+                      <span className="flex items-center gap-1.5"><Truck className="w-3.5 h-3.5 text-amber-400" /> {translateRawUi('5. Suppliers')}</span>
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
                     </span>
                     <p className="text-xs font-extrabold text-white">{suppliers.length} Vendors</p>
-                    <p className="text-[11px] text-slate-400 truncate">Meat, Dairy & Spices</p>
+                    <p className="text-[11px] text-slate-400 truncate">{t.legacyUi.meatDairySpices}</p>
                   </div>
 
                   {/* Inventory items */}
                   <div className="bg-slate-900 border border-slate-800 p-3.5 rounded-xl space-y-1">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block flex items-center justify-between">
-                      <span className="flex items-center gap-1.5"><Boxes className="w-3.5 h-3.5 text-cyan-400" /> 6. Inventory</span>
+                      <span className="flex items-center gap-1.5"><Boxes className="w-3.5 h-3.5 text-cyan-400" /> {translateRawUi('6. Inventory')}</span>
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
                     </span>
                     <p className="text-xs font-extrabold text-white">{inventory.length} Stock Items</p>
-                    <p className="text-[11px] text-slate-400 truncate">Raw Ingredients Populated</p>
+                    <p className="text-[11px] text-slate-400 truncate">{t.legacyUi.rawIngredientsPopulated}</p>
                   </div>
 
                   {/* Recipes */}
                   <div className="bg-slate-900 border border-slate-800 p-3.5 rounded-xl space-y-1">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block flex items-center justify-between">
-                      <span className="flex items-center gap-1.5"><UtensilsCrossed className="w-3.5 h-3.5 text-rose-400" /> 7. Recipes</span>
+                      <span className="flex items-center gap-1.5"><UtensilsCrossed className="w-3.5 h-3.5 text-rose-400" /> {translateRawUi('7. Recipes')}</span>
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
                     </span>
                     <p className="text-xs font-extrabold text-white">{recipes.length} Recipe BOMs</p>
-                    <p className="text-[11px] text-slate-400 truncate">Ingredient Costs Mapped</p>
+                    <p className="text-[11px] text-slate-400 truncate">{t.legacyUi.ingredientCostsMapped}</p>
                   </div>
 
                   {/* Products */}
                   <div className="bg-slate-900 border border-slate-800 p-3.5 rounded-xl space-y-1">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block flex items-center justify-between">
-                      <span className="flex items-center gap-1.5"><ChefHat className="w-3.5 h-3.5 text-orange-400" /> 8. Menu Products</span>
+                      <span className="flex items-center gap-1.5"><ChefHat className="w-3.5 h-3.5 text-orange-400" /> {translateRawUi('8. Menu Products')}</span>
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
                     </span>
                     <p className="text-xs font-extrabold text-white">{products.length} Menu Items</p>
-                    <p className="text-[11px] text-slate-400 truncate">Ready for POS Terminal</p>
+                    <p className="text-[11px] text-slate-400 truncate">{t.legacyUi.readyForPosTerminal}</p>
                   </div>
 
                   {/* Taxes */}
                   <div className="bg-slate-900 border border-slate-800 p-3.5 rounded-xl space-y-1">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block flex items-center justify-between">
-                      <span className="flex items-center gap-1.5"><Percent className="w-3.5 h-3.5 text-indigo-400" /> 9. Taxes & Fees</span>
+                      <span className="flex items-center gap-1.5"><Percent className="w-3.5 h-3.5 text-indigo-400" /> {translateRawUi('9. Taxes & Fees')}</span>
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
                     </span>
                     <p className="text-xs font-extrabold text-white">{tax.taxName} ({tax.taxRate}%)</p>
@@ -401,7 +365,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                   {/* Payment Methods */}
                   <div className="bg-slate-900 border border-slate-800 p-3.5 rounded-xl space-y-1">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block flex items-center justify-between">
-                      <span className="flex items-center gap-1.5"><CreditCard className="w-3.5 h-3.5 text-emerald-400" /> 10. Payments</span>
+                      <span className="flex items-center gap-1.5"><CreditCard className="w-3.5 h-3.5 text-emerald-400" /> {translateRawUi('10. Payments')}</span>
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
                     </span>
                     <p className="text-xs font-extrabold text-white">
@@ -414,7 +378,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                         payments.eDahabEnabled && 'eDahab'
                       ].filter(Boolean).length} Gateways Active
                     </p>
-                    <p className="text-[11px] text-slate-400 truncate">EVC Plus, ZAAD & Cash</p>
+                    <p className="text-[11px] text-slate-400 truncate">{t.legacyUi.evcZaadCash}</p>
                   </div>
                 </div>
 
@@ -426,7 +390,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                     }}
                     className="px-6 py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs rounded-xl flex items-center gap-2 shadow-xl shadow-emerald-500/20 transition cursor-pointer"
                   >
-                    <span>Launch ERP System</span>
+                    <span>{t.legacyUi.launchErp}</span>
                     <ArrowRight className="w-4 h-4" />
                   </button>
                 </div>
@@ -440,12 +404,12 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
             <div className="space-y-4">
               <div className="flex items-center gap-2 text-emerald-400 text-sm font-bold">
                 <Building2 className="w-5 h-5" />
-                <span>Step 1: Restaurant General & Brand Profile</span>
+                <span>{t.legacyUi.step1RestaurantProfile}</span>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-300 mb-1">Restaurant Name (English)</label>
+                  <label className="block text-xs font-bold text-slate-300 mb-1">{t.legacyUi.restaurantNameEnglish}</label>
                   <input
                     type="text"
                     value={restaurant.name}
@@ -455,7 +419,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-300 mb-1">Restaurant Name (Arabic / اسم المطعم)</label>
+                  <label className="block text-xs font-bold text-slate-300 mb-1">{t.legacyUi.restaurantNameArabic}</label>
                   <input
                     type="text"
                     value={restaurant.nameAr}
@@ -466,7 +430,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-300 mb-1">Tagline / Slogan</label>
+                  <label className="block text-xs font-bold text-slate-300 mb-1">{t.legacyUi.taglineSlogan}</label>
                   <input
                     type="text"
                     value={restaurant.slogan}
@@ -476,7 +440,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-300 mb-1">Primary Phone Number</label>
+                  <label className="block text-xs font-bold text-slate-300 mb-1">{t.legacyUi.primaryPhoneNumber}</label>
                   <input
                     type="text"
                     value={restaurant.phone}
@@ -486,7 +450,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-300 mb-1">Official Contact Email</label>
+                  <label className="block text-xs font-bold text-slate-300 mb-1">{t.legacyUi.officialContactEmail}</label>
                   <input
                     type="email"
                     value={restaurant.email}
@@ -496,40 +460,40 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-300 mb-1">Base Operational Currency</label>
+                  <label className="block text-xs font-bold text-slate-300 mb-1">{t.legacyUi.baseOperationalCurrency}</label>
                   <select
                     value={restaurant.currency}
                     onChange={e => setRestaurant({ ...restaurant, currency: e.target.value })}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white focus:border-emerald-500 outline-none"
                   >
-                    <option value="USD ($)">USD ($) - US Dollar</option>
-                    <option value="SAR (ر.س)">SAR (ر.س) - Saudi Riyal</option>
-                    <option value="SOS ($)">SOS / SLSH - Somali Shilling</option>
-                    <option value="EUR (€)">EUR (€) - Euro</option>
+                    <option value="USD ($)">{t.legacyUi.usdDollar}</option>
+                    <option value="SAR (ر.س)">{t.legacyUi.sarRiyal}</option>
+                    <option value="SOS ($)">{t.legacyUi.sosSomaliShilling}</option>
+                    <option value="EUR (€)">{t.legacyUi.eurEuro}</option>
                   </select>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-300 mb-1">Default System Language</label>
+                  <label className="block text-xs font-bold text-slate-300 mb-1">{t.legacyUi.defaultSystemLanguage}</label>
                   <select
                     value={restaurant.defaultLanguage}
                     onChange={e => setRestaurant({ ...restaurant, defaultLanguage: e.target.value })}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white focus:border-emerald-500 outline-none"
                   >
-                    <option value="en">English (US/UK)</option>
-                    <option value="ar">العربية (Arabic)</option>
-                    <option value="so">Soomaali (Somali)</option>
+                    <option value="en">{t.legacyUi.englishUsUk}</option>
+                    <option value="ar">{t.legacyUi.arabicOption}</option>
+                    <option value="so">{t.legacyUi.somaliOption}</option>
                   </select>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-300 mb-1">Working Hours</label>
+                  <label className="block text-xs font-bold text-slate-300 mb-1">{t.legacyUi.workingHoursLabel}</label>
                   <input
                     type="text"
                     value={restaurant.workingHours}
                     onChange={e => setRestaurant({ ...restaurant, workingHours: e.target.value })}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white focus:border-emerald-500 outline-none"
-                    placeholder="07:00 AM - 11:00 PM"
+                    placeholder={translateRawUi('07:00 AM - 11:00 PM')}
                   />
                 </div>
               </div>
@@ -541,12 +505,12 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
             <div className="space-y-4">
               <div className="flex items-center gap-2 text-emerald-400 text-sm font-bold">
                 <Store className="w-5 h-5" />
-                <span>Step 2: Setup First Headquarters Branch</span>
+                <span>{t.legacyUi.step2Headquarters}</span>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-300 mb-1">Branch Name</label>
+                  <label className="block text-xs font-bold text-slate-300 mb-1">{t.legacyUi.branchNameLabel2}</label>
                   <input
                     type="text"
                     value={branch.name}
@@ -556,7 +520,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-300 mb-1">Branch Code / SKU</label>
+                  <label className="block text-xs font-bold text-slate-300 mb-1">{t.legacyUi.branchCodeSku}</label>
                   <input
                     type="text"
                     value={branch.code}
@@ -566,7 +530,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-300 mb-1">City / Location</label>
+                  <label className="block text-xs font-bold text-slate-300 mb-1">{t.legacyUi.cityLocation}</label>
                   <input
                     type="text"
                     value={branch.city}
@@ -576,7 +540,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-300 mb-1">Branch Manager Name</label>
+                  <label className="block text-xs font-bold text-slate-300 mb-1">{t.legacyUi.branchManagerName}</label>
                   <input
                     type="text"
                     value={branch.managerName}
@@ -586,7 +550,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-300 mb-1">Seating Table Count</label>
+                  <label className="block text-xs font-bold text-slate-300 mb-1">{t.legacyUi.seatingTableCount}</label>
                   <input
                     type="number"
                     value={branch.tableCount}
@@ -604,7 +568,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                     className="rounded border-slate-800 text-emerald-500 focus:ring-emerald-500"
                   />
                   <label htmlFor="isPrimary" className="text-xs font-bold text-slate-300">
-                    Set as Primary Headquarters Flagship Branch
+                    {translateRawUi('Set as Primary Headquarters Flagship Branch')}
                   </label>
                 </div>
               </div>
@@ -616,12 +580,12 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
             <div className="space-y-4">
               <div className="flex items-center gap-2 text-emerald-400 text-sm font-bold">
                 <ShieldCheck className="w-5 h-5" />
-                <span>Step 3: Add Master Admin Account Credentials</span>
+                <span>{t.legacyUi.step3Admin}</span>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-300 mb-1">Admin Full Name</label>
+                  <label className="block text-xs font-bold text-slate-300 mb-1">{t.legacyUi.adminFullName}</label>
                   <input
                     type="text"
                     value={admin.name}
@@ -631,7 +595,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-300 mb-1">Admin Email Address</label>
+                  <label className="block text-xs font-bold text-slate-300 mb-1">{t.legacyUi.adminEmailAddress}</label>
                   <input
                     type="email"
                     value={admin.email}
@@ -641,7 +605,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-300 mb-1">Security PIN (4-Digits for POS Override)</label>
+                  <label className="block text-xs font-bold text-slate-300 mb-1">{t.legacyUi.securityPinPos}</label>
                   <input
                     type="text"
                     maxLength={4}
@@ -652,14 +616,14 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-300 mb-1">Role Type</label>
+                  <label className="block text-xs font-bold text-slate-300 mb-1">{t.legacyUi.roleType}</label>
                   <select
                     value={admin.role}
                     onChange={e => setAdmin({ ...admin, role: e.target.value })}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white focus:border-emerald-500 outline-none"
                   >
-                    <option value="Admin">System Admin (Full Rights)</option>
-                    <option value="Owner">Enterprise Owner</option>
+                    <option value="Admin">{t.legacyUi.systemAdminFull}</option>
+                    <option value="Owner">{t.legacyUi.enterpriseOwner}</option>
                   </select>
                 </div>
               </div>
@@ -676,11 +640,11 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                 </div>
 
                 <button
-                  onClick={() => setEmployees([...employees, { name: 'New Staff', role: 'Cashier', email: '', phone: '', salary: 400, shift: 'Morning Shift' }])}
+                  onClick={() => setEmployees([...employees, { name: '', role: 'Cashier', email: '', phone: '', salary: 0, payFrequency: 'monthly', shift: '' }])}
                   className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold rounded-xl flex items-center gap-1 transition"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  <span>Add Employee</span>
+                  <span>{t.legacyUi.addEmployee}</span>
                 </button>
               </div>
 
@@ -689,7 +653,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                   <div key={idx} className="bg-slate-950 border border-slate-800 p-3 rounded-2xl grid grid-cols-1 sm:grid-cols-5 gap-2 items-center">
                     <input
                       type="text"
-                      placeholder="Name"
+                      placeholder={t.legacyUi.nameLabel}
                       value={emp.name}
                       onChange={e => {
                         const updated = [...employees];
@@ -708,17 +672,18 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                       }}
                       className="bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white"
                     >
-                      <option value="Cashier">Cashier</option>
-                      <option value="Head Chef">Head Chef</option>
-                      <option value="Kitchen Staff">Kitchen Staff</option>
-                      <option value="Waiter">Waiter</option>
-                      <option value="Accountant">Accountant</option>
-                      <option value="Delivery Driver">Delivery Driver</option>
+                      <option value="Cashier">{t.legacyUi.cashier}</option>
+                      <option value="Head Chef">{t.legacyUi.headChef}</option>
+                      <option value="Kitchen Staff">{t.legacyUi.kitchenStaff}</option>
+                      <option value="Waiter">{translateRawUi('Waiter')}</option>
+                      <option value="Accountant">{translateRawUi('Accountant')}</option>
+                      <option value="Delivery Driver">{t.legacyUi.deliveryDriverLabel}</option>
                     </select>
 
                     <input
                       type="number"
-                      placeholder="Salary $"
+                      min="0"
+                      placeholder={translateRawUi('Salary $')}
                       value={emp.salary}
                       onChange={e => {
                         const updated = [...employees];
@@ -728,9 +693,23 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                       className="bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white"
                     />
 
+                    <select
+                      value={emp.payFrequency || 'monthly'}
+                      onChange={e => {
+                        const updated = [...employees];
+                        updated[idx].payFrequency = e.target.value;
+                        setEmployees(updated);
+                      }}
+                      className="bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white"
+                    >
+                      <option value="daily">{t.legacyUi.daily}</option>
+                      <option value="weekly">{t.legacyUi.weekly}</option>
+                      <option value="monthly">{t.legacyUi.monthly}</option>
+                    </select>
+
                     <input
                       type="text"
-                      placeholder="Shift"
+                      placeholder={t.legacyUi.shiftLabel}
                       value={emp.shift}
                       onChange={e => {
                         const updated = [...employees];
@@ -766,7 +745,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                   className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold rounded-xl flex items-center gap-1 transition"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  <span>Add Supplier</span>
+                  <span>{t.legacyUi.addSupplier}</span>
                 </button>
               </div>
 
@@ -775,7 +754,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                   <div key={idx} className="bg-slate-950 border border-slate-800 p-3 rounded-2xl grid grid-cols-1 sm:grid-cols-4 gap-2 items-center">
                     <input
                       type="text"
-                      placeholder="Company Name"
+                      placeholder={translateRawUi('Company Name')}
                       value={sup.name}
                       onChange={e => {
                         const updated = [...suppliers];
@@ -787,7 +766,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
 
                     <input
                       type="text"
-                      placeholder="Contact Person"
+                      placeholder={translateRawUi('Contact Person')}
                       value={sup.contactName}
                       onChange={e => {
                         const updated = [...suppliers];
@@ -799,7 +778,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
 
                     <input
                       type="text"
-                      placeholder="Category (e.g. Meat)"
+                      placeholder={translateRawUi('Category (e.g. Meat)')}
                       value={sup.category}
                       onChange={e => {
                         const updated = [...suppliers];
@@ -831,11 +810,11 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                 </div>
 
                 <button
-                  onClick={() => setInventory([...inventory, { name: 'New Ingredient', nameAr: '', nameSo: '', unit: 'kg', minAlertStock: 10, costPerUnit: 1.0, currentQuantity: 50, category: 'General' }])}
+                  onClick={() => setInventory([...inventory, { name: '', nameAr: '', nameSo: '', unit: 'kg', minAlertStock: 0, costPerUnit: 0, currentQuantity: 0, category: 'General' }])}
                   className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold rounded-xl flex items-center gap-1 transition"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  <span>Add Item</span>
+                  <span>{t.legacyUi.addItem}</span>
                 </button>
               </div>
 
@@ -844,7 +823,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                   <div key={idx} className="bg-slate-950 border border-slate-800 p-3 rounded-2xl grid grid-cols-1 sm:grid-cols-6 gap-2 items-center">
                     <input
                       type="text"
-                      placeholder="Item Name"
+                      placeholder={t.legacyUi.itemName}
                       value={inv.name}
                       onChange={e => {
                         const updated = [...inventory];
@@ -863,18 +842,18 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                       }}
                       className="bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white"
                     >
-                      <option value="kg">kg (Kilogram)</option>
-                      <option value="g">g (Gram)</option>
-                      <option value="liter">liter (Liter)</option>
-                      <option value="ml">ml (Milliliter)</option>
-                      <option value="piece">piece (Pcs)</option>
-                      <option value="box">box (Box)</option>
-                      <option value="carton">carton (Carton)</option>
+                      <option value="kg">{t.legacyUi.kgKilogram}</option>
+                      <option value="g">{t.legacyUi.gGram}</option>
+                      <option value="liter">{t.legacyUi.literUnit}</option>
+                      <option value="ml">{t.legacyUi.mlMilliliter}</option>
+                      <option value="piece">{t.legacyUi.pieceUnit}</option>
+                      <option value="box">{t.legacyUi.boxUnit}</option>
+                      <option value="carton">{t.legacyUi.cartonUnit}</option>
                     </select>
 
                     <input
                       type="number"
-                      placeholder="Cost $"
+                      placeholder={translateRawUi('Cost $')}
                       value={inv.costPerUnit}
                       onChange={e => {
                         const updated = [...inventory];
@@ -886,7 +865,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
 
                     <input
                       type="number"
-                      placeholder="Opening Stock"
+                      placeholder={translateRawUi('Opening Stock')}
                       value={inv.currentQuantity}
                       onChange={e => {
                         const updated = [...inventory];
@@ -898,7 +877,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
 
                     <input
                       type="number"
-                      placeholder="Min Alert"
+                      placeholder={translateRawUi('Min Alert')}
                       value={inv.minAlertStock}
                       onChange={e => {
                         const updated = [...inventory];
@@ -926,7 +905,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-emerald-400 text-sm font-bold">
                   <ChefHat className="w-5 h-5" />
-                  <span>Step 7: Automated Recipe & Ingredient Linkages</span>
+                  <span>{t.legacyUi.step7RecipeLinks}</span>
                 </div>
               </div>
 
@@ -943,7 +922,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                         <div key={iIdx} className="text-xs text-slate-300 flex items-center gap-2">
                           <span>• {ing.ingredientName}:</span>
                           <span className="font-mono text-emerald-400">{ing.quantityRequired} {ing.unit}</span>
-                          <span className="text-slate-500">per portion</span>
+                          <span className="text-slate-500">{t.legacyUi.perPortion}</span>
                         </div>
                       ))}
                     </div>
@@ -963,11 +942,11 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                 </div>
 
                 <button
-                  onClick={() => setProducts([...products, { name: 'New Dish', nameAr: '', nameSo: '', category: 'Main Course', price: 10.0, cost: 3.0, imageUrl: '', prepTimeMinutes: 15 }])}
+                  onClick={() => setProducts([...products, { name: '', nameAr: '', nameSo: '', category: 'Main Course', price: 0, cost: 0, imageUrl: '', prepTimeMinutes: 0 }])}
                   className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold rounded-xl flex items-center gap-1 transition"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  <span>Add Product</span>
+                  <span>{t.legacyUi.addProduct}</span>
                 </button>
               </div>
 
@@ -976,7 +955,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                   <div key={idx} className="bg-slate-950 border border-slate-800 p-3 rounded-2xl grid grid-cols-1 sm:grid-cols-5 gap-2 items-center">
                     <input
                       type="text"
-                      placeholder="Dish Name"
+                      placeholder={t.legacyUi.dishName}
                       value={prod.name}
                       onChange={e => {
                         const updated = [...products];
@@ -988,7 +967,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
 
                     <input
                       type="text"
-                      placeholder="Category"
+                      placeholder={translateRawUi('Category')}
                       value={prod.category}
                       onChange={e => {
                         const updated = [...products];
@@ -1000,7 +979,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
 
                     <input
                       type="number"
-                      placeholder="Price $"
+                      placeholder={translateRawUi('Price $')}
                       value={prod.price}
                       onChange={e => {
                         const updated = [...products];
@@ -1012,7 +991,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
 
                     <input
                       type="number"
-                      placeholder="Cost $"
+                      placeholder={translateRawUi('Cost $')}
                       value={prod.cost}
                       onChange={e => {
                         const updated = [...products];
@@ -1039,12 +1018,12 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
             <div className="space-y-4">
               <div className="flex items-center gap-2 text-emerald-400 text-sm font-bold">
                 <Percent className="w-5 h-5" />
-                <span>Step 9: Tax Rules & Regional Compliance Configuration</span>
+                <span>{t.legacyUi.step9Tax}</span>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-300 mb-1">Tax Label / Title</label>
+                  <label className="block text-xs font-bold text-slate-300 mb-1">{t.legacyUi.taxLabelTitle}</label>
                   <input
                     type="text"
                     value={tax.taxName}
@@ -1054,7 +1033,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-300 mb-1">Standard Tax Rate (%)</label>
+                  <label className="block text-xs font-bold text-slate-300 mb-1">{t.legacyUi.standardTaxRatePercent}</label>
                   <input
                     type="number"
                     step={0.5}
@@ -1065,7 +1044,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-300 mb-1">Service Charge Rate (%)</label>
+                  <label className="block text-xs font-bold text-slate-300 mb-1">{t.legacyUi.serviceChargeRatePercent}</label>
                   <input
                     type="number"
                     step={0.5}
@@ -1076,7 +1055,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-300 mb-1">Discount Policy Settings</label>
+                  <label className="block text-xs font-bold text-slate-300 mb-1">{t.legacyUi.discountPolicySettings}</label>
                   <input
                     type="text"
                     value={tax.discountSettings}
@@ -1086,7 +1065,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-300 mb-1">Tax Registration Number (TRN)</label>
+                  <label className="block text-xs font-bold text-slate-300 mb-1">{t.legacyUi.taxRegistrationNumber}</label>
                   <input
                     type="text"
                     value={tax.trnNumber}
@@ -1104,7 +1083,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                     className="rounded border-slate-800 text-emerald-500 focus:ring-emerald-500"
                   />
                   <label htmlFor="taxInclusive" className="text-xs font-bold text-slate-300">
-                    Product Selling Prices Are Tax Inclusive
+                    {translateRawUi('Product Selling Prices Are Tax Inclusive')}
                   </label>
                 </div>
               </div>
@@ -1116,12 +1095,12 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
             <div className="space-y-4">
               <div className="flex items-center gap-2 text-emerald-400 text-sm font-bold">
                 <CreditCard className="w-5 h-5" />
-                <span>Step 10: Payment Gateways & Cashier Terminal Rules</span>
+                <span>{t.legacyUi.step10Payments}</span>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                 <div className="bg-slate-950 border border-slate-800 p-3.5 rounded-2xl flex items-center justify-between">
-                  <span className="text-xs font-bold text-white">Cash Register</span>
+                  <span className="text-xs font-bold text-white">{t.legacyUi.cashRegister}</span>
                   <input
                     type="checkbox"
                     checked={payments.cashEnabled}
@@ -1131,7 +1110,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                 </div>
 
                 <div className="bg-slate-950 border border-slate-800 p-3.5 rounded-2xl flex items-center justify-between">
-                  <span className="text-xs font-bold text-white">Credit / Debit Card</span>
+                  <span className="text-xs font-bold text-white">{t.legacyUi.creditDebitCard}</span>
                   <input
                     type="checkbox"
                     checked={payments.cardEnabled}
@@ -1141,7 +1120,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                 </div>
 
                 <div className="bg-slate-950 border border-slate-800 p-3.5 rounded-2xl flex items-center justify-between">
-                  <span className="text-xs font-bold text-emerald-400">EVC Plus (Hormuud)</span>
+                  <span className="text-xs font-bold text-emerald-400">{t.legacyUi.evcPlusHormuud}</span>
                   <input
                     type="checkbox"
                     checked={payments.evcPlusEnabled}
@@ -1151,7 +1130,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                 </div>
 
                 <div className="bg-slate-950 border border-slate-800 p-3.5 rounded-2xl flex items-center justify-between">
-                  <span className="text-xs font-bold text-emerald-400">ZAAD Services (Telesom)</span>
+                  <span className="text-xs font-bold text-emerald-400">{t.legacyUi.zaadServices}</span>
                   <input
                     type="checkbox"
                     checked={payments.zaadEnabled}
@@ -1161,7 +1140,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                 </div>
 
                 <div className="bg-slate-950 border border-slate-800 p-3.5 rounded-2xl flex items-center justify-between">
-                  <span className="text-xs font-bold text-emerald-400">Sahal (Golis)</span>
+                  <span className="text-xs font-bold text-emerald-400">{t.legacyUi.sahalGolis}</span>
                   <input
                     type="checkbox"
                     checked={payments.sahalEnabled}
@@ -1171,7 +1150,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                 </div>
 
                 <div className="bg-slate-950 border border-slate-800 p-3.5 rounded-2xl flex items-center justify-between">
-                  <span className="text-xs font-bold text-emerald-400">eDahab (Somtel)</span>
+                  <span className="text-xs font-bold text-emerald-400">{t.legacyUi.edahabSomtel}</span>
                   <input
                     type="checkbox"
                     checked={payments.eDahabEnabled}
@@ -1181,7 +1160,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                 </div>
 
                 <div className="bg-slate-950 border border-slate-800 p-3.5 rounded-2xl flex items-center justify-between">
-                  <span className="text-xs font-bold text-sky-400">PayPal Gateway</span>
+                  <span className="text-xs font-bold text-sky-400">{t.legacyUi.paypalGateway}</span>
                   <input
                     type="checkbox"
                     checked={payments.paypalEnabled}
@@ -1191,7 +1170,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                 </div>
 
                 <div className="bg-slate-950 border border-slate-800 p-3.5 rounded-2xl flex items-center justify-between">
-                  <span className="text-xs font-bold text-white">Bank Wire Transfer</span>
+                  <span className="text-xs font-bold text-white">{t.legacyUi.bankWireTransfer}</span>
                   <input
                     type="checkbox"
                     checked={payments.bankTransferEnabled}
@@ -1201,7 +1180,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                 </div>
 
                 <div className="col-span-1 md:col-span-2 lg:col-span-3 mt-2">
-                  <label className="block text-xs font-bold text-slate-300 mb-1">Mobile Money Merchant ID / Shortcode</label>
+                  <label className="block text-xs font-bold text-slate-300 mb-1">{t.legacyUi.mobileMoneyMerchantId}</label>
                   <input
                     type="text"
                     value={payments.merchantId}
@@ -1229,7 +1208,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
               }`}
             >
               <ArrowLeft className="w-4 h-4" />
-              <span>Previous Step</span>
+              <span>{t.legacyUi.previousStep}</span>
             </button>
 
             <div className="flex items-center gap-2">
@@ -1250,12 +1229,12 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                   {isSaving ? (
                     <>
                       <RefreshCw className="w-4 h-4 animate-spin" />
-                      <span>Saving Setup Data...</span>
+                      <span>{t.legacyUi.savingSetupData}</span>
                     </>
                   ) : (
                     <>
                       <Sparkles className="w-4 h-4" />
-                      <span>Complete & Launch ERP System</span>
+                      <span>{t.legacyUi.completeLaunchErp}</span>
                     </>
                   )}
                 </button>

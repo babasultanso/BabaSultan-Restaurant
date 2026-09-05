@@ -23,6 +23,7 @@ export interface UnitConversion {
   ingredientId?: string; // Optional custom conversion for a specific ingredient
   ingredientName?: string;
   description?: string;
+  branchId?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -104,6 +105,7 @@ export interface RecipeVersionHistory {
   sellingPrice: number;
   changedBy: string;
   changeReason?: string;
+  branchId?: string;
   createdAt: string;
 }
 
@@ -140,6 +142,7 @@ export interface StockCount {
   countNumber: string;
   countDate: string;
   branch?: string;
+  branchId?: string;
   status: 'draft' | 'completed' | 'adjusted';
   items: StockCountItem[];
   totalExpectedValue: number;
@@ -170,6 +173,7 @@ export interface WasteRecord {
   reason: WasteReason;
   notes?: string;
   recordedBy: string;
+  branchId?: string;
   createdAt: string;
 }
 

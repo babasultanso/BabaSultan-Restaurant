@@ -1,3 +1,4 @@
+import { translateRawUi } from '../../i18n/rawUi';
 import React, { useState, useEffect } from 'react';
 import { Product, Order, Expense, Employee, Supplier, Ingredient } from '../../types';
 import { Category, Customer, Branch, Revenue, AISetting, UserPermission } from '../../domain/entities/admin';
@@ -48,7 +49,7 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
   ingredients,
   onRefresh
 }) => {
-  const { userRecord, user } = useAuth();
+  const { userRecord, user, t } = useAuth();
   const [activeTab, setActiveTab] = useState<
     'analytics' | 'products' | 'categories' | 'orders' | 'customers' |
     'employees' | 'inventory' | 'suppliers' | 'expenses' | 'revenues' |
@@ -81,7 +82,7 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
 
   const [isRevenueModalOpen, setIsRevenueModalOpen] = useState(false);
   const [revSource, setRevSource] = useState('Catering Event');
-  const [revAmount, setRevAmount] = useState(500);
+  const [revAmount, setRevAmount] = useState(0);
   const [revPayMethod, setRevPayMethod] = useState('bank_transfer');
   const [revBranchId, setRevBranchId] = useState('');
 
@@ -147,7 +148,7 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
         phone: custPhone,
         totalOrders: 0,
         totalSpent: 0,
-        loyaltyPoints: 100,
+        loyaltyPoints: 0,
         createdAt: new Date().toISOString()
       });
       setIsCustomerModalOpen(false);
@@ -189,7 +190,8 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      const authoritativeBranchId = revBranchId || (userRecord?.branchId && userRecord.branchId !== 'all' ? userRecord.branchId : (branches.find(b => b.status === 'active')?.id || 'branch_hq_01'));
+      const authoritativeBranchId = revBranchId || (userRecord?.branchId && userRecord.branchId !== 'all' ? userRecord.branchId : '');
+      if (!authoritativeBranchId) throw new Error('A valid branch must be selected before recording revenue.');
       await adminRepo.recordRevenue({
         source: revSource,
         amount: revAmount,
@@ -251,10 +253,10 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
         <div>
           <h2 className="text-xl font-bold text-white flex items-center gap-2">
             <ShieldCheck className="w-6 h-6 text-emerald-400" />
-            Executive Enterprise Administration Control Center
+            {translateRawUi('Executive Enterprise Administration Control Center')}
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            Real-time multi-branch synchronization, product catalogs, permissions & AI engine settings
+            {translateRawUi('Real-time multi-branch synchronization, product catalogs, permissions & AI engine settings')}
           </p>
         </div>
 
@@ -263,7 +265,7 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
           className="bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold px-3.5 py-2 rounded-2xl text-xs transition flex items-center gap-2 cursor-pointer border border-slate-700"
         >
           <RefreshCw className={`w-4 h-4 text-emerald-400 ${loading ? 'animate-spin' : ''}`} />
-          Sync Firebase
+          {translateRawUi('Sync Firebase')}
         </button>
       </div>
 
@@ -292,47 +294,47 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
         <div className="space-y-6">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-lg">
-              <span className="text-xs text-slate-400 font-bold uppercase tracking-wider">Gross Sales</span>
+              <span className="text-xs text-slate-400 font-bold uppercase tracking-wider">{t.legacyUi.grossSales}</span>
               <h3 className="text-2xl font-extrabold text-white mt-2">${(totalSales || 0).toFixed(2)}</h3>
-              <span className="text-[10px] text-emerald-400 mt-1 block">Live Firestore Revenue Sync</span>
+              <span className="text-[10px] text-emerald-400 mt-1 block">{t.legacyUi.liveRevenueSync}</span>
             </div>
             <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-lg">
-              <span className="text-xs text-slate-400 font-bold uppercase tracking-wider">Kitchen COGS</span>
+              <span className="text-xs text-slate-400 font-bold uppercase tracking-wider">{t.legacyUi.kitchenCogs}</span>
               <h3 className="text-2xl font-extrabold text-amber-400 mt-2">${(totalCOGS || 0).toFixed(2)}</h3>
-              <span className="text-[10px] text-slate-400 mt-1 block">Raw Ingredient Cost</span>
+              <span className="text-[10px] text-slate-400 mt-1 block">{t.legacyUi.rawIngredientCost}</span>
             </div>
             <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-lg">
-              <span className="text-xs text-slate-400 font-bold uppercase tracking-wider">Operating Expenses</span>
+              <span className="text-xs text-slate-400 font-bold uppercase tracking-wider">{t.legacyUi.operatingExpenses}</span>
               <h3 className="text-2xl font-extrabold text-rose-400 mt-2">${(totalExpensesAmt || 0).toFixed(2)}</h3>
-              <span className="text-[10px] text-slate-400 mt-1 block">Overhead & Salaries</span>
+              <span className="text-[10px] text-slate-400 mt-1 block">{t.legacyUi.overheadSalaries}</span>
             </div>
             <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-lg">
-              <span className="text-xs text-slate-400 font-bold uppercase tracking-wider">Net Profit</span>
+              <span className="text-xs text-slate-400 font-bold uppercase tracking-wider">{t.legacyUi.netProfitLabel2}</span>
               <h3 className={`text-2xl font-extrabold mt-2 ${netProfit >= 0 ? 'text-teal-400' : 'text-rose-400'}`}>
                 ${(netProfit || 0).toFixed(2)}
               </h3>
-              <span className="text-[10px] text-teal-400 mt-1 block">Net Profit Margin</span>
+              <span className="text-[10px] text-teal-400 mt-1 block">{t.legacyUi.netProfitMargin}</span>
             </div>
           </div>
 
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl">
-            <h3 className="text-base font-bold text-white mb-3">Enterprise Health Metrics</h3>
+            <h3 className="text-base font-bold text-white mb-3">{t.legacyUi.enterpriseHealthMetrics}</h3>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs font-mono">
               <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800">
-                <span className="text-slate-400 block text-[10px] uppercase font-bold">Total Orders</span>
+                <span className="text-slate-400 block text-[10px] uppercase font-bold">{t.legacyUi.totalOrders}</span>
                 <span className="text-lg font-extrabold text-emerald-400">{orders.length}</span>
               </div>
               <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800">
-                <span className="text-slate-400 block text-[10px] uppercase font-bold">Menu Dishes</span>
+                <span className="text-slate-400 block text-[10px] uppercase font-bold">{t.legacyUi.menuDishes}</span>
                 <span className="text-lg font-extrabold text-emerald-400">{products.length}</span>
               </div>
               <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800">
-                <span className="text-slate-400 block text-[10px] uppercase font-bold">Registered Staff</span>
+                <span className="text-slate-400 block text-[10px] uppercase font-bold">{t.legacyUi.registeredStaff}</span>
                 <span className="text-lg font-extrabold text-emerald-400">{employees.length}</span>
               </div>
               <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800">
-                <span className="text-slate-400 block text-[10px] uppercase font-bold">Active Branches</span>
-                <span className="text-lg font-extrabold text-emerald-400">{branches.length || 1}</span>
+                <span className="text-slate-400 block text-[10px] uppercase font-bold">{t.legacyUi.activeBranches}</span>
+                <span className="text-lg font-extrabold text-emerald-400">{branches.length}</span>
               </div>
             </div>
           </div>
@@ -343,7 +345,7 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
       {activeTab === 'products' && (
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
           <div className="flex items-center justify-between">
-            <h3 className="text-base font-bold text-white">Product Catalog Management</h3>
+            <h3 className="text-base font-bold text-white">{t.legacyUi.productCatalogManagement}</h3>
             <span className="text-xs text-slate-400 font-mono">{products.length} menu items</span>
           </div>
 
@@ -351,12 +353,12 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
             <table className="w-full text-left text-sm text-slate-300">
               <thead className="bg-slate-950 text-xs uppercase tracking-wider text-slate-400 border-b border-slate-800">
                 <tr>
-                  <th className="py-3 px-4">Dish Name</th>
-                  <th className="py-3 px-4">Category</th>
-                  <th className="py-3 px-4">Retail Price</th>
-                  <th className="py-3 px-4">Unit Cost</th>
-                  <th className="py-3 px-4">Stock</th>
-                  <th className="py-3 px-4">Sales Count</th>
+                  <th className="py-3 px-4">{t.legacyUi.dishName}</th>
+                  <th className="py-3 px-4">{t.legacyUi.category}</th>
+                  <th className="py-3 px-4">{t.legacyUi.retailPrice}</th>
+                  <th className="py-3 px-4">{t.legacyUi.unitCost}</th>
+                  <th className="py-3 px-4">{translateRawUi('Stock')}</th>
+                  <th className="py-3 px-4">{t.legacyUi.salesCount}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60 text-xs">
@@ -380,12 +382,12 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
       {activeTab === 'categories' && (
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
           <div className="flex items-center justify-between">
-            <h3 className="text-base font-bold text-white">Menu Categories</h3>
+            <h3 className="text-base font-bold text-white">{t.legacyUi.menuCategories}</h3>
             <button
               onClick={() => setIsCategoryModalOpen(true)}
               className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-3 py-1.5 rounded-xl text-xs flex items-center gap-1 cursor-pointer"
             >
-              <PlusCircle className="w-4 h-4" /> Add Category
+              <PlusCircle className="w-4 h-4" /> {translateRawUi('Add Category')}
             </button>
           </div>
 
@@ -411,16 +413,16 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
       {/* 4. Orders Tab */}
       {activeTab === 'orders' && (
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
-          <h3 className="text-base font-bold text-white">Order Pipeline Supervision</h3>
+          <h3 className="text-base font-bold text-white">{t.legacyUi.orderPipelineSupervision}</h3>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm text-slate-300">
               <thead className="bg-slate-950 text-xs uppercase tracking-wider text-slate-400 border-b border-slate-800">
                 <tr>
-                  <th className="py-3 px-4">Order ID</th>
-                  <th className="py-3 px-4">Customer</th>
-                  <th className="py-3 px-4">Total Amount</th>
-                  <th className="py-3 px-4">Status</th>
-                  <th className="py-3 px-4 text-right">Date</th>
+                  <th className="py-3 px-4">{t.legacyUi.orderId}</th>
+                  <th className="py-3 px-4">{t.legacyUi.customer}</th>
+                  <th className="py-3 px-4">{t.legacyUi.totalAmount}</th>
+                  <th className="py-3 px-4">{t.legacyUi.status}</th>
+                  <th className="py-3 px-4 text-right">{t.legacyUi.date}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60 text-xs">
@@ -443,12 +445,12 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
       {activeTab === 'customers' && (
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
           <div className="flex items-center justify-between">
-            <h3 className="text-base font-bold text-white">Customer Loyalty Directory</h3>
+            <h3 className="text-base font-bold text-white">{t.legacyUi.customerLoyaltyDirectory}</h3>
             <button
               onClick={() => setIsCustomerModalOpen(true)}
               className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-3 py-1.5 rounded-xl text-xs flex items-center gap-1 cursor-pointer"
             >
-              <PlusCircle className="w-4 h-4" /> Add Customer
+              <PlusCircle className="w-4 h-4" /> {translateRawUi('Add Customer')}
             </button>
           </div>
 
@@ -456,10 +458,10 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
             <table className="w-full text-left text-sm text-slate-300">
               <thead className="bg-slate-950 text-xs uppercase tracking-wider text-slate-400 border-b border-slate-800">
                 <tr>
-                  <th className="py-3 px-4">Customer Name</th>
-                  <th className="py-3 px-4">Email</th>
-                  <th className="py-3 px-4">Phone</th>
-                  <th className="py-3 px-4">Loyalty Points</th>
+                  <th className="py-3 px-4">{t.legacyUi.customerName}</th>
+                  <th className="py-3 px-4">{t.legacyUi.emailLabel}</th>
+                  <th className="py-3 px-4">{t.legacyUi.phoneLabel}</th>
+                  <th className="py-3 px-4">{t.legacyUi.loyaltyPoints}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60 text-xs">
@@ -480,7 +482,7 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
       {/* 6. Employees Tab */}
       {activeTab === 'employees' && (
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
-          <h3 className="text-base font-bold text-white">Staff Roster</h3>
+          <h3 className="text-base font-bold text-white">{t.legacyUi.staffRoster}</h3>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {employees.map(e => (
               <div key={e.id} className="bg-slate-950 p-4 rounded-2xl border border-slate-800">
@@ -488,7 +490,7 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
                 <span className="text-[10px] uppercase font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
                   {e.role}
                 </span>
-                <p className="text-xs text-slate-400 mt-2">Salary: ${e.salary}/mo</p>
+                <p className="text-xs text-slate-400 mt-2">Salary: ${e.salary} / {(e.payFrequency || 'monthly').toUpperCase()}</p>
               </div>
             ))}
           </div>
@@ -498,15 +500,15 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
       {/* 7. Inventory Tab */}
       {activeTab === 'inventory' && (
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
-          <h3 className="text-base font-bold text-white">Raw Kitchen Inventory</h3>
+          <h3 className="text-base font-bold text-white">{t.legacyUi.rawKitchenInventory}</h3>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm text-slate-300">
               <thead className="bg-slate-950 text-xs uppercase tracking-wider text-slate-400 border-b border-slate-800">
                 <tr>
-                  <th className="py-3 px-4">Ingredient</th>
-                  <th className="py-3 px-4">Stock Level</th>
-                  <th className="py-3 px-4">Unit Cost</th>
-                  <th className="py-3 px-4">Supplier</th>
+                  <th className="py-3 px-4">{translateRawUi('Ingredient')}</th>
+                  <th className="py-3 px-4">{t.legacyUi.stockLevel}</th>
+                  <th className="py-3 px-4">{t.legacyUi.unitCost}</th>
+                  <th className="py-3 px-4">{t.legacyUi.supplierLabel}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60 text-xs">
@@ -527,7 +529,7 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
       {/* 8. Suppliers Tab */}
       {activeTab === 'suppliers' && (
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
-          <h3 className="text-base font-bold text-white">Vendors & Suppliers</h3>
+          <h3 className="text-base font-bold text-white">{t.legacyUi.vendorsSuppliers}</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {suppliers.map(s => (
               <div key={s.id} className="bg-slate-950 p-4 rounded-2xl border border-slate-800">
@@ -543,15 +545,15 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
       {/* 9. Expenses Tab */}
       {activeTab === 'expenses' && (
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
-          <h3 className="text-base font-bold text-white">Operational Expenses Ledger</h3>
+          <h3 className="text-base font-bold text-white">{t.legacyUi.operationalExpensesLedger}</h3>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm text-slate-300">
               <thead className="bg-slate-950 text-xs uppercase tracking-wider text-slate-400 border-b border-slate-800">
                 <tr>
-                  <th className="py-3 px-4">Title</th>
-                  <th className="py-3 px-4">Category</th>
-                  <th className="py-3 px-4">Amount ($)</th>
-                  <th className="py-3 px-4 text-right">Date</th>
+                  <th className="py-3 px-4">{translateRawUi('Title')}</th>
+                  <th className="py-3 px-4">{t.legacyUi.category}</th>
+                  <th className="py-3 px-4">{t.legacyUi.amount}</th>
+                  <th className="py-3 px-4 text-right">{t.legacyUi.date}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60 text-xs">
@@ -573,12 +575,12 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
       {activeTab === 'revenues' && (
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
           <div className="flex items-center justify-between">
-            <h3 className="text-base font-bold text-white">Supplementary Revenues Log</h3>
+            <h3 className="text-base font-bold text-white">{t.legacyUi.supplementaryRevenuesLog}</h3>
             <button
               onClick={() => setIsRevenueModalOpen(true)}
               className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-3 py-1.5 rounded-xl text-xs flex items-center gap-1 cursor-pointer"
             >
-              <PlusCircle className="w-4 h-4" /> Record Revenue
+              <PlusCircle className="w-4 h-4" /> {translateRawUi('Record Revenue')}
             </button>
           </div>
 
@@ -586,10 +588,10 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
             <table className="w-full text-left text-sm text-slate-300">
               <thead className="bg-slate-950 text-xs uppercase tracking-wider text-slate-400 border-b border-slate-800">
                 <tr>
-                  <th className="py-3 px-4">Ref #</th>
-                  <th className="py-3 px-4">Source</th>
-                  <th className="py-3 px-4">Amount ($)</th>
-                  <th className="py-3 px-4 text-right">Date</th>
+                  <th className="py-3 px-4">{t.legacyUi.referenceNumber}</th>
+                  <th className="py-3 px-4">{translateRawUi('Source')}</th>
+                  <th className="py-3 px-4">{t.legacyUi.amount}</th>
+                  <th className="py-3 px-4 text-right">{t.legacyUi.date}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60 text-xs">
@@ -610,8 +612,8 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
       {/* 11. Reports Tab */}
       {activeTab === 'reports' && (
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl">
-          <h3 className="text-base font-bold text-white mb-2">Executive Reports</h3>
-          <p className="text-xs text-slate-400">Access the full PDF & Excel report exporter from the main navigation tab.</p>
+          <h3 className="text-base font-bold text-white mb-2">{t.legacyUi.executiveReports}</h3>
+          <p className="text-xs text-slate-400">{t.legacyUi.reportExporterHelp}</p>
         </div>
       )}
 
@@ -619,12 +621,12 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
       {activeTab === 'branches' && (
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
           <div className="flex items-center justify-between">
-            <h3 className="text-base font-bold text-white">Restaurant Branches</h3>
+            <h3 className="text-base font-bold text-white">{t.legacyUi.restaurantBranches}</h3>
             <button
               onClick={() => setIsBranchModalOpen(true)}
               className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-3 py-1.5 rounded-xl text-xs flex items-center gap-1 cursor-pointer"
             >
-              <PlusCircle className="w-4 h-4" /> Add Branch
+              <PlusCircle className="w-4 h-4" /> {translateRawUi('Add Branch')}
             </button>
           </div>
 
@@ -648,12 +650,12 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
       {activeTab === 'ai_settings' && aiSettings && (
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-5 max-w-xl text-xs">
           <h3 className="text-lg font-bold text-white flex items-center gap-2">
-            <Bot className="w-5 h-5 text-emerald-400" /> AI Advisor Core Settings
+            <Bot className="w-5 h-5 text-emerald-400" /> {translateRawUi('AI Advisor Core Settings')}
           </h3>
 
           <div className="space-y-3">
             <div>
-              <label className="text-slate-400 font-bold block mb-1">Gemini Model Alias</label>
+              <label className="text-slate-400 font-bold block mb-1">{t.legacyUi.geminiModelAlias}</label>
               <input
                 type="text"
                 value={aiSettings.model}
@@ -663,21 +665,21 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
             </div>
 
             <div>
-              <label className="text-slate-400 font-bold block mb-1">Language Mode</label>
+              <label className="text-slate-400 font-bold block mb-1">{t.legacyUi.languageMode}</label>
               <select
                 value={aiSettings.languageMode}
                 onChange={e => setAiSettings({ ...aiSettings, languageMode: e.target.value as any })}
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white"
               >
-                <option value="auto">Auto Detect (Multilingual)</option>
-                <option value="en">English Only</option>
-                <option value="ar">Arabic Only</option>
-                <option value="so">Somali Only</option>
+                <option value="auto">{t.legacyUi.autoDetectMultilingual}</option>
+                <option value="en">{t.legacyUi.englishOnly}</option>
+                <option value="ar">{t.legacyUi.arabicOnly}</option>
+                <option value="so">{t.legacyUi.somaliOnly}</option>
               </select>
             </div>
 
             <div>
-              <label className="text-slate-400 font-bold block mb-1">System Directive Addon</label>
+              <label className="text-slate-400 font-bold block mb-1">{t.legacyUi.systemDirectiveAddon}</label>
               <textarea
                 rows={3}
                 value={aiSettings.systemPromptAddon || ''}
@@ -700,7 +702,7 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
       {/* 14. User Permissions Tab */}
       {activeTab === 'permissions' && (
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
-          <h3 className="text-base font-bold text-white">RBAC Role Permissions</h3>
+          <h3 className="text-base font-bold text-white">{t.legacyUi.rbacRolePermissions}</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
             {permissions.map(p => (
               <div key={p.id} className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2">
@@ -724,16 +726,16 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
             <button type="button" onClick={() => setIsCategoryModalOpen(false)} className="absolute right-4 top-4 text-slate-400 hover:text-white">
               <X className="w-5 h-5" />
             </button>
-            <h3 className="text-lg font-bold text-white">Add Menu Category</h3>
+            <h3 className="text-lg font-bold text-white">{t.legacyUi.addMenuCategory}</h3>
             <input
               type="text"
               required
-              placeholder="Category Name"
+              placeholder={translateRawUi('Category Name')}
               value={newCatName}
               onChange={e => setNewCatName(e.target.value)}
               className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white"
             />
-            <button type="submit" className="w-full bg-emerald-500 text-slate-950 font-bold py-3 rounded-xl">Save Category</button>
+            <button type="submit" className="w-full bg-emerald-500 text-slate-950 font-bold py-3 rounded-xl">{t.legacyUi.saveCategory}</button>
           </form>
         </div>
       )}

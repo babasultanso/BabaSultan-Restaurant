@@ -9,9 +9,18 @@ export interface CartCalculationResult {
   grandTotal: number;
 }
 
+export interface TenderChangeResult {
+  orderTotal: number;
+  amountTendered: number;
+  paidAmount: number;
+  changeDue: number;
+  isValid: boolean;
+  shortfall: number;
+}
+
 export function calculateCartTotals(
   cart: CartItem[],
-  taxRatePercent: number = 5,
+  taxRatePercent: number = 0,
   discountValue: number = 0,
   discountType: 'percentage' | 'fixed' = 'percentage'
 ): CartCalculationResult {
@@ -44,10 +53,39 @@ export function calculateCartTotals(
   };
 }
 
-export function calculateTenderChange(amountTendered: number, grandTotal: number) {
+export function calculateTenderChange(
+  amountTendered: number,
+  grandTotal: number,
+  paymentMethod: string = 'cash'
+): TenderChangeResult {
+  const total = Math.max(0, Math.round((Number(grandTotal) || 0) * 100) / 100);
+  const isCash = paymentMethod.toLowerCase() === 'cash';
+
+  if (!isCash) {
+    return {
+      orderTotal: total,
+      amountTendered: total,
+      paidAmount: total,
+      changeDue: 0,
+      isValid: true,
+      shortfall: 0
+    };
+  }
+
+  const tendered = Math.max(0, Math.round((Number(amountTendered) || 0) * 100) / 100);
+  const diff = tendered - total;
+  const changeDue = diff > 0 ? Math.round(diff * 100) / 100 : 0;
+  const shortfall = diff < 0 ? Math.round(Math.abs(diff) * 100) / 100 : 0;
+  const isValid = tendered >= total - 0.0001;
+  const paidAmount = total;
+
   return {
-    amountTendered: grandTotal,
-    changeDue: 0
+    orderTotal: total,
+    amountTendered: tendered,
+    paidAmount,
+    changeDue,
+    isValid,
+    shortfall
   };
 }
 

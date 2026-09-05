@@ -12,6 +12,7 @@ export interface Customer {
   name: string;
   email: string;
   phone: string;
+  branchId?: string;
   totalOrders: number;
   totalSpent: number;
   loyaltyPoints: number;

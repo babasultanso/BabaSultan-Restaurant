@@ -1,3 +1,4 @@
+import { translateRawUi } from '../../../i18n';
 import React, { useState, useEffect } from 'react';
 import { Product, Category, Ingredient, RecipeIngredient, ProductOption } from '../../../types';
 import { useAuth } from '../../context/AuthContext';
@@ -63,7 +64,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
         discountPrice: 0,
         cost: 0,
         tax: 0,
-        prepTimeMinutes: 15,
+        prepTimeMinutes: 0,
         availabilityStatus: 'enabled',
         isFeatured: false,
         sku: '',
@@ -183,7 +184,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
               <h2 className="text-base font-bold text-white">
                 {productToEdit ? `Edit Product: ${productToEdit.nameEn || productToEdit.name}` : 'Add New Restaurant Product'}
               </h2>
-              <p className="text-xs text-slate-400">Configure multi-lingual details, prices, images, recipes & options</p>
+              <p className="text-xs text-slate-400">{t.legacyUi.configureMultilingualProduct}</p>
             </div>
           </div>
           <button onClick={onClose} className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition">
@@ -229,14 +230,14 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    English Name *
+                    {translateRawUi('English Name *')}
                   </label>
                   <input
                     type="text"
                     value={formData.nameEn || ''}
                     onChange={(e) => setFormData({ ...formData, nameEn: e.target.value })}
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
-                    placeholder="e.g. Camel Meat Rice Special"
+                    placeholder={translateRawUi('e.g. Camel Meat Rice Special')}
                   />
                   {getFieldError('nameEn') && (
                     <p className="text-[10px] text-rose-400 mt-1">{getFieldError('nameEn')}</p>
@@ -245,7 +246,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Arabic Name (اسم الوجبة) *
+                    {translateRawUi('Arabic Name (اسم الوجبة) *')}
                   </label>
                   <input
                     type="text"
@@ -253,7 +254,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                     value={formData.nameAr || ''}
                     onChange={(e) => setFormData({ ...formData, nameAr: e.target.value })}
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
-                    placeholder="مثال: أرز باللحم الإبل الصومالي"
+                    placeholder={translateRawUi('مثال: أرز باللحم الإبل الصومالي')}
                   />
                   {getFieldError('nameAr') && (
                     <p className="text-[10px] text-rose-400 mt-1">{getFieldError('nameAr')}</p>
@@ -262,14 +263,14 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Somali Name *
+                    {translateRawUi('Somali Name *')}
                   </label>
                   <input
                     type="text"
                     value={formData.nameSo || ''}
                     onChange={(e) => setFormData({ ...formData, nameSo: e.target.value })}
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
-                    placeholder="e.g. Bariis Iskukaris oo Geel ah"
+                    placeholder={translateRawUi('e.g. Bariis Iskukaris oo Geel ah')}
                   />
                   {getFieldError('nameSo') && (
                     <p className="text-[10px] text-rose-400 mt-1">{getFieldError('nameSo')}</p>
@@ -280,7 +281,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Menu Category *
+                    {translateRawUi('Menu Category *')}
                   </label>
                   <select
                     value={formData.categoryId || ''}
@@ -304,54 +305,54 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    SKU Code *
+                    {translateRawUi('SKU Code *')}
                   </label>
                   <input
                     type="text"
                     value={formData.sku || ''}
                     onChange={(e) => setFormData({ ...formData, sku: e.target.value })}
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500 font-mono"
-                    placeholder="e.g. SKU-BAR-002"
+                    placeholder={translateRawUi('e.g. SKU-BAR-002')}
                   />
                 </div>
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Barcode
+                    {translateRawUi('Barcode')}
                   </label>
                   <input
                     type="text"
                     value={formData.barcode || ''}
                     onChange={(e) => setFormData({ ...formData, barcode: e.target.value })}
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500 font-mono"
-                    placeholder="e.g. 600123456002"
+                    placeholder={translateRawUi('e.g. 600123456002')}
                   />
                 </div>
               </div>
 
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  Short Description
+                  {translateRawUi('Short Description')}
                 </label>
                 <input
                   type="text"
                   value={formData.shortDescription || ''}
                   onChange={(e) => setFormData({ ...formData, shortDescription: e.target.value })}
                   className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
-                  placeholder="Catchy tagline for POS terminal & digital menu"
+                  placeholder={translateRawUi('Catchy tagline for POS terminal & digital menu')}
                 />
               </div>
 
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  Full Detailed Description
+                  {translateRawUi('Full Detailed Description')}
                 </label>
                 <textarea
                   rows={3}
                   value={formData.description || ''}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                   className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
-                  placeholder="Ingredients, marinade details, cooking method..."
+                  placeholder={translateRawUi('Ingredients, marinade details, cooking method...')}
                 />
               </div>
             </div>
@@ -363,7 +364,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Regular Selling Price ($) *
+                    {translateRawUi('Regular Selling Price ($) *')}
                   </label>
                   <input
                     type="number"
@@ -379,7 +380,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Discounted Promo Price ($)
+                    {translateRawUi('Discounted Promo Price ($)')}
                   </label>
                   <input
                     type="number"
@@ -392,7 +393,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Cost Price ($)
+                    {translateRawUi('Cost Price ($)')}
                   </label>
                   <input
                     type="number"
@@ -405,7 +406,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Tax Rate (%)
+                    {translateRawUi('Tax Rate (%)')}
                   </label>
                   <input
                     type="number"
@@ -420,34 +421,34 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Prep Time (Minutes)
+                    {translateRawUi('Prep Time (Minutes)')}
                   </label>
                   <input
                     type="number"
-                    value={formData.prepTimeMinutes || 15}
-                    onChange={(e) => setFormData({ ...formData, prepTimeMinutes: parseInt(e.target.value) || 15 })}
+                    value={formData.prepTimeMinutes ?? ''}
+                    onChange={(e) => setFormData({ ...formData, prepTimeMinutes: e.target.value === '' ? 0 : parseInt(e.target.value, 10) })}
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
                   />
                 </div>
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Availability Status
+                    {translateRawUi('Availability Status')}
                   </label>
                   <select
                     value={formData.availabilityStatus || 'enabled'}
                     onChange={(e) => setFormData({ ...formData, availabilityStatus: e.target.value as any })}
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
                   >
-                    <option value="enabled">Enabled (Available)</option>
-                    <option value="disabled">Disabled (Hidden)</option>
-                    <option value="out_of_stock">Out of Stock</option>
+                    <option value="enabled">{t.legacyUi.enabledAvailable}</option>
+                    <option value="disabled">{t.legacyUi.disabledHidden}</option>
+                    <option value="out_of_stock">{t.legacyUi.outOfStock}</option>
                   </select>
                 </div>
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Stock Quantity
+                    {translateRawUi('Stock Quantity')}
                   </label>
                   <input
                     type="number"
@@ -459,14 +460,14 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Unit Type
+                    {translateRawUi('Unit Type')}
                   </label>
                   <input
                     type="text"
                     value={formData.unit || 'Portion'}
                     onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
-                    placeholder="e.g. Portion, Cup, Glass"
+                    placeholder={translateRawUi('e.g. Portion, Cup, Glass')}
                   />
                 </div>
               </div>
@@ -474,7 +475,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Estimated Calories (kcal)
+                    {translateRawUi('Estimated Calories (kcal)')}
                   </label>
                   <input
                     type="number"
@@ -492,7 +493,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                       onChange={(e) => setFormData({ ...formData, isFeatured: e.target.checked })}
                       className="w-4 h-4 rounded text-emerald-500 bg-slate-950 border-slate-800 focus:ring-0"
                     />
-                    <span>Highlight as Featured Chef Special</span>
+                    <span>{t.legacyUi.featuredChefSpecial}</span>
                   </label>
                 </div>
               </div>
@@ -504,7 +505,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
             <div className="space-y-5">
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  Primary Product Image URL
+                  {translateRawUi('Primary Product Image URL')}
                 </label>
                 <div className="flex items-center gap-2">
                   <input
@@ -512,11 +513,11 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                     value={formData.imageUrl || ''}
                     onChange={(e) => setFormData({ ...formData, imageUrl: e.target.value })}
                     className="flex-1 px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
-                    placeholder="https://images.unsplash.com/..."
+                    placeholder={translateRawUi('https://images.unsplash.com/...')}
                   />
                   <label className="p-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl cursor-pointer transition flex items-center gap-2 text-xs font-bold">
                     <ImageIcon className="w-4 h-4" />
-                    <span>Upload & Compress</span>
+                    <span>{t.legacyUi.uploadCompress}</span>
                     <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
                   </label>
                 </div>
@@ -527,7 +528,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                 {formData.imageUrl ? (
                   <img
                     src={formData.imageUrl}
-                    alt="Preview"
+                    alt={translateRawUi('Preview')}
                     className="w-20 h-20 rounded-xl object-cover border border-slate-800 bg-slate-900"
                   />
                 ) : (
@@ -536,7 +537,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                   </div>
                 )}
                 <div>
-                  <h4 className="text-xs font-bold text-white">Product Image Preview</h4>
+                  <h4 className="text-xs font-bold text-white">{t.legacyUi.productImagePreview}</h4>
                   <p className="text-[10px] text-slate-400 mt-1">
                     {formData.imageUrl
                       ? 'Custom product image is set and will be displayed in POS and KDS.'
@@ -552,8 +553,8 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
             <div className="space-y-5">
               <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                 <div>
-                  <h3 className="text-xs font-bold text-emerald-400">Recipe Ingredients & Automatic Inventory Connection</h3>
-                  <p className="text-[10px] text-slate-400">Linking raw ingredients will automatically deduct stock upon order completion</p>
+                  <h3 className="text-xs font-bold text-emerald-400">{t.legacyUi.recipeInventoryConnection}</h3>
+                  <p className="text-[10px] text-slate-400">{t.legacyUi.linkIngredientsHelp}</p>
                 </div>
                 <button
                   type="button"
@@ -561,14 +562,14 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                   className="px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 text-xs font-bold rounded-xl flex items-center gap-1.5"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  <span>Link Ingredient</span>
+                  <span>{t.legacyUi.linkIngredient}</span>
                 </button>
               </div>
 
               <div className="space-y-2">
                 {(formData.ingredients || []).length === 0 ? (
                   <div className="p-8 text-center bg-slate-950/60 rounded-2xl border border-slate-800 text-slate-500 text-xs">
-                    No raw ingredients linked to this product yet. Click "Link Ingredient" to connect inventory items.
+                    {translateRawUi('No raw ingredients linked to this product yet. Click "Link Ingredient" to connect inventory items.')}
                   </div>
                 ) : (
                   (formData.ingredients || []).map((item, idx) => (
@@ -588,7 +589,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                       </div>
 
                       <div className="md:col-span-4 flex items-center gap-2">
-                        <span className="text-[10px] text-slate-400 font-bold">Qty / Portion:</span>
+                        <span className="text-[10px] text-slate-400 font-bold">{t.legacyUi.qtyPortion}</span>
                         <input
                           type="number"
                           step="0.01"
@@ -624,13 +625,13 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
               <div className="p-4 bg-slate-950/80 border border-slate-800 rounded-2xl flex items-center justify-between">
                 <div>
                   <h4 className="text-xs font-bold text-white">Configured Product Options ({formData.options?.length || 0})</h4>
-                  <p className="text-[10px] text-slate-400 mt-0.5">Sizes, Add-ons, and Custom Variants for this menu item</p>
+                  <p className="text-[10px] text-slate-400 mt-0.5">{t.legacyUi.sizesAddonsVariants}</p>
                 </div>
               </div>
 
               {(formData.options || []).length === 0 ? (
                 <div className="p-8 text-center bg-slate-950/60 rounded-2xl border border-slate-800 text-slate-500 text-xs">
-                  No custom option groups configured on this product yet. You can manage global and custom option groups using the Options Manager.
+                  {translateRawUi('No custom option groups configured on this product yet. You can manage global and custom option groups using the Options Manager.')}
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -659,7 +660,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
               onClick={onClose}
               className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl"
             >
-              Cancel
+              {translateRawUi('Cancel')}
             </button>
             <button
               type="button"

@@ -1,3 +1,5 @@
+import { useAuth } from '../presentation/context/AuthContext';
+import { translateRawUi } from '../i18n/rawUi';
 import React, { useState, useMemo } from 'react';
 import { auth } from '../lib/firebase';
 import { getApiUrl } from '../lib/apiConfig';
@@ -105,6 +107,7 @@ export const AIFinancialAdvisorView: React.FC<AIFinancialAdvisorViewProps> = ({
   onAddBankTransaction,
   onUpdateStock
 }) => {
+  const { t } = useAuth();
   const [activeTab, setActiveTab] = useState<'dashboard' | 'performance' | 'predictions' | 'recommendations' | 'questions' | 'chat'>('dashboard');
   const [selectedQuestion, setSelectedQuestion] = useState<string | null>('increase_profit');
   const [chatInput, setChatInput] = useState('');
@@ -173,31 +176,48 @@ export const AIFinancialAdvisorView: React.FC<AIFinancialAdvisorViewProps> = ({
     let payload = rec.actionPayload || {};
 
     if (rec.actionType === 'UPDATE_STOCK') {
+      const productId = typeof rec.actionPayload?.productId === 'string' ? rec.actionPayload.productId.trim() : '';
+      if (!productId) {
+        setActionErrorMsg('This stock recommendation does not identify a real product. No action was prepared.');
+        return;
+      }
       actionType = 'UPDATE_STOCK';
       payload = {
-        productId: rec.actionPayload?.productId || products[0]?.id || 'prod_1',
-        newStock: Number(rec.actionPayload?.newStock ?? 50),
+        productId,
+        newStock: Number(rec.actionPayload?.newStock ?? 0),
         reason: rec.description || 'CFO Recommended Stock Adjustment'
+      };
+    } else if (rec.actionType === 'UPDATE_PRODUCT_PRICE') {
+      const productId = typeof rec.actionPayload?.productId === 'string' ? rec.actionPayload.productId.trim() : '';
+      if (!productId) {
+        setActionErrorMsg('This price recommendation does not identify a real product. No action was prepared.');
+        return;
+      }
+      actionType = 'UPDATE_PRODUCT_PRICE';
+      payload = {
+        productId,
+        newPrice: Number(rec.actionPayload?.newPrice),
+        reason: rec.description || 'CFO Recommended Price Update'
       };
     } else if (rec.actionType === 'REGISTER_PURCHASE') {
       actionType = 'REGISTER_PURCHASE';
       payload = {
-        itemName: rec.actionPayload?.itemName || 'Inventory Reorder',
-        quantity: Number(rec.actionPayload?.quantity) || 10,
-        unit: rec.actionPayload?.unit || 'kg',
-        unitPrice: Number(rec.actionPayload?.unitPrice) || 10,
-        totalCost: Number(rec.actionPayload?.totalCost) || 100,
+        itemName: rec.actionPayload?.itemName,
+        quantity: Number(rec.actionPayload?.quantity),
+        unit: rec.actionPayload?.unit,
+        unitPrice: rec.actionPayload?.unitPrice === undefined ? undefined : Number(rec.actionPayload.unitPrice),
+        totalCost: rec.actionPayload?.totalCost === undefined ? undefined : Number(rec.actionPayload.totalCost),
         supplierId: rec.actionPayload?.supplierId,
-        supplierName: rec.actionPayload?.supplierName || suppliers[0]?.name || 'Primary Supplier',
-        status: (rec.actionPayload?.status || 'completed') as any
+        supplierName: rec.actionPayload?.supplierName,
+        status: rec.actionPayload?.status as any
       };
     } else if (rec.actionType === 'ADD_EXPENSE') {
       actionType = 'ADD_EXPENSE';
       payload = {
-        title: rec.actionPayload?.title || rec.title || 'Operational Expense',
-        amount: Number(rec.actionPayload?.amount) || 100,
-        category: rec.actionPayload?.category || 'supplies',
-        description: rec.actionPayload?.description || `CFO Auto-Action: ${rec.title || 'Expense'}`
+        title: rec.actionPayload?.title || rec.title,
+        amount: rec.actionPayload?.amount === undefined ? undefined : Number(rec.actionPayload.amount),
+        category: rec.actionPayload?.category,
+        description: rec.actionPayload?.description || rec.description
       };
     }
 
@@ -346,16 +366,16 @@ export const AIFinancialAdvisorView: React.FC<AIFinancialAdvisorViewProps> = ({
             </div>
             <div>
               <div className="flex items-center gap-3 flex-wrap">
-                <h2 className="text-2xl font-black text-white tracking-tight">AI Chief Financial Officer (CFO)</h2>
+                <h2 className="text-2xl font-black text-white tracking-tight">{t.legacyUi.aiCfoTitle}</h2>
                 <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                  Real Firestore Analytics
+                  {translateRawUi('Real Firestore Analytics')}
                 </span>
                 <span className="px-3 py-1 rounded-full text-xs font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 flex items-center gap-1">
-                  <Sparkles className="w-3.5 h-3.5" /> Powered by Gemini
+                  <Sparkles className="w-3.5 h-3.5" /> {translateRawUi('Powered by Gemini')}
                 </span>
               </div>
               <p className="text-slate-400 text-sm mt-1 max-w-2xl">
-                Real-time executive financial modeling, predictive sales & profit forecasting, cost optimizations, and automated strategic advisory for your restaurant enterprise.
+                {translateRawUi('Real-time executive financial modeling, predictive sales & profit forecasting, cost optimizations, and automated strategic advisory for your restaurant enterprise.')}
               </p>
             </div>
           </div>
@@ -363,7 +383,7 @@ export const AIFinancialAdvisorView: React.FC<AIFinancialAdvisorViewProps> = ({
           {/* CFO Financial Health Score */}
           <div className="flex items-center gap-4 bg-slate-950/80 p-4 rounded-xl border border-slate-800 shrink-0">
             <div className="text-right">
-              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">CFO Health Index</p>
+              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">{t.legacyUi.cfoHealthIndex}</p>
               <div className="flex items-baseline gap-1.5 justify-end mt-0.5">
                 <span className="text-3xl font-black text-emerald-400">{cfoHealthScore}</span>
                 <span className="text-xs font-bold text-slate-500">/ 100</span>
@@ -425,7 +445,7 @@ export const AIFinancialAdvisorView: React.FC<AIFinancialAdvisorViewProps> = ({
             {/* 1. Revenue KPI */}
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-lg relative">
               <div className="flex items-center justify-between text-slate-400 text-xs font-semibold uppercase tracking-wider">
-                <span>Monthly Net Revenue</span>
+                <span>{translateRawUi('Monthly Net Revenue')}</span>
                 <DollarSign className="w-4 h-4 text-emerald-400" />
               </div>
               <div className="text-2xl font-black text-white mt-2">
@@ -443,7 +463,7 @@ export const AIFinancialAdvisorView: React.FC<AIFinancialAdvisorViewProps> = ({
             {/* 2. Profit KPI */}
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-lg relative">
               <div className="flex items-center justify-between text-slate-400 text-xs font-semibold uppercase tracking-wider">
-                <span>Net Profit & Margin</span>
+                <span>{t.legacyUi.netProfitMarginCombined}</span>
                 <TrendingUp className="w-4 h-4 text-emerald-400" />
               </div>
               <div className="text-2xl font-black text-white mt-2">
@@ -463,7 +483,7 @@ export const AIFinancialAdvisorView: React.FC<AIFinancialAdvisorViewProps> = ({
             {/* 3. Food Cost Ratio */}
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-lg relative">
               <div className="flex items-center justify-between text-slate-400 text-xs font-semibold uppercase tracking-wider">
-                <span>Food Cost % (COGS)</span>
+                <span>{t.legacyUi.foodCostCogsPercent}</span>
                 <Package className="w-4 h-4 text-amber-400" />
               </div>
               <div className="text-2xl font-black text-white mt-2">
@@ -473,14 +493,14 @@ export const AIFinancialAdvisorView: React.FC<AIFinancialAdvisorViewProps> = ({
                 <span className={`font-bold ${kpis.foodCostPercentage <= 30 ? 'text-emerald-400' : 'text-amber-400'}`}>
                   Total COGS: ${kpis.foodCosts.toFixed(0)}
                 </span>
-                <span className="text-slate-500">Target: &lt;30%</span>
+                <span className="text-slate-500">{translateRawUi('Target: &lt;30%')}</span>
               </div>
             </div>
 
             {/* 4. Total Liquidity & Cash Flow */}
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-lg relative">
               <div className="flex items-center justify-between text-slate-400 text-xs font-semibold uppercase tracking-wider">
-                <span>Total Treasury Liquidity</span>
+                <span>{translateRawUi('Total Treasury Liquidity')}</span>
                 <Calculator className="w-4 h-4 text-indigo-400" />
               </div>
               <div className="text-2xl font-black text-white mt-2">
@@ -498,39 +518,39 @@ export const AIFinancialAdvisorView: React.FC<AIFinancialAdvisorViewProps> = ({
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
             
             <div className="bg-slate-900/80 border border-slate-800 p-3.5 rounded-xl text-center">
-              <p className="text-[11px] text-slate-400 font-semibold uppercase">Labor Cost %</p>
+              <p className="text-[11px] text-slate-400 font-semibold uppercase">{t.legacyUi.laborCostPercent}</p>
               <p className="text-lg font-black text-white mt-1">{kpis.laborCostPercentage.toFixed(1)}%</p>
-              <p className="text-[10px] text-slate-500 mt-0.5">Target: &lt; 28%</p>
+              <p className="text-[10px] text-slate-500 mt-0.5">{translateRawUi('Target: &lt; 28%')}</p>
             </div>
 
             <div className="bg-slate-900/80 border border-slate-800 p-3.5 rounded-xl text-center">
-              <p className="text-[11px] text-slate-400 font-semibold uppercase">Inventory Asset Value</p>
+              <p className="text-[11px] text-slate-400 font-semibold uppercase">{t.legacyUi.inventoryAssetValue}</p>
               <p className="text-lg font-black text-emerald-400 mt-1">${kpis.totalInventoryValuation.toFixed(0)}</p>
               <p className="text-[10px] text-slate-500 mt-0.5">{kpis.lowStockItemsCount} low stock items</p>
             </div>
 
             <div className="bg-slate-900/80 border border-slate-800 p-3.5 rounded-xl text-center">
-              <p className="text-[11px] text-slate-400 font-semibold uppercase">Completed Orders</p>
+              <p className="text-[11px] text-slate-400 font-semibold uppercase">{t.legacyUi.completedOrders}</p>
               <p className="text-lg font-black text-white mt-1">{kpis.totalCompletedOrders}</p>
               <p className="text-[10px] text-slate-500 mt-0.5">Avg: ${kpis.averageOrderValue.toFixed(2)}</p>
             </div>
 
             <div className="bg-slate-900/80 border border-slate-800 p-3.5 rounded-xl text-center">
-              <p className="text-[11px] text-slate-400 font-semibold uppercase">Spoilage & Waste Loss</p>
+              <p className="text-[11px] text-slate-400 font-semibold uppercase">{translateRawUi('Spoilage & Waste Loss')}</p>
               <p className="text-lg font-black text-amber-400 mt-1">${kpis.spoilageWasteLoss.toFixed(0)}</p>
               <p className="text-[10px] text-slate-500 mt-0.5">{kpis.wastePercentageOfCOGS.toFixed(1)}% of COGS</p>
             </div>
 
             <div className="bg-slate-900/80 border border-slate-800 p-3.5 rounded-xl text-center">
-              <p className="text-[11px] text-slate-400 font-semibold uppercase">Revenue / Employee</p>
+              <p className="text-[11px] text-slate-400 font-semibold uppercase">{translateRawUi('Revenue / Employee')}</p>
               <p className="text-lg font-black text-white mt-1">${kpis.revenuePerEmployee.toFixed(0)}</p>
               <p className="text-[10px] text-slate-500 mt-0.5">{kpis.activeEmployeeCount} active staff</p>
             </div>
 
             <div className="bg-slate-900/80 border border-slate-800 p-3.5 rounded-xl text-center">
-              <p className="text-[11px] text-slate-400 font-semibold uppercase">Est. Tax Obligations</p>
+              <p className="text-[11px] text-slate-400 font-semibold uppercase">{t.legacyUi.estimatedTaxObligations}</p>
               <p className="text-lg font-black text-indigo-400 mt-1">${(kpis.estimatedVAT + kpis.estimatedCorporateTax).toFixed(0)}</p>
-              <p className="text-[10px] text-slate-500 mt-0.5">Recorded VAT + 20% Corp</p>
+              <p className="text-[10px] text-slate-500 mt-0.5">{translateRawUi('Recorded VAT + configured corporate tax')}</p>
             </div>
 
           </div>
@@ -544,13 +564,13 @@ export const AIFinancialAdvisorView: React.FC<AIFinancialAdvisorViewProps> = ({
                 <div>
                   <h3 className="text-base font-bold text-white flex items-center gap-2">
                     <TrendingUp className="w-5 h-5 text-emerald-400" />
-                    Revenue & Profit Trajectory (Last 7 Days)
+                    {translateRawUi('Revenue & Profit Trajectory (Last 7 Days)')}
                   </h3>
-                  <p className="text-xs text-slate-400">Calculated from live completed Firestore orders</p>
+                  <p className="text-xs text-slate-400">{t.legacyUi.calculatedFromLiveOrders}</p>
                 </div>
                 <div className="flex items-center gap-2 text-xs">
-                  <span className="flex items-center gap-1 text-emerald-400 font-bold">● Sales</span>
-                  <span className="flex items-center gap-1 text-teal-300 font-bold">● Net Profit</span>
+                  <span className="flex items-center gap-1 text-emerald-400 font-bold">{translateRawUi('● Sales')}</span>
+                  <span className="flex items-center gap-1 text-teal-300 font-bold">{translateRawUi('● Net Profit')}</span>
                 </div>
               </div>
 
@@ -585,7 +605,7 @@ export const AIFinancialAdvisorView: React.FC<AIFinancialAdvisorViewProps> = ({
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
               <h3 className="text-base font-bold text-white flex items-center gap-2 mb-1">
                 <PieChartIcon className="w-5 h-5 text-amber-400" />
-                Cost Structure Distribution
+                {translateRawUi('Cost Structure Distribution')}
               </h3>
               <p className="text-xs text-slate-400 mb-4">Total Expenses: ${kpis.totalExpenses.toFixed(2)}</p>
 
@@ -631,9 +651,9 @@ export const AIFinancialAdvisorView: React.FC<AIFinancialAdvisorViewProps> = ({
               <div>
                 <h3 className="text-base font-bold text-white flex items-center gap-2">
                   <Clock className="w-5 h-5 text-indigo-400" />
-                  Hourly Order Volume & Peak Hours Distribution
+                  {translateRawUi('Hourly Order Volume & Peak Hours Distribution')}
                 </h3>
-                <p className="text-xs text-slate-400">Used for labor scheduling & kitchen prep optimization</p>
+                <p className="text-xs text-slate-400">{translateRawUi('Used for labor scheduling & kitchen prep optimization')}</p>
               </div>
               <div className="text-xs text-indigo-400 font-bold bg-indigo-500/10 px-3 py-1 rounded-full border border-indigo-500/20">
                 Peak Time: {forecast.peakHours[0]?.hourLabel || '1:00 PM'} ({forecast.peakHours[0]?.orderCount || 0} orders)
@@ -669,22 +689,22 @@ export const AIFinancialAdvisorView: React.FC<AIFinancialAdvisorViewProps> = ({
             <div>
               <h3 className="text-xl font-black text-white flex items-center gap-2">
                 <ShieldAlert className="w-6 h-6 text-amber-400" />
-                Performance Diagnostics & Anomaly Alerts
+                {translateRawUi('Performance Diagnostics & Anomaly Alerts')}
               </h3>
-              <p className="text-xs text-slate-400">Automated financial anomaly detection and operational risk warnings</p>
+              <p className="text-xs text-slate-400">{t.legacyUi.automatedFinancialAnomaly}</p>
             </div>
             <button 
               onClick={() => generateCPAReport('audit', kpis as any, { orders, expenses, purchases, salaries, products, ingredients, employees, suppliers, refunds, bankTransactions }, 'pdf')}
               className="bg-slate-800 hover:bg-slate-700 text-white font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-2 cursor-pointer"
             >
-              <Download className="w-4 h-4" /> Export Diagnostic Audit PDF
+              <Download className="w-4 h-4" /> {translateRawUi('Export Diagnostic Audit PDF')}
             </button>
           </div>
 
           {/* Active Critical Alerts */}
           {alerts.length > 0 && (
             <div className="space-y-3">
-              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Critical CFO Threshold Alerts</h4>
+              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">{t.legacyUi.criticalCfoAlerts}</h4>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {alerts.map((alt) => (
                   <div 
@@ -708,7 +728,7 @@ export const AIFinancialAdvisorView: React.FC<AIFinancialAdvisorViewProps> = ({
                           onClick={() => setActiveTab('recommendations')}
                           className="font-bold underline text-white hover:text-emerald-300 cursor-pointer"
                         >
-                          View Corrective Action →
+                          {translateRawUi('View Corrective Action →')}
                         </button>
                       </div>
                     </div>
@@ -728,7 +748,7 @@ export const AIFinancialAdvisorView: React.FC<AIFinancialAdvisorViewProps> = ({
             {performanceIssues.length === 0 ? (
               <div className="text-center py-8 text-slate-400 text-sm">
                 <CheckCircle2 className="w-12 h-12 text-emerald-400 mx-auto mb-2" />
-                No major operational inefficiencies or anomalies detected. All metrics are within optimal parameters.
+                {translateRawUi('No major operational inefficiencies or anomalies detected. All metrics are within optimal parameters.')}
               </div>
             ) : (
               <div className="space-y-4">
@@ -754,7 +774,7 @@ export const AIFinancialAdvisorView: React.FC<AIFinancialAdvisorViewProps> = ({
                       onClick={() => handleRequestActionConfirmation(issue)}
                       className="bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 border border-emerald-500/30 font-bold px-4 py-2 rounded-lg text-xs shrink-0 cursor-pointer transition flex items-center justify-center gap-1.5"
                     >
-                      <Zap className="w-3.5 h-3.5" /> Execute Corrective Action
+                      <Zap className="w-3.5 h-3.5" /> {translateRawUi('Execute Corrective Action')}
                     </button>
                   </div>
                 ))}
@@ -775,41 +795,41 @@ export const AIFinancialAdvisorView: React.FC<AIFinancialAdvisorViewProps> = ({
             <div>
               <h3 className="text-xl font-black text-white flex items-center gap-2">
                 <TrendingUp className="w-6 h-6 text-emerald-400" />
-                Predictive Sales & Profit Forecasting
+                {translateRawUi('Predictive Sales & Profit Forecasting')}
               </h3>
-              <p className="text-xs text-slate-400">Statistical projections based on historical run-rate and day-of-week seasonality</p>
+              <p className="text-xs text-slate-400">{translateRawUi('Statistical projections based on historical run-rate and day-of-week seasonality')}</p>
             </div>
 
             {/* Projected Metric Cards */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 text-center">
-                <p className="text-xs text-slate-400 font-semibold uppercase">Next Day Sales Forecast</p>
+                <p className="text-xs text-slate-400 font-semibold uppercase">{translateRawUi('Next Day Sales Forecast')}</p>
                 <p className="text-2xl font-black text-emerald-400 mt-1">${forecast.nextDaySales.toLocaleString()}</p>
-                <p className="text-[10px] text-slate-500 mt-0.5">Projected tomorrow</p>
+                <p className="text-[10px] text-slate-500 mt-0.5">{translateRawUi('Projected tomorrow')}</p>
               </div>
 
               <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 text-center">
-                <p className="text-xs text-slate-400 font-semibold uppercase">Next 7-Day Sales Forecast</p>
+                <p className="text-xs text-slate-400 font-semibold uppercase">{translateRawUi('Next 7-Day Sales Forecast')}</p>
                 <p className="text-2xl font-black text-white mt-1">${forecast.nextWeekSales.toLocaleString()}</p>
-                <p className="text-[10px] text-slate-500 mt-0.5">Weekly projection</p>
+                <p className="text-[10px] text-slate-500 mt-0.5">{translateRawUi('Weekly projection')}</p>
               </div>
 
               <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 text-center">
-                <p className="text-xs text-slate-400 font-semibold uppercase">Next 30-Day Sales Forecast</p>
+                <p className="text-xs text-slate-400 font-semibold uppercase">{translateRawUi('Next 30-Day Sales Forecast')}</p>
                 <p className="text-2xl font-black text-indigo-400 mt-1">${forecast.nextMonthSales.toLocaleString()}</p>
-                <p className="text-[10px] text-slate-500 mt-0.5">Monthly trajectory</p>
+                <p className="text-[10px] text-slate-500 mt-0.5">{translateRawUi('Monthly trajectory')}</p>
               </div>
 
               <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 text-center">
-                <p className="text-xs text-slate-400 font-semibold uppercase">Projected Monthly Profit</p>
+                <p className="text-xs text-slate-400 font-semibold uppercase">{t.legacyUi.projectedMonthlyProfit}</p>
                 <p className="text-2xl font-black text-teal-300 mt-1">${forecast.projectedMonthlyProfit.toLocaleString()}</p>
-                <p className="text-[10px] text-slate-500 mt-0.5">After projected expenses</p>
+                <p className="text-[10px] text-slate-500 mt-0.5">{t.legacyUi.afterProjectedExpenses}</p>
               </div>
             </div>
 
             {/* 7-Day Predictive Chart */}
             <div className="pt-4">
-              <h4 className="text-sm font-bold text-white mb-3">7-Day Forward Predictive Sales Curve</h4>
+              <h4 className="text-sm font-bold text-white mb-3">{translateRawUi('7-Day Forward Predictive Sales Curve')}</h4>
               <div className="h-64 w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={forecast.forecastDaily7Days}>
@@ -835,11 +855,11 @@ export const AIFinancialAdvisorView: React.FC<AIFinancialAdvisorViewProps> = ({
             <div className="pt-4 border-t border-slate-800 space-y-3">
               <h4 className="text-sm font-bold text-amber-400 flex items-center gap-2">
                 <AlertTriangle className="w-4 h-4" />
-                Predicted Ingredient Stockouts (Next 5 Days)
+                {translateRawUi('Predicted Ingredient Stockouts (Next 5 Days)')}
               </h4>
 
               {forecast.inventoryShortageRisks.length === 0 ? (
-                <p className="text-xs text-slate-400">All ingredient inventory stocks have more than 5 days of reserve buffer.</p>
+                <p className="text-xs text-slate-400">{t.legacyUi.allInventoryBuffer}</p>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   {forecast.inventoryShortageRisks.map(item => (
@@ -872,9 +892,9 @@ export const AIFinancialAdvisorView: React.FC<AIFinancialAdvisorViewProps> = ({
             <div>
               <h3 className="text-xl font-black text-white flex items-center gap-2">
                 <Lightbulb className="w-6 h-6 text-amber-400" />
-                CFO Strategic Action Recommendations
+                {translateRawUi('CFO Strategic Action Recommendations')}
               </h3>
-              <p className="text-xs text-slate-400">Data-driven tactics to expand net margins, lower cost structures, and streamline operations</p>
+              <p className="text-xs text-slate-400">{t.legacyUi.dataDrivenTactics}</p>
             </div>
           </div>
 
@@ -896,7 +916,7 @@ export const AIFinancialAdvisorView: React.FC<AIFinancialAdvisorViewProps> = ({
                 </div>
 
                 <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between">
-                  <span className="text-xs text-slate-400 font-semibold">Impact: <strong className="text-white">{rec.impactScore}</strong></span>
+                  <span className="text-xs text-slate-400 font-semibold">{translateRawUi('Impact:')} <strong className="text-white">{rec.impactScore}</strong></span>
                   <button
                     onClick={() => handleRequestActionConfirmation(rec)}
                     className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-lg shadow-emerald-500/20 transition"
@@ -921,9 +941,9 @@ export const AIFinancialAdvisorView: React.FC<AIFinancialAdvisorViewProps> = ({
           <div>
             <h3 className="text-xl font-black text-white flex items-center gap-2">
               <HelpCircle className="w-6 h-6 text-indigo-400" />
-              Executive Business Questions Launcher
+              {translateRawUi('Executive Business Questions Launcher')}
             </h3>
-            <p className="text-xs text-slate-400">Instant CFO financial answers derived strictly from your live Firestore database</p>
+            <p className="text-xs text-slate-400">{t.legacyUi.instantCfoAnswers}</p>
           </div>
 
           {/* Questions Selection Grid */}
@@ -960,7 +980,7 @@ export const AIFinancialAdvisorView: React.FC<AIFinancialAdvisorViewProps> = ({
                   onClick={() => handleSendChat(businessQuestionAnswers[selectedQuestion].question)}
                   className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-3 py-1.5 rounded-lg text-xs flex items-center gap-1.5 cursor-pointer"
                 >
-                  <Sparkles className="w-3.5 h-3.5" /> Ask Deep AI Version
+                  <Sparkles className="w-3.5 h-3.5" /> {translateRawUi('Ask Deep AI Version')}
                 </button>
               </div>
 
@@ -995,8 +1015,8 @@ export const AIFinancialAdvisorView: React.FC<AIFinancialAdvisorViewProps> = ({
                 <Bot className="w-6 h-6" />
               </div>
               <div>
-                <h3 className="text-base font-bold text-white">Live AI CFO Advisory Room</h3>
-                <p className="text-xs text-slate-400">Ask custom scenarios, financial modeling, or strategy questions in English, Arabic, or Somali</p>
+                <h3 className="text-base font-bold text-white">{t.legacyUi.liveAiCfoRoom}</h3>
+                <p className="text-xs text-slate-400">{t.legacyUi.askAiLanguages}</p>
               </div>
             </div>
             <button 
@@ -1008,7 +1028,7 @@ export const AIFinancialAdvisorView: React.FC<AIFinancialAdvisorViewProps> = ({
               }])}
               className="text-xs text-slate-400 hover:text-white flex items-center gap-1 cursor-pointer"
             >
-              <RefreshCw className="w-3.5 h-3.5" /> Clear Room
+              <RefreshCw className="w-3.5 h-3.5" /> {translateRawUi('Clear Room')}
             </button>
           </div>
 
@@ -1021,7 +1041,7 @@ export const AIFinancialAdvisorView: React.FC<AIFinancialAdvisorViewProps> = ({
               >
                 {msg.sender === 'assistant' && (
                   <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-xs shrink-0 mt-1 border border-emerald-500/30">
-                    CFO
+                    {translateRawUi('CFO')}
                   </div>
                 )}
                 <div
@@ -1041,7 +1061,7 @@ export const AIFinancialAdvisorView: React.FC<AIFinancialAdvisorViewProps> = ({
                           <Zap className="w-3.5 h-3.5" /> Suggested Action Proposal: {String(msg.actionTaken).replace('_', ' ')}
                         </span>
                         <span className="text-[10px] bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded border border-amber-500/30">
-                          Pending User Authorization
+                          {translateRawUi('Pending User Authorization')}
                         </span>
                       </div>
                       <p className="text-xs text-slate-300">
@@ -1056,14 +1076,14 @@ export const AIFinancialAdvisorView: React.FC<AIFinancialAdvisorViewProps> = ({
                         })}
                         className="w-full mt-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-3 py-2 rounded-lg text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow"
                       >
-                        <Zap className="w-3.5 h-3.5" /> Review & Authorize Action
+                        <Zap className="w-3.5 h-3.5" /> {translateRawUi('Review & Authorize Action')}
                       </button>
                     </div>
                   )}
 
                   {msg.suggestedQuestions && msg.suggestedQuestions.length > 0 && (
                     <div className="pt-3 border-t border-slate-800 space-y-1.5">
-                      <p className="text-[11px] font-bold text-slate-400 uppercase">Suggested CFO Follow-ups:</p>
+                      <p className="text-[11px] font-bold text-slate-400 uppercase">{translateRawUi('Suggested CFO Follow-ups:')}</p>
                       <div className="flex flex-wrap gap-1.5">
                         {msg.suggestedQuestions.map((sq, idx) => (
                           <button
@@ -1088,7 +1108,7 @@ export const AIFinancialAdvisorView: React.FC<AIFinancialAdvisorViewProps> = ({
             {isAiLoading && (
               <div className="flex items-center gap-2 text-xs text-emerald-400 bg-slate-950 p-3 rounded-xl border border-slate-800 w-max animate-pulse">
                 <Sparkles className="w-4 h-4 animate-spin" />
-                <span>AI CFO is modeling Firestore financial projections...</span>
+                <span>{translateRawUi('AI CFO is modeling Firestore financial projections...')}</span>
               </div>
             )}
           </div>
@@ -1100,7 +1120,7 @@ export const AIFinancialAdvisorView: React.FC<AIFinancialAdvisorViewProps> = ({
               value={chatInput}
               onChange={(e) => setChatInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSendChat()}
-              placeholder="Ask CFO e.g., 'What if food prices increase by 10% next month?'..."
+              placeholder={translateRawUi("Ask CFO e.g., 'What if food prices increase by 10% next month?'...")}
               className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
             />
             <button
@@ -1109,7 +1129,7 @@ export const AIFinancialAdvisorView: React.FC<AIFinancialAdvisorViewProps> = ({
               className="bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-slate-950 font-bold px-5 py-3 rounded-xl text-xs sm:text-sm flex items-center gap-2 cursor-pointer shadow-lg shadow-emerald-500/20"
             >
               <Send className="w-4 h-4" />
-              <span>Ask</span>
+              <span>{translateRawUi('Ask')}</span>
             </button>
           </div>
 
@@ -1134,8 +1154,8 @@ export const AIFinancialAdvisorView: React.FC<AIFinancialAdvisorViewProps> = ({
                   <ShieldAlert className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-base font-black text-white">Authorize Financial Mutation</h3>
-                  <p className="text-xs text-slate-400">Server-Authoritative General Ledger Action</p>
+                  <h3 className="text-base font-black text-white">{t.legacyUi.authorizeFinancialMutation}</h3>
+                  <p className="text-xs text-slate-400">{translateRawUi('Server-Authoritative General Ledger Action')}</p>
                 </div>
               </div>
               <button
@@ -1149,7 +1169,7 @@ export const AIFinancialAdvisorView: React.FC<AIFinancialAdvisorViewProps> = ({
             <div className="space-y-3">
               <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Action Type</span>
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">{t.legacyUi.actionType}</span>
                   <span className="text-xs font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
                     {pendingConfirmAction.actionType}
                   </span>
@@ -1159,7 +1179,7 @@ export const AIFinancialAdvisorView: React.FC<AIFinancialAdvisorViewProps> = ({
               </div>
 
               <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 space-y-1.5">
-                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Payload Parameters:</span>
+                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">{translateRawUi('Payload Parameters:')}</span>
                 <pre className="text-[11px] font-mono text-emerald-400 overflow-x-auto p-2 bg-slate-900 rounded border border-slate-800">
                   {JSON.stringify(pendingConfirmAction.payload, null, 2)}
                 </pre>
@@ -1167,7 +1187,7 @@ export const AIFinancialAdvisorView: React.FC<AIFinancialAdvisorViewProps> = ({
 
               <p className="text-[11px] text-amber-400 flex items-center gap-1.5">
                 <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                <span>This will execute an authoritative double-entry journal posting to the ERP General Ledger.</span>
+                <span>{translateRawUi('This will execute an authoritative double-entry journal posting to the ERP General Ledger.')}</span>
               </p>
             </div>
 
@@ -1178,7 +1198,7 @@ export const AIFinancialAdvisorView: React.FC<AIFinancialAdvisorViewProps> = ({
                 disabled={isExecutingAction}
                 className="px-4 py-2.5 rounded-xl text-xs font-bold text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700"
               >
-                Cancel
+                {translateRawUi('Cancel')}
               </button>
               <button
                 type="button"
@@ -1189,12 +1209,12 @@ export const AIFinancialAdvisorView: React.FC<AIFinancialAdvisorViewProps> = ({
                 {isExecutingAction ? (
                   <>
                     <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    <span>Authorizing & Executing...</span>
+                    <span>{t.legacyUi.authorizingExecuting}</span>
                   </>
                 ) : (
                   <>
                     <Zap className="w-3.5 h-3.5" />
-                    <span>Confirm & Authorize Action</span>
+                    <span>{t.legacyUi.confirmAuthorizeAction}</span>
                   </>
                 )}
               </button>

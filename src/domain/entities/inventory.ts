@@ -61,6 +61,8 @@ export type MovementType =
   | 'order_restoration';
 
 export interface InventoryMovement {
+  itemType?: 'inventory' | 'ingredient' | 'product';
+  mode?: 'delta' | 'set';
   id: string;
   type: MovementType;
   itemId: string;
@@ -142,6 +144,7 @@ export interface Supplier {
   contactPerson: string;
   phone: string;
   email: string;
+  branchId?: string;
   address: string;
   taxNumber: string;
   paymentTerms: string;

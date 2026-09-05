@@ -4,7 +4,7 @@ service cloud.firestore {
     
     // Global helper functions
     function isSignedIn() {
-      return request.auth != null && request.auth.token.firebase.sign_in_provider != 'anonymous';
+      return request.auth != null;
     }
 
     function hasUserData() {
@@ -41,6 +41,18 @@ service cloud.firestore {
         branchVal == getUserData().get('branchId', '') ||
         branchVal == getUserData().get('branch', '')
       );
+    }
+
+    function canAccessCustomerBranch(branchId) {
+      let user = getUserData();
+      let role = user.get('role', '');
+      let isHqOwner = role in ['Owner', 'owner'] ||
+                      user.get('isOwner', false) == true ||
+                      (role in ['Admin', 'admin'] && user.get('isHQ', false) == true);
+      let isCustomerStaff = role in ['Owner', 'owner', 'Admin', 'admin', 'Manager', 'manager', 'Accountant', 'accountant', 'Cashier', 'cashier', 'Waiter', 'waiter', 'Staff', 'staff', 'Chef', 'chef', 'Kitchen', 'kitchen', 'Driver', 'driver'];
+      return isSignedIn() && branchId != null && branchId != '' && branchId != 'null' && branchId != 'all' &&
+             isCustomerStaff &&
+             (isHqOwner || branchId == user.get('branchId', '') || branchId == user.get('branch', ''));
     }
 
     function isManagementOrAccountant() {
@@ -134,7 +146,7 @@ service cloud.firestore {
       allow update: if isManagementOrAccountant() && isUserBranch(resource.data.get('branchId', '')) && isUserBranch(request.resource.data.get('branchId', '')) && (
         isHQOrAdmin() || !request.resource.data.diff(resource.data).affectedKeys().hasAny(['salary', 'role', 'branchId', 'employeeId', 'permissions'])
       );
-      allow delete: if isManagementOrAccountant() && isUserBranch(resource.data.get('branchId', ''));
+      allow delete: if false;
     }
 
     match /salaries/{salaryId} {
@@ -168,8 +180,19 @@ service cloud.firestore {
     }
 
     match /suppliers/{supplierId} {
-      allow read: if isSignedIn() && (resource.data.get('branchId', '') == '' || isHQOrOwner() || isUserBranch(resource.data.get('branchId', '')));
-      allow write: if isManagementOrAccountant() && (request.resource.data.get('branchId', '') == '' ? isHQOrAdmin() : isUserBranch(request.resource.data.get('branchId', '')));
+      allow read: if isSignedIn() && (isHQOrOwner() || isUserBranch(resource.data.get('branchId', '')));
+      allow create: if isManagementOrAccountant() &&
+        (request.resource.data.get('branchId', '') == '' ? isHQOrAdmin() : isUserBranch(request.resource.data.get('branchId', ''))) &&
+        (!request.resource.data.keys().hasAny(['pendingAmount', 'overdueAmount', 'outstandingBalance']) ||
+         (request.resource.data.get('pendingAmount', 0) == 0 &&
+          request.resource.data.get('overdueAmount', 0) == 0 &&
+          request.resource.data.get('outstandingBalance', 0) == 0));
+      allow update: if isManagementOrAccountant() &&
+        (resource.data.get('branchId', '') == '' ? isHQOrAdmin() : isUserBranch(resource.data.get('branchId', ''))) &&
+        (request.resource.data.get('branchId', '') == resource.data.get('branchId', '') ||
+         (resource.data.get('branchId', '') == '' && request.resource.data.get('branchId', '') == '')) &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['pendingAmount', 'overdueAmount', 'outstandingBalance', 'branchId']);
+      allow delete: if false;
     }
 
     // Operational Collections
@@ -180,18 +203,36 @@ service cloud.firestore {
 
     match /products/{productId} {
       allow read: if isSignedIn() && isUserBranch(resource.data.get('branchId', ''));
+      // Product stock is authoritative through trusted inventory/stock APIs.
+      // Block every known quantity projection from direct initialization, not only `stock`.
       allow create: if isManagement() && isUserBranch(request.resource.data.get('branchId', '')) &&
-        (!request.resource.data.keys().hasAny(['stock', 'currentStock', 'quantityOnHand', 'reservedStock', 'salesCount']) || request.resource.data.get('stock', 0) == 0);
-      allow delete: if isManagement() && isUserBranch(resource.data.get('branchId', ''));
+        (!request.resource.data.keys().hasAny(['stock', 'currentStock', 'quantityOnHand', 'reservedStock', 'salesCount', 'currentStockUsageUnit']) ||
+         (request.resource.data.get('stock', 0) == 0 &&
+          request.resource.data.get('currentStock', 0) == 0 &&
+          request.resource.data.get('quantityOnHand', 0) == 0 &&
+          request.resource.data.get('reservedStock', 0) == 0 &&
+          request.resource.data.get('salesCount', 0) == 0 &&
+          request.resource.data.get('currentStockUsageUnit', 0) == 0 &&
+          request.resource.data.get('activeRecipeId', '') == '' &&
+          request.resource.data.get('recipe', []).size() == 0));
+      allow delete: if false;
       allow update: if isManagement() && isUserBranch(resource.data.get('branchId', '')) && isUserBranch(request.resource.data.get('branchId', '')) &&
-        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['stock', 'currentStock', 'quantityOnHand', 'reservedStock', 'salesCount', 'branchId']);
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['stock', 'currentStock', 'quantityOnHand', 'reservedStock', 'salesCount', 'currentStockUsageUnit', 'activeRecipeId', 'recipe', 'branchId']);
     }
 
     match /ingredients/{ingredientId} {
       allow read: if isSignedIn() && isUserBranch(resource.data.get('branchId', ''));
+      // Ingredient quantities must start at zero and be established through the
+      // trusted inventory adjustment flow so all projections/movements stay aligned.
       allow create: if isManagement() && isUserBranch(request.resource.data.get('branchId', '')) &&
-        (!request.resource.data.keys().hasAny(['stock', 'currentQuantity', 'quantityOnHand', 'reservedStock', 'currentStock', 'currentStockUsageUnit']) || request.resource.data.get('stock', 0) == 0);
-      allow delete: if isManagement() && isUserBranch(resource.data.get('branchId', ''));
+        (!request.resource.data.keys().hasAny(['stock', 'currentQuantity', 'quantityOnHand', 'reservedStock', 'currentStock', 'currentStockUsageUnit']) ||
+         (request.resource.data.get('stock', 0) == 0 &&
+          request.resource.data.get('currentQuantity', 0) == 0 &&
+          request.resource.data.get('quantityOnHand', 0) == 0 &&
+          request.resource.data.get('reservedStock', 0) == 0 &&
+          request.resource.data.get('currentStock', 0) == 0 &&
+          request.resource.data.get('currentStockUsageUnit', 0) == 0));
+      allow delete: if false;
       allow update: if isManagement() && isUserBranch(resource.data.get('branchId', '')) && isUserBranch(request.resource.data.get('branchId', '')) &&
         !request.resource.data.diff(resource.data).affectedKeys().hasAny(['stock', 'currentQuantity', 'quantityOnHand', 'reservedStock', 'currentStock', 'currentStockUsageUnit', 'branchId']);
     }
@@ -220,31 +261,65 @@ service cloud.firestore {
     match /categories/{categoryId} {
       allow read: if isSignedIn() && isUserBranch(resource.data.get('branchId', ''));
       allow create: if isManagement() && isUserBranch(request.resource.data.get('branchId', ''));
-      allow update, delete: if isManagement() && isUserBranch(resource.data.get('branchId', '')) && isUserBranch(request.resource.data.get('branchId', ''));
+      allow update: if isManagement() && isUserBranch(resource.data.get('branchId', '')) && isUserBranch(request.resource.data.get('branchId', ''));
+      allow delete: if false; // Categories are archived/soft-deleted by the application to preserve product history.
     }
 
-    // Customer CRM Collection (Global across restaurant brand)
+    // Customer CRM Collection (branch-scoped)
+    // HQ/Owner can access all branches; all other staff are limited to their own branch.
     match /customers/{customerId} {
       allow read: if isSignedIn() && (
-        isPOSStaff() ||
-        isManagementOrAccountant() ||
         request.auth.uid == customerId ||
-        resource.data.get('userId', '') == request.auth.uid ||
-        resource.data.get('authUid', '') == request.auth.uid
+        (resource != null && (
+          resource.data.get('userId', '') == request.auth.uid ||
+          resource.data.get('authUid', '') == request.auth.uid ||
+          (isPOSStaff() && canAccessCustomerBranch(resource.data.get('branchId', '')))
+        ))
       );
-      allow create: if isPOSStaff() && (
-        !request.resource.data.keys().hasAny(['totalSpending', 'totalSpent', 'totalOrders', 'averageOrderValue', 'cancelledOrders', 'refundHistoryCount', 'membershipLevel']) ||
-        (request.resource.data.get('totalSpending', 0) == 0 && request.resource.data.get('totalOrders', 0) == 0)
-      );
-      allow update: if (
-        isManagement() || (
-          isPOSStaff() &&
-          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-            'totalSpending', 'totalSpent', 'totalOrders', 'averageOrderValue', 'cancelledOrders', 'refundHistoryCount', 'membershipLevel'
+
+      allow create: if isPOSStaff()
+        && canAccessCustomerBranch(request.resource.data.get('branchId', ''))
+        && (
+          !request.resource.data.keys().hasAny([
+            'totalSpending', 'totalSpent', 'totalOrders', 'averageOrderValue',
+            'cancelledOrders', 'refundHistoryCount', 'membershipLevel', 'loyaltyPoints',
+            'favoriteProducts', 'lastOrderDate'
           ])
-        )
+          || (
+            request.resource.data.get('totalSpending', 0) == 0 &&
+            request.resource.data.get('totalSpent', 0) == 0 &&
+            request.resource.data.get('totalOrders', 0) == 0 &&
+            request.resource.data.get('averageOrderValue', 0) == 0 &&
+            request.resource.data.get('cancelledOrders', 0) == 0 &&
+            request.resource.data.get('refundHistoryCount', 0) == 0 &&
+            request.resource.data.get('membershipLevel', 'Bronze') in ['Bronze', 'bronze'] &&
+            request.resource.data.get('loyaltyPoints', 0) == 0 &&
+            request.resource.data.get('favoriteProducts', []).size() == 0 &&
+            request.resource.data.get('lastOrderDate', '') == ''
+          )
+        );
+
+      allow update: if (
+        isManagement() &&
+        canAccessCustomerBranch(resource.data.get('branchId', '')) &&
+        request.resource.data.get('branchId', '') == resource.data.get('branchId', '') &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'totalSpending', 'totalSpent', 'totalOrders', 'averageOrderValue',
+          'cancelledOrders', 'refundHistoryCount', 'membershipLevel', 'loyaltyPoints',
+          'favoriteProducts', 'lastOrderDate'
+        ])
+      ) || (
+        isPOSStaff() &&
+        canAccessCustomerBranch(resource.data.get('branchId', '')) &&
+        request.resource.data.get('branchId', '') == resource.data.get('branchId', '') &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'totalSpending', 'totalSpent', 'totalOrders', 'averageOrderValue',
+          'cancelledOrders', 'refundHistoryCount', 'membershipLevel', 'loyaltyPoints',
+          'favoriteProducts', 'lastOrderDate'
+        ])
       );
-      allow delete: if isManagement();
+
+      allow delete: if false;
     }
 
     match /branches/{branchId} {
@@ -252,23 +327,35 @@ service cloud.firestore {
       allow create, update, delete: if isHQOrOwner();
     }
 
-    match /branch_transfers/{transferId} {
-      allow read: if isSignedIn() && (
-        isOwnerRole() ||
-        request.auth.token.get('branchId', '') in ['all', 'HQ', 'hq'] ||
-        isUserBranch(resource.data.get('sourceBranchId', '')) ||
-        isUserBranch(resource.data.get('destinationBranchId', '')) ||
-        isUserBranch(resource.data.get('branchId', ''))
+    function canReadBranchTransfer(sourceBranchId, destinationBranchId, legacyBranchId) {
+      let user = getUserData();
+      let role = user.get('role', '');
+      let isHqOwner = role in ['Owner', 'owner'] ||
+                      user.get('isOwner', false) == true ||
+                      (role in ['Admin', 'admin'] && user.get('isHQ', false) == true);
+      return isSignedIn() && (
+        isHqOwner ||
+        sourceBranchId == user.get('branchId', '') ||
+        sourceBranchId == user.get('branch', '') ||
+        destinationBranchId == user.get('branchId', '') ||
+        destinationBranchId == user.get('branch', '') ||
+        legacyBranchId == user.get('branchId', '') ||
+        legacyBranchId == user.get('branch', '')
       );
-      allow create: if isManagement() && isUserBranch(request.resource.data.get('sourceBranchId', ''));
-      allow update: if isManagement() && (isUserBranch(resource.data.get('sourceBranchId', '')) || isUserBranch(resource.data.get('destinationBranchId', ''))) && (isHQOrOwner() || !request.resource.data.diff(resource.data).affectedKeys().hasAny(['sourceBranchId', 'destinationBranchId']));
-      allow delete: if isManagement() && (isUserBranch(resource.data.get('sourceBranchId', '')) || isUserBranch(resource.data.get('destinationBranchId', '')));
+    }
+
+    match /branch_transfers/{transferId} {
+      allow read: if isSignedIn() && resource != null && canReadBranchTransfer(
+        resource.data.get('sourceBranchId', ''),
+        resource.data.get('destinationBranchId', ''),
+        resource.data.get('branchId', '')
+      );
+      allow write: if false; // Server-authoritative transfer lifecycle
     }
 
     match /recipes/{recipeId} {
       allow read: if isSignedIn() && isUserBranch(resource.data.get('branchId', ''));
-      allow create: if isManagement() && isUserBranch(request.resource.data.get('branchId', ''));
-      allow update, delete: if isManagement() && isUserBranch(resource.data.get('branchId', '')) && isUserBranch(request.resource.data.get('branchId', ''));
+      allow create, update, delete: if false; // Server-authoritative recipe lifecycle validates every ingredient/product branch.
     }
 
     match /ai_settings/{settingId} {
@@ -279,6 +366,11 @@ service cloud.firestore {
     match /permissions/{permissionId} {
       allow read: if isManagementOrAccountant();
       allow write: if isHQOrOwner();
+    }
+
+    match /product_options/{optionId} {
+      allow read: if isSignedIn() && (resource.data.get('branchId', '') == 'all' || isUserBranch(resource.data.get('branchId', '')));
+      allow write: if false; // Server-authoritative product option lifecycle
     }
 
     // Operations Manager Collections
@@ -292,25 +384,14 @@ service cloud.firestore {
       allow create, update, delete: if isManagement() && isUserBranch(request.resource.data.get('branchId', ''));
     }
 
+    match /stations/{stationId} {
+      allow read: if isSignedIn() && isUserBranch(resource.data.get('branchId', ''));
+      allow create, update, delete: if isManagement() && isUserBranch(request.resource.data.get('branchId', ''));
+    }
+
     match /employee_attendance/{attendanceId} {
       allow read: if isSignedIn() && isUserBranch(resource.data.get('branchId', ''));
-      allow create: if isSignedIn() && (
-        (
-          (request.resource.data.employeeId == request.auth.uid || request.resource.data.get('employeeId', '') == getUserData().get('employeeId', '')) &&
-          isUserBranch(request.resource.data.get('branchId', ''))
-        ) || (
-          isManagement() && isUserBranch(request.resource.data.get('branchId', ''))
-        )
-      );
-      allow update: if isSignedIn() && (
-        (isManagement() && isUserBranch(resource.data.get('branchId', '')) && isUserBranch(request.resource.data.get('branchId', ''))) ||
-        (
-          (resource.data.employeeId == request.auth.uid || getUserData().get('employeeId', '') == resource.data.employeeId) &&
-          isUserBranch(resource.data.get('branchId', '')) &&
-          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['employeeId', 'branchId', 'checkInTime', 'hourlyRate', 'overtimeRate', 'createdBy'])
-        )
-      );
-      allow delete: if isManagement() && isUserBranch(resource.data.get('branchId', ''));
+      allow write: if false; // Server-authoritative attendance writes
     }
 
     match /reservations/{reservationId} {
@@ -329,15 +410,15 @@ service cloud.firestore {
       allow read: if isSignedIn() && (isUserBranch(resource.data.get('branchId', '')) || resource.data.get('userId', '') == request.auth.uid || resource.data.get('driverId', '') == request.auth.uid);
       allow create: if isManagement() && isUserBranch(request.resource.data.get('branchId', ''));
       allow delete: if isManagement() && isUserBranch(resource.data.get('branchId', ''));
-      allow update: if (isManagement() && isUserBranch(resource.data.get('branchId', '')) && isUserBranch(request.resource.data.get('branchId', '')))
-        || (
-          isPOSStaff() &&
-          isUserBranch(resource.data.get('branchId', '')) &&
-          isUserBranch(request.resource.data.get('branchId', '')) &&
-          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-            'branchId', 'userId', 'employeeId', 'salary', 'commission', 'licenseNumber', 'securityCredentials', 'permissions', 'role', 'ownership'
-          ])
-        );
+      // Driver operational state is server-authoritative. POS users may read it,
+      // but may not forge availability, location, counters, rating, or assignment state.
+      allow update: if isManagement() &&
+        isUserBranch(resource.data.get('branchId', '')) &&
+        isUserBranch(request.resource.data.get('branchId', '')) &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'availability', 'activeDeliveryId', 'rating', 'totalDeliveries',
+          'completedDeliveries', 'failedDeliveries', 'currentLocation'
+        ]);
     }
 
     match /deliveries/{deliveryId} {
@@ -363,13 +444,13 @@ service cloud.firestore {
 
     match /notifications/{notificationId} {
       allow read: if isSignedIn() && (
-        resource.data.recipientId == request.auth.uid ||
+        resource.data.get('recipientId', '') == request.auth.uid ||
         (isManagement() && isUserBranch(resource.data.get('branchId', '')))
       );
       // PREVENT client creation of arbitrary notifications:
       allow create: if false; // Server-authoritative via Trusted Backend
       // Allow recipient to mark their own notification as read ONLY:
-      allow update: if isSignedIn() && resource.data.recipientId == request.auth.uid &&
+      allow update: if isSignedIn() && resource.data.get('recipientId', '') == request.auth.uid &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read', 'isRead', 'readAt', 'status']);
       // Allow management to delete:
       allow delete: if isManagement() && isUserBranch(resource.data.get('branchId', ''));
@@ -381,7 +462,9 @@ service cloud.firestore {
         (isManagement() && (isHQOrOwner() || isUserBranch(resource.data.get('branchId', ''))))
       );
       allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
-      allow update: if isSignedIn() && resource.data.userId == request.auth.uid && request.resource.data.userId == request.auth.uid;
+      allow update: if isSignedIn() && resource.data.userId == request.auth.uid &&
+        request.resource.data.userId == resource.data.userId &&
+        request.resource.data.get('branchId', '') == resource.data.get('branchId', '');
       allow delete: if isSignedIn() && (
         resource.data.userId == request.auth.uid ||
         (isManagement() && (isHQOrOwner() || isUserBranch(resource.data.get('branchId', ''))))
@@ -395,8 +478,9 @@ service cloud.firestore {
 
     match /branch_settings/{settingId} {
       allow read: if isSignedIn() && isUserBranch(resource.data.get('branchId', ''));
-      allow create: if isManagement() && isUserBranch(request.resource.data.get('branchId', ''));
-      allow update, delete: if isManagement() && isUserBranch(resource.data.get('branchId', '')) && isUserBranch(request.resource.data.get('branchId', ''));
+      // Matches ROLE_PERMISSIONS: only Owner/Admin can manage branch settings.
+      allow create: if isAdminRole() && isUserBranch(request.resource.data.get('branchId', ''));
+      allow update, delete: if isAdminRole() && isUserBranch(resource.data.get('branchId', '')) && isUserBranch(request.resource.data.get('branchId', ''));
     }
 
     match /kitchen_orders/{orderId} {
@@ -406,9 +490,8 @@ service cloud.firestore {
 
     match /kitchen_waste/{wasteId} {
       allow read: if isSignedIn() && isUserBranch(resource.data.get('branchId', ''));
-      allow create: if isPOSStaff() && isUserBranch(request.resource.data.get('branchId', ''));
-      allow update: if isPOSStaff() && isUserBranch(resource.data.get('branchId', '')) && isUserBranch(request.resource.data.get('branchId', ''));
-      allow delete: if isManagement() && isUserBranch(resource.data.get('branchId', ''));
+      // Waste affects inventory valuation and stock; all writes must go through the trusted backend.
+      allow write: if false;
     }
 
     // CRM Collections
@@ -448,13 +531,19 @@ service cloud.firestore {
     }
 
     match /customer_coupons/{id} {
-      allow read: if isPOSStaff() || isManagement() || (
-        isSignedIn() && (
-          !('targetCustomerId' in resource.data) ||
-          resource.data.targetCustomerId == '' ||
-          resource.data.targetCustomerId == null ||
-          resource.data.targetCustomerId == request.auth.uid
-        )
+      // Coupons are branch-scoped unless explicitly global (`all` / empty).
+      // Branch staff may not enumerate coupons belonging to another branch.
+      allow read: if isSignedIn() && (
+        ((isPOSStaff() || isManagement()) && (
+          resource.data.get('branchId', '') == '' ||
+          resource.data.get('branchId', '') == 'all' ||
+          isUserBranch(resource.data.get('branchId', ''))
+        )) ||
+        (resource.data.get('targetCustomerId', '') == request.auth.uid && (
+          resource.data.get('branchId', '') == '' ||
+          resource.data.get('branchId', '') == 'all' ||
+          isUserBranch(resource.data.get('branchId', ''))
+        ))
       );
       allow write: if false; // Server-authoritative only via /api/crm/coupons
     }
@@ -515,12 +604,12 @@ service cloud.firestore {
       allow create: if (
         (request.resource.data.get('branchId', '') == '') 
           ? isHQOrOwner() 
-          : (isManagement() && isUserBranch(request.resource.data.get('branchId', '')) && request.resource.data.get('branchId', '').size() > 0)
+          : (isHQOrOwner() && isUserBranch(request.resource.data.get('branchId', '')) && request.resource.data.get('branchId', '').size() > 0)
       );
       allow update, delete: if (
         (resource.data.get('branchId', '') == '') 
           ? isHQOrOwner() 
-          : (isManagement() && isUserBranch(resource.data.get('branchId', '')) && (request.resource.data.get('branchId', '') == resource.data.get('branchId', '')))
+          : (isHQOrOwner() && isUserBranch(resource.data.get('branchId', '')) && (request.resource.data.get('branchId', '') == resource.data.get('branchId', '')))
       );
     }
     match /financial_reports/{id} {
@@ -533,41 +622,44 @@ service cloud.firestore {
       allow read: if isSignedIn() && isUserBranch(resource.data.get('branchId', ''));
       allow create: if isManagement() && isUserBranch(request.resource.data.get('branchId', '')) &&
         (!request.resource.data.keys().hasAny(['currentStock', 'currentQuantity', 'stock', 'quantityOnHand', 'availableQuantity', 'reservedStock', 'inventoryQty', 'stockLevel']) || (request.resource.data.get('currentStock', 0) == 0 && request.resource.data.get('currentQuantity', 0) == 0));
-      allow delete: if isManagement() && isUserBranch(resource.data.get('branchId', ''));
+      allow delete: if false; // Inventory items are soft-deleted through the trusted inventory API.
       allow update: if isManagement() && isUserBranch(resource.data.get('branchId', '')) && isUserBranch(request.resource.data.get('branchId', '')) &&
         !request.resource.data.diff(resource.data).affectedKeys().hasAny(['currentStock', 'currentQuantity', 'stock', 'quantityOnHand', 'availableQuantity', 'reservedStock', 'inventoryQty', 'stockLevel', 'branchId']);
     }
     match /purchase_orders/{id} {
       allow read: if isManagementOrAccountant() && isUserBranch(resource.data.get('branchId', ''));
-      allow create: if isManagementOrAccountant() && isUserBranch(request.resource.data.get('branchId', ''));
-      allow update, delete: if isManagementOrAccountant() && isUserBranch(resource.data.get('branchId', '')) && isUserBranch(request.resource.data.get('branchId', ''));
+      allow write: if false; // Server-authoritative via /api/purchases/orders*
     }
     match /purchase_items/{id} {
       allow read: if isManagementOrAccountant() && isUserBranch(resource.data.get('branchId', ''));
-      allow create: if isManagementOrAccountant() && isUserBranch(request.resource.data.get('branchId', ''));
-      allow update, delete: if isManagementOrAccountant() && isUserBranch(resource.data.get('branchId', '')) && isUserBranch(request.resource.data.get('branchId', ''));
+      // Purchase items are derived from server-authoritative purchase orders/receipts.
+      allow write: if false;
     }
     match /supplier_payments/{id} {
       allow read: if isManagementOrAccountant() && isUserBranch(resource.data.get('branchId', ''));
       allow write: if false; // Server-authoritative only via trusted financial backend
     }
 
+    // Recipe history/configuration and stock count collections
+    match /recipe_versions/{id} {
+      allow read: if isSignedIn() && isUserBranch(resource.data.get('branchId', ''));
+      allow create, update, delete: if false; // Immutable, server-generated recipe history
+    }
+    match /unit_conversions/{id} {
+      allow read: if isSignedIn() && isUserBranch(resource.data.get('branchId', ''));
+      allow create: if isManagement() && isUserBranch(request.resource.data.get('branchId', ''));
+      allow update, delete: if isManagement() && isUserBranch(resource.data.get('branchId', '')) && isUserBranch(request.resource.data.get('branchId', ''));
+    }
+    match /stock_counts/{id} {
+      allow read: if isManagementOrAccountant() && isUserBranch(resource.data.get('branchId', ''));
+      allow create: if isManagement() && isUserBranch(request.resource.data.get('branchId', ''));
+      allow update, delete: if isManagement() && isUserBranch(resource.data.get('branchId', '')) && isUserBranch(request.resource.data.get('branchId', ''));
+    }
+
     // HRM Collections
     match /attendance/{id} {
       allow read: if isSignedIn() && isUserBranch(resource.data.get('branchId', ''));
-      allow create: if isPOSStaff() && isUserBranch(request.resource.data.get('branchId', '')) && (
-        isManagement() ||
-        request.resource.data.get('employeeId', '') == request.auth.uid ||
-        request.resource.data.get('employeeId', '') == getUserData().get('employeeId', '')
-      );
-      allow update: if isUserBranch(resource.data.get('branchId', '')) && isUserBranch(request.resource.data.get('branchId', '')) && (
-        isManagement() || (
-          isPOSStaff() &&
-          (resource.data.get('employeeId', '') == request.auth.uid || getUserData().get('employeeId', '') == resource.data.get('employeeId', '')) &&
-          request.resource.data.get('employeeId', '') == resource.data.get('employeeId', '')
-        )
-      );
-      allow delete: if isManagement() && isUserBranch(resource.data.get('branchId', ''));
+      allow write: if false; // Server-authoritative attendance calculations prevent client tampering with hours/overtime.
     }
     match /shifts/{id} {
       allow read: if isSignedIn() && isUserBranch(resource.data.get('branchId', ''));
@@ -590,7 +682,11 @@ service cloud.firestore {
           isUserBranch(request.resource.data.get('branchId', ''))
         ) ||
         (isManagement() && isUserBranch(request.resource.data.get('branchId', '')))
-      ) && request.resource.data.get('status', 'pending') == 'pending' && request.resource.data.get('approvalStatus', 'pending') == 'pending';
+      ) &&
+        request.resource.data.get('status', 'pending') == 'pending' &&
+        request.resource.data.get('approvalStatus', 'pending') == 'pending' &&
+        request.resource.data.get('workflowStatus', 'Request') == 'Request' &&
+        !request.resource.data.keys().hasAny(['managerApproval', 'hrApproval', 'approvedBy', 'approvedAt', 'rejectedReason']);
       allow update: if isSignedIn() &&
         request.resource.data.employeeId == resource.data.employeeId &&
         request.resource.data.get('branchId', '') == resource.data.get('branchId', '') && (
@@ -599,11 +695,25 @@ service cloud.firestore {
             (
               !(request.resource.data.get('status', '') == 'approved' || request.resource.data.get('approvalStatus', '') == 'approved') ||
               (request.auth.uid != resource.data.employeeId && getUserData().get('employeeId', '') != resource.data.employeeId)
+            ) &&
+            (
+              request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                'workflowStatus', 'managerApproval', 'hrApproval', 'status', 'approvalStatus',
+                'rejectedReason', 'updatedAt'
+              ])
+            ) &&
+            (
+              request.resource.data.get('workflowStatus', resource.data.get('workflowStatus', '')) == resource.data.get('workflowStatus', '') ||
+              (resource.data.get('workflowStatus', '') == 'Request' && request.resource.data.get('workflowStatus', '') in ['Manager Approval', 'Rejected']) ||
+              (resource.data.get('workflowStatus', '') == 'Manager Approval' && request.resource.data.get('workflowStatus', '') in ['Completed', 'Rejected'])
             )
           ) || (
             (resource.data.employeeId == request.auth.uid || getUserData().get('employeeId', '') == resource.data.employeeId) &&
             resource.data.status == 'pending' &&
-            !request.resource.data.diff(resource.data).affectedKeys().hasAny(['status', 'approvalStatus', 'approvedBy', 'approvedAt', 'rejectedReason'])
+            !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+              'status', 'approvalStatus', 'workflowStatus', 'approvedBy', 'approvedAt',
+              'rejectedReason', 'managerApproval', 'hrApproval'
+            ])
           )
         );
       allow delete: if (isManagement() && isUserBranch(resource.data.get('branchId', ''))) || (
@@ -637,7 +747,8 @@ service cloud.firestore {
         resource.data.get('customerId', '') == request.auth.uid ||
         (isManagement() && isUserBranch(resource.data.get('branchId', '')))
       );
-      allow create: if isSignedIn() && isUserBranch(request.resource.data.get('branchId', ''));
+      // Feedback is written through trusted delivery/order workflows only.
+      allow create: if false;
       allow update, delete: if isManagement() && isUserBranch(resource.data.get('branchId', ''));
     }
     match /equipment_items/{id} {
@@ -660,8 +771,8 @@ service cloud.firestore {
     }
     match /cash_transfers/{id} {
       allow read: if isManagementOrAccountant() && isUserBranch(resource.data.get('branchId', ''));
-      allow create: if isManagementOrAccountant() && isUserBranch(request.resource.data.get('branchId', ''));
-      allow update, delete: if false; // Immutable after creation & double-entry posting
+      // No public lifecycle exists for this legacy collection; prevent forged transfer records.
+      allow write: if false;
     }
 
     // Explicit deny for any unknown collections

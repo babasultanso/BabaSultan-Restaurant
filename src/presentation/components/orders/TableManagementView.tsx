@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import { translateRawUi } from '../../../i18n';
 import { DiningTable, Order } from '../../../types';
+import { useAuth } from '../../context/AuthContext';
 import { fetchTablesFirestore, updateTableStatusFirestore } from '../../../lib/firebase';
 import {
   Utensils,
@@ -24,6 +26,8 @@ export const TableManagementView: React.FC<TableManagementViewProps> = ({
   const [tables, setTables] = useState<DiningTable[]>([]);
   const [selectedSection, setSelectedSection] = useState<string>('all');
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const { userRecord, t} = useAuth();
+  const currentBranchId = userRecord?.branchId || '';
 
   // Split Bill Modal State
   const [splitModalTable, setSplitModalTable] = useState<DiningTable | null>(null);
@@ -31,7 +35,7 @@ export const TableManagementView: React.FC<TableManagementViewProps> = ({
 
   const loadTables = () => {
     setIsLoading(true);
-    fetchTablesFirestore()
+    fetchTablesFirestore(currentBranchId)
       .then(res => setTables(res))
       .catch(() => {})
       .finally(() => setIsLoading(false));
@@ -39,7 +43,7 @@ export const TableManagementView: React.FC<TableManagementViewProps> = ({
 
   useEffect(() => {
     loadTables();
-  }, []);
+  }, [currentBranchId]);
 
   const sections = ['all', 'indoor', 'terrace', 'vip', 'patio'];
 
@@ -50,7 +54,7 @@ export const TableManagementView: React.FC<TableManagementViewProps> = ({
   const handleToggleStatus = async (table: DiningTable) => {
     const nextStatus = table.status === 'available' ? 'occupied' : 'available';
     try {
-      await updateTableStatusFirestore(table.tableNumber, nextStatus);
+      await updateTableStatusFirestore(table.tableNumber, nextStatus, undefined, currentBranchId);
       loadTables();
     } catch (err: any) {
       alert(`Failed to update table status: ${err.message}`);
@@ -65,10 +69,10 @@ export const TableManagementView: React.FC<TableManagementViewProps> = ({
         <div>
           <h3 className="text-lg font-bold text-white flex items-center gap-2">
             <Utensils className="w-5 h-5 text-emerald-400" />
-            Dining Room & Table Layout
+            {translateRawUi('Dining Room & Table Layout')}
           </h3>
           <p className="text-xs text-slate-400 mt-0.5">
-            Real-time table occupation status, seating capacity & bill splitting
+            {translateRawUi('Real-time table occupation status, seating capacity & bill splitting')}
           </p>
         </div>
 
@@ -92,7 +96,7 @@ export const TableManagementView: React.FC<TableManagementViewProps> = ({
 
       {/* Tables Grid */}
       {isLoading ? (
-        <div className="py-12 text-center text-xs text-slate-500">Loading table floor plan...</div>
+        <div className="py-12 text-center text-xs text-slate-500">{t.legacyUi.loadingFloorPlan}</div>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
           {filteredTables.map(tbl => {
@@ -161,7 +165,7 @@ export const TableManagementView: React.FC<TableManagementViewProps> = ({
                       className="w-full py-1.5 rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-800 text-emerald-400 text-[10px] font-bold transition flex items-center justify-center gap-1 cursor-pointer"
                     >
                       <Split className="w-3 h-3" />
-                      <span>Split Bill</span>
+                      <span>{translateRawUi('Split Bill')}</span>
                     </button>
                   )}
                 </div>
@@ -188,7 +192,7 @@ export const TableManagementView: React.FC<TableManagementViewProps> = ({
               </div>
               <div>
                 <h4 className="text-base font-bold text-white">Split Bill — Table {splitModalTable.tableNumber}</h4>
-                <p className="text-xs text-slate-400">Calculate equal payments per guest</p>
+                <p className="text-xs text-slate-400">{t.legacyUi.calculateEqualGuestPayments}</p>
               </div>
             </div>
 
@@ -200,12 +204,12 @@ export const TableManagementView: React.FC<TableManagementViewProps> = ({
               return (
                 <div className="space-y-4 text-xs">
                   <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800 space-y-1 text-center">
-                    <span className="text-slate-400 text-[10px]">Total Order Amount</span>
+                    <span className="text-slate-400 text-[10px]">{translateRawUi('Total Order Amount')}</span>
                     <div className="text-2xl font-extrabold text-white">${(total || 0).toFixed(2)}</div>
                   </div>
 
                   <div>
-                    <label className="text-slate-300 font-bold block mb-1">Number of Guests / Pays</label>
+                    <label className="text-slate-300 font-bold block mb-1">{translateRawUi('Number of Guests / Pays')}</label>
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => setSplitCount(c => Math.max(2, c - 1))}
@@ -226,7 +230,7 @@ export const TableManagementView: React.FC<TableManagementViewProps> = ({
                   </div>
 
                   <div className="bg-emerald-500/10 p-3 rounded-2xl border border-emerald-500/30 text-center space-y-0.5">
-                    <span className="text-emerald-400 text-[10px] font-bold uppercase">Each Guest Pays</span>
+                    <span className="text-emerald-400 text-[10px] font-bold uppercase">{t.legacyUi.eachGuestPays}</span>
                     <div className="text-2xl font-extrabold text-emerald-400">${(perGuest || 0).toFixed(2)}</div>
                   </div>
 
@@ -237,7 +241,7 @@ export const TableManagementView: React.FC<TableManagementViewProps> = ({
                     }}
                     className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold py-3 rounded-2xl text-xs transition cursor-pointer"
                   >
-                    Confirm Split Calculation
+                    {translateRawUi('Confirm Split Calculation')}
                   </button>
                 </div>
               );

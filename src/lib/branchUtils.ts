@@ -46,9 +46,8 @@ export function areBranchesMatching(b1?: string | null, b2?: string | null): boo
 
 export function getBranchDisplayName(branchId?: string | null): string {
   const canon = getCanonicalBranchId(branchId);
-  if (canon === 'branch_hargeisa_01') return 'Hargeisa Flagship Branch';
-  if (canon === 'branch_kismayo_01') return 'Kismayo Coastal Express';
-  if (canon === 'branch_hq_01' || canon === 'main_branch_01') return 'Headquarters - Mogadishu Main';
   if (canon === 'all') return 'All Branches (HQ)';
+  if (canon === 'branch_hq_01' || canon === 'main_branch_01') return 'Headquarters';
+  if (canon) return `Branch ${canon}`;
   return 'Unassigned Branch';
 }

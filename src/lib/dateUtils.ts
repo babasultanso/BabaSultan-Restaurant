@@ -25,3 +25,11 @@ export function getMogadishuDateTime(dateInput?: Date | string | number): Date {
   const dateStr = getMogadishuDateString(dateInput);
   return new Date(dateStr);
 }
+
+export function getMogadishuHour(dateInput?: Date | string | number): number {
+  const date = dateInput instanceof Date ? dateInput : new Date(dateInput ?? Date.now());
+  if (Number.isNaN(date.getTime())) return 0;
+  const parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Mogadishu', hour: '2-digit', hour12: false }).formatToParts(date);
+  const hourPart = parts.find((p) => p.type === 'hour')?.value;
+  return Number.isFinite(Number(hourPart)) ? Number(hourPart) % 24 : 0;
+}

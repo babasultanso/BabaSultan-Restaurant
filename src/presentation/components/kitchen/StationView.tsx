@@ -1,6 +1,8 @@
+import { translations } from '../../../i18n/translations';
+import { translateRawUi } from '../../../i18n';
 import React, { useState } from 'react';
 import { KitchenTicket, KitchenStation, KitchenStationType, KitchenPrepStatus } from '../../../domain/entities/kitchen';
-import { kdsDict, KitchenLang } from './translations';
+import { kdsDict, KitchenLang } from '../../../i18n';
 import {
   Flame,
   CheckCircle2,
@@ -30,18 +32,19 @@ export const StationView: React.FC<StationViewProps> = ({
   onUpdateStationStatus
 }) => {
   const t = kdsDict[lang] || kdsDict.en;
+  const legacyUi = translations[lang].legacyUi;
   const isRtl = lang === 'ar';
 
   const [selectedStationType, setSelectedStationType] = useState<KitchenStationType>('grill');
 
   const currentStation = stations.find(s => s.stationType === selectedStationType) || {
     id: 'st_1',
-    name: 'Grill Station',
+    name: '',
     stationType: 'grill' as KitchenStationType,
-    assignedChef: 'Chef Youssef Hassan',
+    assignedChef: '',
     activeOrdersCount: 0,
-    completedOrdersToday: 30,
-    avgPrepTimeMinutes: 14,
+    completedOrdersToday: 0,
+    avgPrepTimeMinutes: 0,
     status: 'normal' as const,
     supportedCategories: []
   };
@@ -127,7 +130,7 @@ export const StationView: React.FC<StationViewProps> = ({
               </span>
             </div>
             <p className="text-xs text-slate-400 mt-1 flex items-center gap-2">
-              <span>Assigned Chef: <strong className="text-amber-400">{currentStation.assignedChef || 'Line Chef'}</strong></span>
+              <span>{translateRawUi('Assigned Chef:')} <strong className="text-amber-400">{currentStation.assignedChef || '—'}</strong></span>
               <span>• Avg Prep: <strong className="text-white">{currentStation.avgPrepTimeMinutes ? `${currentStation.avgPrepTimeMinutes} mins` : 'N/A'}</strong></span>
             </p>
           </div>
@@ -135,7 +138,7 @@ export const StationView: React.FC<StationViewProps> = ({
 
         {/* Quick Status Toggle */}
         <div className="flex items-center gap-2 bg-slate-950 p-2 rounded-2xl border border-slate-800 text-xs">
-          <span className="text-slate-400 font-semibold px-2">Station Load:</span>
+          <span className="text-slate-400 font-semibold px-2">{translateRawUi('Station Load:')}</span>
           {(['normal', 'busy', 'overloaded'] as const).map((st) => (
             <button
               key={st}
@@ -161,7 +164,7 @@ export const StationView: React.FC<StationViewProps> = ({
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-12 text-center text-slate-500 space-y-3">
           <Utensils className="w-12 h-12 mx-auto text-slate-700" />
           <h4 className="text-base font-bold text-slate-300">No Active Items for {currentStation.name}!</h4>
-          <p className="text-xs">All dish items assigned to this station are prepared or cleared.</p>
+          <p className="text-xs">{legacyUi.allStationItemsDone}</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -242,17 +245,17 @@ export const StationView: React.FC<StationViewProps> = ({
                               ticket.prepStatus === 'new' ? (
                                 <button
                                   disabled
-                                  title="Order must be accepted in Queue before cooking items"
+                                  title={translateRawUi('Order must be accepted in Queue before cooking items')}
                                   className="w-full bg-slate-800/80 text-slate-500 border border-slate-700/50 font-bold py-2 rounded-xl text-xs flex items-center justify-center gap-1 cursor-not-allowed opacity-75"
                                 >
-                                  <AlertCircle className="w-3.5 h-3.5 text-amber-500/70" /> Accept Order First
+                                  <AlertCircle className="w-3.5 h-3.5 text-amber-500/70" /> {translateRawUi('Accept Order First')}
                                 </button>
                               ) : (
                                 <button
                                   onClick={() => onUpdateItemStatus(ticket.id, item.productId, 'cooking')}
                                   className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-black py-2 rounded-xl transition cursor-pointer text-xs flex items-center justify-center gap-1 shadow-md"
                                 >
-                                  <Flame className="w-3.5 h-3.5" /> Start Cooking
+                                  <Flame className="w-3.5 h-3.5" /> {translateRawUi('Start Cooking')}
                                 </button>
                               )
                             )}
@@ -262,13 +265,13 @@ export const StationView: React.FC<StationViewProps> = ({
                                 onClick={() => onUpdateItemStatus(ticket.id, item.productId, 'ready_for_pickup')}
                                 className="w-full bg-teal-500 hover:bg-teal-400 text-slate-950 font-black py-2 rounded-xl transition cursor-pointer text-xs flex items-center justify-center gap-1 shadow-md"
                               >
-                                <CheckCircle2 className="w-3.5 h-3.5" /> Mark Item Ready
+                                <CheckCircle2 className="w-3.5 h-3.5" /> {translateRawUi('Mark Item Ready')}
                               </button>
                             )}
 
                             {isReady && (
                               <span className="text-xs font-bold text-emerald-400 flex items-center gap-1 py-1">
-                                <CheckCheck className="w-4 h-4" /> Dish Ready
+                                <CheckCheck className="w-4 h-4" /> {translateRawUi('Dish Ready')}
                               </span>
                             )}
                           </div>

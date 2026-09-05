@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { translateRawUi } from '../../../i18n';
 import { useAuth } from '../../context/AuthContext';
 import { Order, OrderStatus } from '../../../types';
 import { getCanonicalBranchId } from '../../../lib/branchUtils';
@@ -13,7 +14,9 @@ import {
 import { KitchenRepositoryImpl } from '../../../data/repositories/KitchenRepositoryImpl';
 import { KitchenController } from '../../../controllers/KitchenController';
 import { kitchenService } from '../../../domain/services/kitchenService';
-import { kdsDict, KitchenLang } from '../kitchen/translations';
+import { kitchenAudioService, AudioState } from '../../../domain/services/kitchenAudioService';
+import { kdsDict, KitchenLang } from '../../../i18n';
+import { translations } from '../../../i18n/translations';
 import { KitchenOrderDetailsModal } from '../kitchen/KitchenOrderDetailsModal';
 import { StationView } from '../kitchen/StationView';
 import { KitchenAnalyticsView } from '../kitchen/KitchenAnalyticsView';
@@ -29,6 +32,8 @@ import {
   Filter,
   Volume2,
   VolumeX,
+  Volume1,
+  BellRing,
   Globe,
   Layers,
   ChefHat,
@@ -62,16 +67,27 @@ export const KDSView: React.FC<KDSViewProps> = ({ orders }) => {
   }, [currentLang]);
 
   const t = kdsDict[lang] || kdsDict.en;
+  const legacyUi = translations[lang].legacyUi;
   const isRtl = lang === 'ar';
 
   // Firestore Real-time subscriptions state
   const [tickets, setTickets] = useState<KitchenTicket[]>([]);
   const [stations, setStations] = useState<KitchenStation[]>([]);
   const [wasteLogs, setWasteLogs] = useState<KitchenWasteLog[]>([]);
-  const [audioEnabled, setAudioEnabled] = useState<boolean>(true);
+  const [audioState, setAudioState] = useState<AudioState>(kitchenAudioService.getState());
+  const [testAlarmFeedback, setTestAlarmFeedback] = useState<string | null>(null);
+  const [newOrderAlertCount, setNewOrderAlertCount] = useState<number>(0);
   const [selectedTicketForModal, setSelectedTicketForModal] = useState<KitchenTicket | null>(null);
   const [subscriptionError, setSubscriptionError] = useState<string | null>(null);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+
+  // Subscribe to Audio Context State
+  useEffect(() => {
+    const unsubAudio = kitchenAudioService.subscribeState((newState) => {
+      setAudioState(newState);
+    });
+    return () => unsubAudio();
+  }, []);
 
   // Filters & Search
   const [searchQuery, setSearchQuery] = useState('');
@@ -92,22 +108,13 @@ export const KDSView: React.FC<KDSViewProps> = ({ orders }) => {
   const userRoleStr = String(role || userRecord?.role || '').toLowerCase();
   const isHqUser = userRoleStr === 'owner' || (userRoleStr === 'admin' && (!userBranch || userBranch === 'all'));
 
-  // Subscribe to Kitchen Tickets
+  // Subscribe to Kitchen Tickets (Persistent without re-subscribing on audio toggle)
   const [subscribeTrigger, setSubscribeTrigger] = useState(0);
   useEffect(() => {
     setSubscriptionError(null);
     const unsubTickets = controller.subscribeTickets(
       (updatedTickets) => {
         setSubscriptionError(null);
-        const currentIds = updatedTickets.map(t => t.id);
-        if (!isFirstLoadRef.current && audioEnabled) {
-          const hasGenuinelyNewTicket = currentIds.some(id => !prevTicketIdsRef.current.has(id));
-          if (hasGenuinelyNewTicket) {
-            kitchenService.playNewOrderChime();
-          }
-        }
-        isFirstLoadRef.current = false;
-        prevTicketIdsRef.current = new Set(currentIds);
         setTickets(updatedTickets);
       },
       userBranch,
@@ -115,6 +122,15 @@ export const KDSView: React.FC<KDSViewProps> = ({ orders }) => {
       (err) => {
         console.error('Kitchen tickets subscription error:', err);
         setSubscriptionError(err.message || 'Failed to sync kitchen tickets. Please check connection/permissions.');
+      },
+      (newTickets) => {
+        if (newTickets.length > 0) {
+          kitchenAudioService.triggerNewOrderAlarm(newTickets.length);
+          setNewOrderAlertCount(prev => prev + newTickets.length);
+          setTimeout(() => {
+            setNewOrderAlertCount(0);
+          }, 8000);
+        }
       }
     );
 
@@ -122,6 +138,8 @@ export const KDSView: React.FC<KDSViewProps> = ({ orders }) => {
       (updatedStations) => {
         setStations(updatedStations);
       },
+      userBranch,
+      isHqUser,
       (err) => {
         console.error('Kitchen stations subscription error:', err);
       }
@@ -133,7 +151,7 @@ export const KDSView: React.FC<KDSViewProps> = ({ orders }) => {
       unsubTickets();
       unsubStations();
     };
-  }, [audioEnabled, userBranch, isHqUser, subscribeTrigger]);
+  }, [userBranch, isHqUser, subscribeTrigger]);
 
   // Authoritative Kitchen tickets directly from Firestore kitchen_orders collection
   const activeDisplayTickets: KitchenTicket[] = useMemo(() => {
@@ -245,7 +263,7 @@ export const KDSView: React.FC<KDSViewProps> = ({ orders }) => {
               <h2 className="text-xl font-extrabold text-white">{t.kdsTitle}</h2>
               <span className="px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs font-bold flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-                Live Firestore Sync
+                {translateRawUi('Live Firestore Sync')}
               </span>
             </div>
             <p className="text-xs text-slate-400 mt-1">{t.kdsSubtitle}</p>
@@ -255,23 +273,70 @@ export const KDSView: React.FC<KDSViewProps> = ({ orders }) => {
         {/* Global Controls & Mode Switcher */}
         <div className="flex flex-wrap items-center gap-3 w-full md:w-auto justify-end">
           
-          {/* Sound Toggle */}
-          <button
-            onClick={() => {
-              const nextState = !audioEnabled;
-              setAudioEnabled(nextState);
-              if (nextState) kitchenService.playNewOrderChime();
-            }}
-            className={`p-2.5 rounded-2xl border transition cursor-pointer flex items-center gap-2 text-xs font-bold ${
-              audioEnabled
-                ? 'bg-amber-500/10 text-amber-400 border-amber-500/30 hover:bg-amber-500/20'
-                : 'bg-slate-900 text-slate-500 border-slate-800 hover:text-white'
-            }`}
-            title="Toggle Audio Notifications"
-          >
-            {audioEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
-            <span className="hidden sm:inline">{t.audioAlerts}</span>
-          </button>
+          {/* Audio State Badge & Controls */}
+          <div className="flex items-center gap-2 bg-slate-950 p-1.5 rounded-2xl border border-slate-800">
+            {/* Status indicator pill */}
+            <div 
+              onClick={() => {
+                if (audioState === 'blocked' || audioState === 'suspended' || audioState === 'error') {
+                  kitchenAudioService.unlockAudio();
+                } else {
+                  kitchenAudioService.toggleMute();
+                }
+              }}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition ${
+                audioState === 'ready'
+                  ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
+                  : audioState === 'blocked' || audioState === 'suspended'
+                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse'
+                  : audioState === 'error'
+                  ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                  : 'bg-slate-900 text-slate-500 border border-slate-800'
+              }`}
+              title={audioState === 'blocked' || audioState === 'suspended' ? 'Click to enable audio' : 'Toggle Mute'}
+            >
+              {audioState === 'ready' ? (
+                <>
+                  <Volume2 className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>{t.soundReady}</span>
+                </>
+              ) : audioState === 'blocked' || audioState === 'suspended' ? (
+                <>
+                  <Volume1 className="w-3.5 h-3.5 text-amber-400" />
+                  <span>{audioState === 'suspended' ? 'Audio Suspended' : t.soundBlocked} ({t.enableSound})</span>
+                </>
+              ) : audioState === 'error' ? (
+                <>
+                  <VolumeX className="w-3.5 h-3.5 text-rose-400" />
+                  <span>{legacyUi.audioErrorRetry}</span>
+                </>
+              ) : (
+                <>
+                  <VolumeX className="w-3.5 h-3.5 text-slate-500" />
+                  <span>{t.soundMuted}</span>
+                </>
+              )}
+            </div>
+
+            {/* Test Alarm Button */}
+            <button
+              onClick={async () => {
+                setTestAlarmFeedback('Testing...');
+                const res = await kitchenAudioService.playTestAlarm();
+                if (res.success) {
+                  setTestAlarmFeedback('✓ Sound OK');
+                } else {
+                  setTestAlarmFeedback(res.error ? '✗ ' + res.error.slice(0, 15) : '✗ Blocked');
+                }
+                setTimeout(() => setTestAlarmFeedback(null), 3000);
+              }}
+              className="px-2.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 text-xs font-semibold flex items-center gap-1 transition cursor-pointer"
+              title={translateRawUi('Test Kitchen Sound Alarm')}
+            >
+              <BellRing className="w-3.5 h-3.5 text-amber-400" />
+              <span>{testAlarmFeedback || t.testAlarm}</span>
+            </button>
+          </div>
 
           {/* Language Switcher */}
           <div className="flex items-center bg-slate-950 p-1 rounded-2xl border border-slate-800 text-xs font-bold">
@@ -280,7 +345,7 @@ export const KDSView: React.FC<KDSViewProps> = ({ orders }) => {
               onClick={() => setLang('en')}
               className={`px-2.5 py-1 rounded-xl transition ${lang === 'en' ? 'bg-amber-500 text-slate-950' : 'text-slate-400 hover:text-white'}`}
             >
-              EN
+              {translateRawUi('EN')}
             </button>
             <button
               onClick={() => setLang('ar')}
@@ -292,7 +357,7 @@ export const KDSView: React.FC<KDSViewProps> = ({ orders }) => {
               onClick={() => setLang('so')}
               className={`px-2.5 py-1 rounded-xl transition ${lang === 'so' ? 'bg-amber-500 text-slate-950' : 'text-slate-400 hover:text-white'}`}
             >
-              Somali
+              {translateRawUi('Somali')}
             </button>
           </div>
 
@@ -333,6 +398,31 @@ export const KDSView: React.FC<KDSViewProps> = ({ orders }) => {
 
       </div>
 
+      {/* PERSISTENT VISUAL ALERT BANNER FOR NEW ORDERS (Fallback for background / muted tabs) */}
+      {newOrderAlertCount > 0 && (
+        <div className="p-4 bg-gradient-to-r from-amber-500/20 via-orange-500/20 to-amber-500/20 border-2 border-amber-500/50 rounded-3xl text-amber-300 flex items-center justify-between shadow-2xl animate-pulse">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-amber-500 text-slate-950 rounded-xl font-black text-sm">
+              +{newOrderAlertCount}
+            </div>
+            <div>
+              <p className="font-extrabold text-sm text-white">
+                {t.newOrderAlert}
+              </p>
+              <p className="text-xs text-amber-400/80">
+                {newOrderAlertCount} new order(s) arrived in the queue.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setNewOrderAlertCount(0)}
+            className="px-3 py-1.5 bg-amber-500/30 hover:bg-amber-500 text-amber-200 hover:text-slate-950 rounded-xl text-xs font-bold transition cursor-pointer"
+          >
+            {translateRawUi('Dismiss')}
+          </button>
+        </div>
+      )}
+
       {/* VIEW CONTENT SWITCHER */}
       {activeTab === 'queue' && (
         <div className="space-y-6">
@@ -355,7 +445,7 @@ export const KDSView: React.FC<KDSViewProps> = ({ orders }) => {
             {/* Station Filter */}
             <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
               <span className="text-xs text-slate-400 font-semibold flex items-center gap-1">
-                <Filter className="w-3.5 h-3.5" /> Station:
+                <Filter className="w-3.5 h-3.5" /> {translateRawUi('Station:')}
               </span>
               <select
                 value={filterStation}
@@ -371,7 +461,7 @@ export const KDSView: React.FC<KDSViewProps> = ({ orders }) => {
               </select>
 
               {/* Status Filter */}
-              <span className="text-xs text-slate-400 font-semibold ml-2">Status:</span>
+              <span className="text-xs text-slate-400 font-semibold ml-2">{translateRawUi('Status:')}</span>
               <select
                 value={filterStatus}
                 onChange={(e) => setFilterStatus(e.target.value)}
@@ -395,7 +485,7 @@ export const KDSView: React.FC<KDSViewProps> = ({ orders }) => {
               <div className="flex items-center gap-3">
                 <AlertCircle className="w-5 h-5 text-rose-400 shrink-0" />
                 <div>
-                  <p className="text-xs font-bold text-white">Live Kitchen Sync Connection Issue</p>
+                  <p className="text-xs font-bold text-white">{legacyUi.liveKitchenSyncIssue}</p>
                   <p className="text-[11px] text-rose-300">{subscriptionError}</p>
                 </div>
               </div>
@@ -403,7 +493,7 @@ export const KDSView: React.FC<KDSViewProps> = ({ orders }) => {
                 onClick={() => setSubscribeTrigger(prev => prev + 1)}
                 className="px-3 py-1.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold transition flex items-center gap-1 shrink-0 cursor-pointer"
               >
-                <RefreshCw className="w-3.5 h-3.5" /> Retry Sync
+                <RefreshCw className="w-3.5 h-3.5" /> {translateRawUi('Retry Sync')}
               </button>
             </div>
           )}
@@ -412,8 +502,8 @@ export const KDSView: React.FC<KDSViewProps> = ({ orders }) => {
           {filteredQueueTickets.length === 0 ? (
             <div className="bg-slate-900 border border-slate-800 rounded-3xl p-12 text-center text-slate-500 space-y-3 shadow-xl">
               <Utensils className="w-12 h-12 mx-auto text-slate-700" />
-              <h4 className="text-base font-bold text-slate-300">Kitchen Queue Clean!</h4>
-              <p className="text-xs">No pending or preparing orders match your current filter.</p>
+              <h4 className="text-base font-bold text-slate-300">{legacyUi.kitchenQueueClean}</h4>
+              <p className="text-xs">{translateRawUi('No pending or preparing orders match your current filter.')}</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -550,9 +640,9 @@ export const KDSView: React.FC<KDSViewProps> = ({ orders }) => {
                       <button
                         onClick={() => setSelectedTicketForModal(ticket)}
                         className="p-2.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition cursor-pointer text-xs flex items-center gap-1 font-bold"
-                        title="View Full Ticket & Waste Log"
+                        title={translateRawUi('View Full Ticket & Waste Log')}
                       >
-                        <Eye className="w-4 h-4 text-cyan-400" /> Details
+                        <Eye className="w-4 h-4 text-cyan-400" /> {translateRawUi('Details')}
                       </button>
 
                       <div className="flex-1">

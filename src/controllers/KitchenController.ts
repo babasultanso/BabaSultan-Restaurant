@@ -15,12 +15,23 @@ export class KitchenController {
     this.repository = repository;
   }
 
-  public subscribeTickets(callback: (tickets: KitchenTicket[]) => void, branchId?: string, isHQ?: boolean, onError?: (err: Error) => void): () => void {
-    return this.repository.subscribeKitchenTickets(callback, branchId, isHQ, onError);
+  public subscribeTickets(
+    callback: (tickets: KitchenTicket[]) => void,
+    branchId?: string,
+    isHQ?: boolean,
+    onError?: (err: Error) => void,
+    onNewTickets?: (newTickets: KitchenTicket[]) => void
+  ): () => void {
+    return this.repository.subscribeKitchenTickets(callback, branchId, isHQ, onError, onNewTickets);
   }
 
-  public subscribeStations(callback: (stations: KitchenStation[]) => void, onError?: (err: Error) => void): () => void {
-    return this.repository.subscribeKitchenStations(callback, onError);
+  public subscribeStations(
+    callback: (stations: KitchenStation[]) => void,
+    branchId?: string,
+    isHQ?: boolean,
+    onError?: (err: Error) => void
+  ): () => void {
+    return this.repository.subscribeKitchenStations(callback, branchId, isHQ, onError);
   }
 
   public async advanceTicketStatus(ticketId: string, currentStatus: KitchenPrepStatus): Promise<KitchenPrepStatus> {

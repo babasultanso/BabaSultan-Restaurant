@@ -1,4 +1,5 @@
 import React from 'react';
+import { translateRawUi } from '../../../i18n';
 import { useAuth } from '../../context/AuthContext';
 import { KPICard } from './KPICard';
 import { Order } from '../../../types';
@@ -32,7 +33,7 @@ export const KitchenView: React.FC<KitchenViewProps> = ({ orders, onNavigateToTa
     if (o.status !== 'in_preparation' && o.prepStatus !== 'preparing') return false;
     if (!o.createdAt) return false;
     const elapsedMinutes = (Date.now() - new Date(o.createdAt).getTime()) / 60000;
-    return elapsedMinutes > (o.targetPrepTimeMinutes || 15);
+    return Number.isFinite(Number(o.targetPrepTimeMinutes)) && elapsedMinutes > Number(o.targetPrepTimeMinutes);
   });
 
   // Action Handler to update status in Firestore
@@ -127,7 +128,7 @@ export const KitchenView: React.FC<KitchenViewProps> = ({ orders, onNavigateToTa
 
           <div className="space-y-3">
             {newOrders.length === 0 ? (
-              <p className="text-xs text-slate-500 text-center py-6">No new incoming tickets.</p>
+              <p className="text-xs text-slate-500 text-center py-6">{translateRawUi('No new incoming tickets.')}</p>
             ) : (
               newOrders.map(order => (
                 <div key={order.id} className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3">
@@ -148,7 +149,7 @@ export const KitchenView: React.FC<KitchenViewProps> = ({ orders, onNavigateToTa
                     onClick={() => handleSetPreparing(order.id)}
                     className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs py-2 rounded-xl transition flex items-center justify-center gap-2 cursor-pointer shadow-md"
                   >
-                    <Play className="w-3.5 h-3.5 fill-slate-950" /> Start Preparing
+                    <Play className="w-3.5 h-3.5 fill-slate-950" /> {translateRawUi('Start Preparing')}
                   </button>
                 </div>
               ))
@@ -167,14 +168,14 @@ export const KitchenView: React.FC<KitchenViewProps> = ({ orders, onNavigateToTa
 
           <div className="space-y-3">
             {preparingOrders.length === 0 ? (
-              <p className="text-xs text-slate-500 text-center py-6">No tickets currently cooking.</p>
+              <p className="text-xs text-slate-500 text-center py-6">{translateRawUi('No tickets currently cooking.')}</p>
             ) : (
               preparingOrders.map(order => (
                 <div key={order.id} className="bg-slate-950 p-4 rounded-2xl border border-teal-500/30 space-y-3 shadow-lg">
                   <div className="flex items-center justify-between">
                     <span className="font-extrabold text-white text-sm">{order.orderNumber}</span>
                     <span className="text-[10px] text-teal-400 font-bold uppercase bg-teal-500/10 px-2 py-0.5 rounded-full border border-teal-500/20">
-                      Cooking
+                      {translateRawUi('Cooking')}
                     </span>
                   </div>
 
@@ -190,7 +191,7 @@ export const KitchenView: React.FC<KitchenViewProps> = ({ orders, onNavigateToTa
                     onClick={() => handleSetReady(order.id)}
                     className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs py-2 rounded-xl transition flex items-center justify-center gap-2 cursor-pointer shadow-md"
                   >
-                    <Check className="w-4 h-4" /> Mark Ready for Service
+                    <Check className="w-4 h-4" /> {translateRawUi('Mark Ready for Service')}
                   </button>
                 </div>
               ))
@@ -209,14 +210,14 @@ export const KitchenView: React.FC<KitchenViewProps> = ({ orders, onNavigateToTa
 
           <div className="space-y-3">
             {readyOrders.length === 0 ? (
-              <p className="text-xs text-slate-500 text-center py-6">No staged dishes waiting for pickup.</p>
+              <p className="text-xs text-slate-500 text-center py-6">{translateRawUi('No staged dishes waiting for pickup.')}</p>
             ) : (
               readyOrders.map(order => (
                 <div key={order.id} className="bg-slate-950 p-4 rounded-2xl border border-emerald-500/40 space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="font-extrabold text-white text-sm">{order.orderNumber}</span>
                     <span className="text-[10px] text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
-                      READY
+                      {translateRawUi('READY')}
                     </span>
                   </div>
                   <p className="text-xs text-slate-300">

@@ -1,3 +1,4 @@
+import { translateRawUi } from '../../../i18n/rawUi';
 import React, { useState, useEffect } from 'react';
 import {
   DollarSign,
@@ -121,7 +122,7 @@ export const AccountingManagementView: React.FC = () => {
   // 3. Expense Form
   const [expTitle, setExpTitle] = useState<string>('');
   const [expCategory, setExpCategory] = useState<ExpenseCategory>('Rent');
-  const [expAmount, setExpAmount] = useState<number>(100);
+  const [expAmount, setExpAmount] = useState<number>(0);
   const [expMethod, setExpMethod] = useState<'Cash' | 'Bank'>('Cash');
   const [expAccount, setExpAccount] = useState<string>('');
   const [expVendor, setExpVendor] = useState<string>('');
@@ -139,12 +140,12 @@ export const AccountingManagementView: React.FC = () => {
   // 6. Transfer Form
   const [transferFrom, setTransferFrom] = useState<string>('');
   const [transferTo, setTransferTo] = useState<string>('');
-  const [transferAmount, setTransferAmount] = useState<number>(100);
+  const [transferAmount, setTransferAmount] = useState<number>(0);
   const [transferRef, setTransferRef] = useState<string>('');
 
   // 7. Cash Register Form
   const [openRegisterName, setOpenRegisterName] = useState<string>('Main POS Register');
-  const [openRegisterFloat, setOpenRegisterFloat] = useState<number>(150);
+  const [openRegisterFloat, setOpenRegisterFloat] = useState<number>(0);
   const [selectedRegisterToClose, setSelectedRegisterToClose] = useState<CashRegister | null>(null);
   const [closeActualCash, setCloseActualCash] = useState<number>(0);
 
@@ -382,13 +383,13 @@ export const AccountingManagementView: React.FC = () => {
     try {
       const activeBranchId = userRecord?.branchId && userRecord.branchId !== 'all'
         ? userRecord.branchId
-        : 'branch_hq_01';
-      const activeBranchName = userRecord?.branch || 'Main Flagship Branch';
+        : '';
+      const activeBranchName = userRecord?.branch || '';
       await controller.openRegister(
         openRegisterName,
         activeBranchName,
         Number(openRegisterFloat),
-        user?.displayName || 'Cashier',
+        user?.displayName || '',
         activeBranchId
       );
       setIsOpenRegisterModalOpen(false);
@@ -406,7 +407,7 @@ export const AccountingManagementView: React.FC = () => {
       await controller.closeRegister(
         selectedRegisterToClose.id,
         Number(closeActualCash),
-        user?.displayName || 'Cashier',
+        user?.displayName || '',
         'End of shift cash drawer reconciliation'
       );
       setIsCloseRegisterModalOpen(false);
@@ -449,7 +450,7 @@ export const AccountingManagementView: React.FC = () => {
         <div className="space-y-1">
           <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-emerald-400">
             <Landmark className="w-4 h-4" />
-            <span>ERP Phase 10 • Double-Entry Financial Engine</span>
+            <span>{t.legacyUi.erpPhase10}</span>
           </div>
           <h1 className="text-2xl font-extrabold text-white">{t.accounting?.title || 'Accounting & Finance System'}</h1>
           <p className="text-xs text-slate-400">
@@ -476,7 +477,7 @@ export const AccountingManagementView: React.FC = () => {
             onClick={loadAllData}
             disabled={loading}
             className="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition cursor-pointer"
-            title="Refresh Accounting Data"
+            title={translateRawUi('Refresh Accounting Data')}
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </button>
@@ -549,36 +550,36 @@ export const AccountingManagementView: React.FC = () => {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="bg-slate-900 border border-slate-800 p-5 rounded-3xl space-y-2">
               <div className="flex items-center justify-between text-slate-400 text-xs font-bold">
-                <span>Total Assets</span>
+                <span>{t.legacyUi.totalAssets}</span>
                 <Landmark className="w-4 h-4 text-emerald-400" />
               </div>
               <p className="text-2xl font-extrabold text-white">${totalAssets.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
-              <p className="text-[10px] text-slate-500 font-medium">Cash, Bank, Accounts Receivable & Inventory</p>
+              <p className="text-[10px] text-slate-500 font-medium">{t.legacyUi.cashBankArInventory}</p>
             </div>
 
             <div className="bg-slate-900 border border-slate-800 p-5 rounded-3xl space-y-2">
               <div className="flex items-center justify-between text-slate-400 text-xs font-bold">
-                <span>Total Liabilities</span>
+                <span>{t.legacyUi.totalLiabilities}</span>
                 <CreditCard className="w-4 h-4 text-rose-400" />
               </div>
               <p className="text-2xl font-extrabold text-white">${totalLiabilities.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
-              <p className="text-[10px] text-slate-500 font-medium">Accounts Payable & Sales Tax Liabilities</p>
+              <p className="text-[10px] text-slate-500 font-medium">{t.legacyUi.apAndSalesTaxLiabilities}</p>
             </div>
 
             <div className="bg-slate-900 border border-slate-800 p-5 rounded-3xl space-y-2">
               <div className="flex items-center justify-between text-slate-400 text-xs font-bold">
-                <span>Net Profit (YTD)</span>
+                <span>{t.legacyUi.netProfitYtd}</span>
                 <TrendingUp className="w-4 h-4 text-emerald-400" />
               </div>
               <p className={`text-2xl font-extrabold ${(financials?.profitAndLoss.netProfit || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                 ${(financials?.profitAndLoss.netProfit || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
               </p>
-              <p className="text-[10px] text-slate-500 font-medium">Revenues minus COGS & Expenses</p>
+              <p className="text-[10px] text-slate-500 font-medium">{t.legacyUi.revenuesMinusCosts}</p>
             </div>
 
             <div className="bg-slate-900 border border-slate-800 p-5 rounded-3xl space-y-2">
               <div className="flex items-center justify-between text-slate-400 text-xs font-bold">
-                <span>Cash & Bank Balance</span>
+                <span>{t.legacyUi.cashBankBalance}</span>
                 <DollarSign className="w-4 h-4 text-sky-400" />
               </div>
               <p className="text-2xl font-extrabold text-white">${((cashOnHand || 0) + (bankBalance || 0)).toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
@@ -592,7 +593,7 @@ export const AccountingManagementView: React.FC = () => {
               <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                 <h2 className="text-sm font-bold text-white flex items-center gap-2">
                   <Scale className="w-4 h-4 text-emerald-400" />
-                  <span>Double-Entry Balance & Trial Balance Check</span>
+                  <span>{t.legacyUi.doubleEntryTrialBalanceCheck}</span>
                 </h2>
                 <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${financials?.isTrialBalanced ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/10 text-rose-400 border border-rose-500/30'}`}>
                   {financials?.isTrialBalanced ? 'Balanced Equilibrium' : 'Trial Unbalanced'}
@@ -601,35 +602,35 @@ export const AccountingManagementView: React.FC = () => {
 
               <div className="grid grid-cols-2 gap-4 bg-slate-950 p-4 rounded-2xl border border-slate-800">
                 <div>
-                  <p className="text-[11px] text-slate-400 font-medium">Total Ledger Debits</p>
+                  <p className="text-[11px] text-slate-400 font-medium">{t.legacyUi.totalLedgerDebits}</p>
                   <p className="text-lg font-bold text-white">${(financials?.totalTrialDebit || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
                 </div>
                 <div>
-                  <p className="text-[11px] text-slate-400 font-medium">Total Ledger Credits</p>
+                  <p className="text-[11px] text-slate-400 font-medium">{t.legacyUi.totalLedgerCredits}</p>
                   <p className="text-lg font-bold text-white">${(financials?.totalTrialCredit || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
                 </div>
               </div>
 
               {/* Working Capital Breakdown */}
               <div className="space-y-2">
-                <h3 className="text-xs font-bold text-slate-300">Receivables & Payables Overview</h3>
+                <h3 className="text-xs font-bold text-slate-300">{t.legacyUi.receivablesPayablesOverview}</h3>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="p-3 bg-slate-800/60 rounded-xl border border-slate-700/60 flex items-center justify-between">
                     <div>
-                      <span className="text-[10px] text-slate-400 block font-medium">Customer Receivables</span>
+                      <span className="text-[10px] text-slate-400 block font-medium">{t.legacyUi.customerReceivables}</span>
                       <span className="text-sm font-bold text-emerald-400">${(totalReceivables || 0).toFixed(2)}</span>
                     </div>
                     <button onClick={() => setActiveTab('receivables')} className="text-xs text-slate-400 hover:text-white">
-                      View
+                      {translateRawUi('View')}
                     </button>
                   </div>
                   <div className="p-3 bg-slate-800/60 rounded-xl border border-slate-700/60 flex items-center justify-between">
                     <div>
-                      <span className="text-[10px] text-slate-400 block font-medium">Supplier Payables</span>
+                      <span className="text-[10px] text-slate-400 block font-medium">{t.legacyUi.supplierPayables}</span>
                       <span className="text-sm font-bold text-rose-400">${(totalPayables || 0).toFixed(2)}</span>
                     </div>
                     <button onClick={() => setActiveTab('payables')} className="text-xs text-slate-400 hover:text-white">
-                      View
+                      {translateRawUi('View')}
                     </button>
                   </div>
                 </div>
@@ -640,7 +641,7 @@ export const AccountingManagementView: React.FC = () => {
             <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl space-y-4">
               <h2 className="text-sm font-bold text-white flex items-center gap-2">
                 <Briefcase className="w-4 h-4 text-emerald-400" />
-                <span>Accounting Workflows</span>
+                <span>{t.legacyUi.accountingWorkflows}</span>
               </h2>
 
               <div className="space-y-2.5">
@@ -650,7 +651,7 @@ export const AccountingManagementView: React.FC = () => {
                 >
                   <div className="flex items-center gap-2.5">
                     <FileText className="w-4 h-4 text-emerald-400" />
-                    <span>Create Manual Journal Entry</span>
+                    <span>{t.legacyUi.createManualJournalEntry}</span>
                   </div>
                   <ChevronRight className="w-4 h-4 text-slate-500" />
                 </button>
@@ -661,7 +662,7 @@ export const AccountingManagementView: React.FC = () => {
                 >
                   <div className="flex items-center gap-2.5">
                     <Layers className="w-4 h-4 text-sky-400" />
-                    <span>Add New Ledger Account</span>
+                    <span>{t.legacyUi.addNewLedgerAccount}</span>
                   </div>
                   <ChevronRight className="w-4 h-4 text-slate-500" />
                 </button>
@@ -672,7 +673,7 @@ export const AccountingManagementView: React.FC = () => {
                 >
                   <div className="flex items-center gap-2.5">
                     <ArrowRightLeft className="w-4 h-4 text-amber-400" />
-                    <span>Cash / Bank Fund Transfer</span>
+                    <span>{t.legacyUi.cashBankFundTransfer}</span>
                   </div>
                   <ChevronRight className="w-4 h-4 text-slate-500" />
                 </button>
@@ -683,7 +684,7 @@ export const AccountingManagementView: React.FC = () => {
                 >
                   <div className="flex items-center gap-2.5">
                     <CreditCard className="w-4 h-4 text-purple-400" />
-                    <span>Open Cash Till Shift</span>
+                    <span>{t.legacyUi.openCashTillShift}</span>
                   </div>
                   <ChevronRight className="w-4 h-4 text-slate-500" />
                 </button>
@@ -702,7 +703,7 @@ export const AccountingManagementView: React.FC = () => {
                 <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-500" />
                 <input
                   type="text"
-                  placeholder="Search account by code/name..."
+                  placeholder={translateRawUi('Search account by code/name...')}
                   value={searchTerm}
                   onChange={e => setSearchTerm(e.target.value)}
                   className="w-full pl-9 pr-4 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
@@ -714,13 +715,13 @@ export const AccountingManagementView: React.FC = () => {
                 onChange={e => setSelectedAccountType(e.target.value)}
                 className="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-300 focus:outline-none focus:border-emerald-500"
               >
-                <option value="ALL">All Account Types</option>
-                <option value="Asset">Assets</option>
-                <option value="Liability">Liabilities</option>
-                <option value="Equity">Equity</option>
-                <option value="Revenue">Revenue</option>
-                <option value="COGS">COGS</option>
-                <option value="Expense">Expenses</option>
+                <option value="ALL">{t.legacyUi.allAccountTypes}</option>
+                <option value="Asset">{translateRawUi('Assets')}</option>
+                <option value="Liability">{translateRawUi('Liabilities')}</option>
+                <option value="Equity">{translateRawUi('Equity')}</option>
+                <option value="Revenue">{translateRawUi('Revenue')}</option>
+                <option value="COGS">{translateRawUi('COGS')}</option>
+                <option value="Expense">{translateRawUi('Expenses')}</option>
               </select>
             </div>
 
@@ -730,7 +731,7 @@ export const AccountingManagementView: React.FC = () => {
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs border border-slate-700 transition"
               >
                 <Download className="w-3.5 h-3.5" />
-                <span>Export CSV</span>
+                <span>{t.legacyUi.exportCsv}</span>
               </button>
 
               <button
@@ -738,7 +739,7 @@ export const AccountingManagementView: React.FC = () => {
                 className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold text-xs transition"
               >
                 <Plus className="w-4 h-4" />
-                <span>Add Account</span>
+                <span>{t.legacyUi.addAccount}</span>
               </button>
             </div>
           </div>
@@ -748,12 +749,12 @@ export const AccountingManagementView: React.FC = () => {
               <table className="w-full text-left text-xs text-slate-300">
                 <thead className="bg-slate-950 text-slate-400 font-bold border-b border-slate-800 uppercase tracking-wider text-[10px]">
                   <tr>
-                    <th className="p-4">Code</th>
-                    <th className="p-4">Account Name</th>
-                    <th className="p-4">Type</th>
-                    <th className="p-4">Description</th>
-                    <th className="p-4 text-right">Balance</th>
-                    <th className="p-4">Status</th>
+                    <th className="p-4">{translateRawUi('Code')}</th>
+                    <th className="p-4">{t.legacyUi.accountName}</th>
+                    <th className="p-4">{translateRawUi('Type')}</th>
+                    <th className="p-4">{translateRawUi('Description')}</th>
+                    <th className="p-4 text-right">{translateRawUi('Balance')}</th>
+                    <th className="p-4">{translateRawUi('Status')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60 font-medium">
@@ -811,7 +812,7 @@ export const AccountingManagementView: React.FC = () => {
           <div className="flex items-center justify-between bg-slate-900 p-4 rounded-2xl border border-slate-800">
             <h2 className="text-sm font-bold text-white flex items-center gap-2">
               <FileText className="w-4 h-4 text-emerald-400" />
-              <span>Posted Journal Entries</span>
+              <span>{t.legacyUi.postedJournalEntries}</span>
             </h2>
 
             <div className="flex items-center gap-2">
@@ -820,7 +821,7 @@ export const AccountingManagementView: React.FC = () => {
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs border border-slate-700 transition"
               >
                 <Download className="w-3.5 h-3.5" />
-                <span>Export CSV</span>
+                <span>{t.legacyUi.exportCsv}</span>
               </button>
 
               <button
@@ -828,7 +829,7 @@ export const AccountingManagementView: React.FC = () => {
                 className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold text-xs transition"
               >
                 <Plus className="w-4 h-4" />
-                <span>New Entry</span>
+                <span>{t.legacyUi.newEntry}</span>
               </button>
             </div>
           </div>
@@ -836,7 +837,7 @@ export const AccountingManagementView: React.FC = () => {
           <div className="space-y-3">
             {journals.length === 0 ? (
               <div className="bg-slate-900 border border-slate-800 p-8 rounded-3xl text-center text-slate-500 text-xs font-medium">
-                No journal entries posted yet.
+                {translateRawUi('No journal entries posted yet.')}
               </div>
             ) : (
               journals.map(j => (
@@ -863,10 +864,10 @@ export const AccountingManagementView: React.FC = () => {
                     <table className="w-full text-left text-xs">
                       <thead className="text-[10px] uppercase text-slate-500 border-b border-slate-800/40">
                         <tr>
-                          <th className="py-1">Account</th>
-                          <th className="py-1">Memo</th>
-                          <th className="py-1 text-right">Debit ($)</th>
-                          <th className="py-1 text-right">Credit ($)</th>
+                          <th className="py-1">{translateRawUi('Account')}</th>
+                          <th className="py-1">{translateRawUi('Memo')}</th>
+                          <th className="py-1 text-right">{t.legacyUi.debitUsd}</th>
+                          <th className="py-1 text-right">{t.legacyUi.creditUsd}</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-800/30 font-medium text-slate-300">
@@ -899,7 +900,7 @@ export const AccountingManagementView: React.FC = () => {
         <div className="space-y-4">
           <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-3 w-full sm:w-auto">
-              <label className="text-xs text-slate-400 font-bold whitespace-nowrap">Select Account:</label>
+              <label className="text-xs text-slate-400 font-bold whitespace-nowrap">{t.legacyUi.selectAccountColon}</label>
               <select
                 value={selectedLedgerAccountId}
                 onChange={e => setSelectedLedgerAccountId(e.target.value)}
@@ -918,7 +919,7 @@ export const AccountingManagementView: React.FC = () => {
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs border border-slate-700 transition"
             >
               <Download className="w-3.5 h-3.5" />
-              <span>Export Ledger</span>
+              <span>{t.legacyUi.exportLedger}</span>
             </button>
           </div>
 
@@ -927,13 +928,13 @@ export const AccountingManagementView: React.FC = () => {
               <table className="w-full text-left text-xs text-slate-300">
                 <thead className="bg-slate-950 text-slate-400 font-bold border-b border-slate-800 uppercase tracking-wider text-[10px]">
                   <tr>
-                    <th className="p-4">Date</th>
-                    <th className="p-4">Entry #</th>
-                    <th className="p-4">Reference</th>
-                    <th className="p-4">Description</th>
-                    <th className="p-4 text-right">Debit ($)</th>
-                    <th className="p-4 text-right">Credit ($)</th>
-                    <th className="p-4 text-right">Running Balance</th>
+                    <th className="p-4">{t.legacyUi.dateLabel}</th>
+                    <th className="p-4">{t.legacyUi.entryNumber}</th>
+                    <th className="p-4">{translateRawUi('Reference')}</th>
+                    <th className="p-4">{translateRawUi('Description')}</th>
+                    <th className="p-4 text-right">{t.legacyUi.debitUsd}</th>
+                    <th className="p-4 text-right">{t.legacyUi.creditUsd}</th>
+                    <th className="p-4 text-right">{t.legacyUi.runningBalance}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60 font-medium">
@@ -968,8 +969,8 @@ export const AccountingManagementView: React.FC = () => {
         <div className="space-y-4">
           <div className="flex items-center justify-between bg-slate-900 p-4 rounded-2xl border border-slate-800">
             <div>
-              <h2 className="text-sm font-bold text-white">Accounts Receivable (Customer Balances)</h2>
-              <p className="text-[10px] text-slate-400">Track outstanding invoices and customer payments</p>
+              <h2 className="text-sm font-bold text-white">{t.legacyUi.accountsReceivableCustomerBalances}</h2>
+              <p className="text-[10px] text-slate-400">{t.legacyUi.trackCustomerInvoices}</p>
             </div>
           </div>
 
@@ -978,15 +979,15 @@ export const AccountingManagementView: React.FC = () => {
               <table className="w-full text-left text-xs text-slate-300">
                 <thead className="bg-slate-950 text-slate-400 font-bold border-b border-slate-800 uppercase tracking-wider text-[10px]">
                   <tr>
-                    <th className="p-4">Invoice #</th>
-                    <th className="p-4">Customer Name</th>
-                    <th className="p-4">Issue Date</th>
-                    <th className="p-4">Due Date</th>
-                    <th className="p-4 text-right">Total ($)</th>
-                    <th className="p-4 text-right">Paid ($)</th>
-                    <th className="p-4 text-right">Remaining ($)</th>
-                    <th className="p-4">Status</th>
-                    <th className="p-4 text-right">Action</th>
+                    <th className="p-4">{t.legacyUi.invoiceNumber}</th>
+                    <th className="p-4">{t.legacyUi.customerName}</th>
+                    <th className="p-4">{t.legacyUi.issueDate}</th>
+                    <th className="p-4">{t.legacyUi.dueDate}</th>
+                    <th className="p-4 text-right">{t.legacyUi.totalUsd}</th>
+                    <th className="p-4 text-right">{t.legacyUi.paidUsd}</th>
+                    <th className="p-4 text-right">{t.legacyUi.remainingUsd}</th>
+                    <th className="p-4">{translateRawUi('Status')}</th>
+                    <th className="p-4 text-right">{translateRawUi('Action')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60 font-medium">
@@ -1022,7 +1023,7 @@ export const AccountingManagementView: React.FC = () => {
                             }}
                             className="px-3 py-1 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold text-[11px] transition"
                           >
-                            Receive Payment
+                            {translateRawUi('Receive Payment')}
                           </button>
                         )}
                       </td>
@@ -1040,8 +1041,8 @@ export const AccountingManagementView: React.FC = () => {
         <div className="space-y-4">
           <div className="flex items-center justify-between bg-slate-900 p-4 rounded-2xl border border-slate-800">
             <div>
-              <h2 className="text-sm font-bold text-white">Accounts Payable (Supplier Bills)</h2>
-              <p className="text-[10px] text-slate-400">Track supplier bills and scheduled payments</p>
+              <h2 className="text-sm font-bold text-white">{t.legacyUi.accountsPayableSupplierBills}</h2>
+              <p className="text-[10px] text-slate-400">{t.legacyUi.trackSupplierBills}</p>
             </div>
           </div>
 
@@ -1050,15 +1051,15 @@ export const AccountingManagementView: React.FC = () => {
               <table className="w-full text-left text-xs text-slate-300">
                 <thead className="bg-slate-950 text-slate-400 font-bold border-b border-slate-800 uppercase tracking-wider text-[10px]">
                   <tr>
-                    <th className="p-4">Bill #</th>
-                    <th className="p-4">Supplier Name</th>
-                    <th className="p-4">Issue Date</th>
-                    <th className="p-4">Due Date</th>
-                    <th className="p-4 text-right">Total ($)</th>
-                    <th className="p-4 text-right">Paid ($)</th>
-                    <th className="p-4 text-right">Remaining ($)</th>
-                    <th className="p-4">Status</th>
-                    <th className="p-4 text-right">Action</th>
+                    <th className="p-4">{t.legacyUi.billNumber}</th>
+                    <th className="p-4">{t.legacyUi.supplierName}</th>
+                    <th className="p-4">{t.legacyUi.issueDate}</th>
+                    <th className="p-4">{t.legacyUi.dueDate}</th>
+                    <th className="p-4 text-right">{t.legacyUi.totalUsd}</th>
+                    <th className="p-4 text-right">{t.legacyUi.paidUsd}</th>
+                    <th className="p-4 text-right">{t.legacyUi.remainingUsd}</th>
+                    <th className="p-4">{translateRawUi('Status')}</th>
+                    <th className="p-4 text-right">{translateRawUi('Action')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60 font-medium">
@@ -1094,7 +1095,7 @@ export const AccountingManagementView: React.FC = () => {
                             }}
                             className="px-3 py-1 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-[11px] transition"
                           >
-                            Pay Bill
+                            {translateRawUi('Pay Bill')}
                           </button>
                         )}
                       </td>
@@ -1113,7 +1114,7 @@ export const AccountingManagementView: React.FC = () => {
           <div className="flex items-center justify-between bg-slate-900 p-4 rounded-2xl border border-slate-800">
             <h2 className="text-sm font-bold text-white flex items-center gap-2">
               <Receipt className="w-4 h-4 text-emerald-400" />
-              <span>Categorized Expense Records</span>
+              <span>{t.legacyUi.categorizedExpenseRecords}</span>
             </h2>
 
             <button
@@ -1121,7 +1122,7 @@ export const AccountingManagementView: React.FC = () => {
               className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold text-xs transition"
             >
               <Plus className="w-4 h-4" />
-              <span>Record Expense</span>
+              <span>{t.legacyUi.recordExpense}</span>
             </button>
           </div>
 
@@ -1130,13 +1131,13 @@ export const AccountingManagementView: React.FC = () => {
               <table className="w-full text-left text-xs text-slate-300">
                 <thead className="bg-slate-950 text-slate-400 font-bold border-b border-slate-800 uppercase tracking-wider text-[10px]">
                   <tr>
-                    <th className="p-4">Expense #</th>
-                    <th className="p-4">Title</th>
-                    <th className="p-4">Category</th>
-                    <th className="p-4">Payment Source</th>
-                    <th className="p-4">Vendor</th>
-                    <th className="p-4 text-right">Amount ($)</th>
-                    <th className="p-4">Date</th>
+                    <th className="p-4">{t.legacyUi.expenseNumber}</th>
+                    <th className="p-4">{translateRawUi('Title')}</th>
+                    <th className="p-4">{translateRawUi('Category')}</th>
+                    <th className="p-4">{t.legacyUi.paymentSource}</th>
+                    <th className="p-4">{t.legacyUi.vendorLabel}</th>
+                    <th className="p-4 text-right">{t.legacyUi.amountUsd}</th>
+                    <th className="p-4">{t.legacyUi.dateLabel}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60 font-medium">
@@ -1173,13 +1174,13 @@ export const AccountingManagementView: React.FC = () => {
               <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                 <h2 className="text-sm font-bold text-white flex items-center gap-2">
                   <Landmark className="w-4 h-4 text-sky-400" />
-                  <span>Corporate Bank Accounts</span>
+                  <span>{t.legacyUi.corporateBankAccounts}</span>
                 </h2>
                 <button
                   onClick={() => setIsTransferModalOpen(true)}
                   className="px-3 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition"
                 >
-                  Transfer Funds
+                  {translateRawUi('Transfer Funds')}
                 </button>
               </div>
 
@@ -1204,13 +1205,13 @@ export const AccountingManagementView: React.FC = () => {
               <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                 <h2 className="text-sm font-bold text-white flex items-center gap-2">
                   <CreditCard className="w-4 h-4 text-amber-400" />
-                  <span>Cash Register Till Shifts</span>
+                  <span>{t.legacyUi.cashRegisterTillShifts}</span>
                 </h2>
                 <button
                   onClick={() => setIsOpenRegisterModalOpen(true)}
                   className="px-3 py-1 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-slate-950 text-xs font-bold transition"
                 >
-                  Open Shift
+                  {translateRawUi('Open Shift')}
                 </button>
               </div>
 
@@ -1248,7 +1249,7 @@ export const AccountingManagementView: React.FC = () => {
                           }}
                           className="px-2.5 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-[10px] font-bold"
                         >
-                          Close Shift
+                          {translateRawUi('Close Shift')}
                         </button>
                       )}
                     </div>
@@ -1264,7 +1265,7 @@ export const AccountingManagementView: React.FC = () => {
       {activeTab === 'taxes' && (
         <div className="space-y-4">
           <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 flex items-center justify-between">
-            <h2 className="text-sm font-bold text-white">Tax Configurations & Rate Rules</h2>
+            <h2 className="text-sm font-bold text-white">{t.legacyUi.taxConfigurations}</h2>
           </div>
 
           <div className="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
@@ -1272,11 +1273,11 @@ export const AccountingManagementView: React.FC = () => {
               <table className="w-full text-left text-xs text-slate-300">
                 <thead className="bg-slate-950 text-slate-400 font-bold border-b border-slate-800 uppercase tracking-wider text-[10px]">
                   <tr>
-                    <th className="p-4">Tax Name</th>
-                    <th className="p-4">Code</th>
-                    <th className="p-4 text-right">Rate (%)</th>
-                    <th className="p-4">Applies To</th>
-                    <th className="p-4">Status</th>
+                    <th className="p-4">{t.legacyUi.taxName}</th>
+                    <th className="p-4">{translateRawUi('Code')}</th>
+                    <th className="p-4 text-right">{t.legacyUi.ratePercent}</th>
+                    <th className="p-4">{t.legacyUi.appliesTo}</th>
+                    <th className="p-4">{translateRawUi('Status')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60 font-medium">
@@ -1309,14 +1310,14 @@ export const AccountingManagementView: React.FC = () => {
               <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                 <h2 className="text-sm font-bold text-white flex items-center gap-2">
                   <TrendingUp className="w-4 h-4 text-emerald-400" />
-                  <span>Profit & Loss Statement (Income Statement)</span>
+                  <span>{t.legacyUi.profitLossStatement}</span>
                 </h2>
                 <button
                   onClick={() => window.print()}
                   className="flex items-center gap-1 text-xs text-slate-400 hover:text-white"
                 >
                   <Printer className="w-3.5 h-3.5" />
-                  <span>Print</span>
+                  <span>{translateRawUi('Print')}</span>
                 </button>
               </div>
 
@@ -1324,7 +1325,7 @@ export const AccountingManagementView: React.FC = () => {
                 {/* Revenue */}
                 <div className="space-y-1">
                   <div className="flex items-center justify-between font-bold text-white">
-                    <span>Operating Revenues</span>
+                    <span>{t.legacyUi.operatingRevenues}</span>
                     <span className="text-emerald-400">${(financials?.profitAndLoss.totalRevenue || 0).toFixed(2)}</span>
                   </div>
                   {financials?.profitAndLoss.revenue.map(r => (
@@ -1338,7 +1339,7 @@ export const AccountingManagementView: React.FC = () => {
                 {/* COGS */}
                 <div className="space-y-1 border-t border-slate-800 pt-2">
                   <div className="flex items-center justify-between font-bold text-white">
-                    <span>Cost of Goods Sold (COGS)</span>
+                    <span>{t.legacyUi.cogs}</span>
                     <span className="text-amber-400">${(financials?.profitAndLoss.totalCOGS || 0).toFixed(2)}</span>
                   </div>
                   {financials?.profitAndLoss.cogs.map(c => (
@@ -1351,14 +1352,14 @@ export const AccountingManagementView: React.FC = () => {
 
                 {/* Gross Profit */}
                 <div className="flex items-center justify-between font-extrabold text-white bg-slate-950 p-2.5 rounded-xl border border-slate-800">
-                  <span>Gross Profit</span>
+                  <span>{t.legacyUi.grossProfit}</span>
                   <span className="text-emerald-400">${(financials?.profitAndLoss.grossProfit || 0).toFixed(2)}</span>
                 </div>
 
                 {/* Expenses */}
                 <div className="space-y-1 border-t border-slate-800 pt-2">
                   <div className="flex items-center justify-between font-bold text-white">
-                    <span>Operating Expenses</span>
+                    <span>{t.legacyUi.operatingExpensesLabel}</span>
                     <span className="text-rose-400">${(financials?.profitAndLoss.totalExpenses || 0).toFixed(2)}</span>
                   </div>
                   {financials?.profitAndLoss.expenses.map(e => (
@@ -1371,7 +1372,7 @@ export const AccountingManagementView: React.FC = () => {
 
                 {/* Net Profit */}
                 <div className="flex items-center justify-between font-black text-sm text-white bg-emerald-500/10 p-3 rounded-2xl border border-emerald-500/30">
-                  <span>NET PROFIT / (LOSS)</span>
+                  <span>{t.legacyUi.netProfitLoss}</span>
                   <span className={(financials?.profitAndLoss.netProfit || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
                     ${(financials?.profitAndLoss.netProfit || 0).toFixed(2)}
                   </span>
@@ -1384,11 +1385,11 @@ export const AccountingManagementView: React.FC = () => {
               <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                 <h2 className="text-sm font-bold text-white flex items-center gap-2">
                   <Scale className="w-4 h-4 text-sky-400" />
-                  <span>Balance Sheet Statement</span>
+                  <span>{t.legacyUi.balanceSheetStatement}</span>
                 </h2>
                 <button onClick={() => window.print()} className="flex items-center gap-1 text-xs text-slate-400 hover:text-white">
                   <Printer className="w-3.5 h-3.5" />
-                  <span>Print</span>
+                  <span>{translateRawUi('Print')}</span>
                 </button>
               </div>
 
@@ -1396,7 +1397,7 @@ export const AccountingManagementView: React.FC = () => {
                 {/* Assets */}
                 <div className="space-y-1">
                   <div className="flex items-center justify-between font-bold text-white">
-                    <span>Total Assets</span>
+                    <span>{t.legacyUi.totalAssets}</span>
                     <span className="text-emerald-400">${(financials?.balanceSheet.totalAssets || 0).toFixed(2)}</span>
                   </div>
                   {financials?.balanceSheet.assets.map(a => (
@@ -1410,7 +1411,7 @@ export const AccountingManagementView: React.FC = () => {
                 {/* Liabilities */}
                 <div className="space-y-1 border-t border-slate-800 pt-2">
                   <div className="flex items-center justify-between font-bold text-white">
-                    <span>Total Liabilities</span>
+                    <span>{t.legacyUi.totalLiabilities}</span>
                     <span className="text-rose-400">${(financials?.balanceSheet.totalLiabilities || 0).toFixed(2)}</span>
                   </div>
                   {financials?.balanceSheet.liabilities.map(l => (
@@ -1424,7 +1425,7 @@ export const AccountingManagementView: React.FC = () => {
                 {/* Equity */}
                 <div className="space-y-1 border-t border-slate-800 pt-2">
                   <div className="flex items-center justify-between font-bold text-white">
-                    <span>Total Equity</span>
+                    <span>{t.legacyUi.totalEquity}</span>
                     <span className="text-sky-400">${(financials?.balanceSheet.totalEquity || 0).toFixed(2)}</span>
                   </div>
                   {financials?.balanceSheet.equity.map(eq => (
@@ -1437,7 +1438,7 @@ export const AccountingManagementView: React.FC = () => {
 
                 {/* Verification Check */}
                 <div className="flex items-center justify-between font-bold text-xs text-white bg-slate-950 p-3 rounded-2xl border border-slate-800">
-                  <span>Liabilities + Equity</span>
+                  <span>{t.legacyUi.liabilitiesEquity}</span>
                   <span>${(financials?.balanceSheet.totalLiabilitiesAndEquity || 0).toFixed(2)}</span>
                 </div>
               </div>
@@ -1451,7 +1452,7 @@ export const AccountingManagementView: React.FC = () => {
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-md w-full space-y-4 shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="text-sm font-bold text-white">Create New Ledger Account</h3>
+              <h3 className="text-sm font-bold text-white">{t.legacyUi.createLedgerAccount2}</h3>
               <button onClick={() => setIsAccountModalOpen(false)}>
                 <X className="w-4 h-4 text-slate-400" />
               </button>
@@ -1459,11 +1460,11 @@ export const AccountingManagementView: React.FC = () => {
 
             <form onSubmit={handleCreateAccount} className="space-y-3 text-xs">
               <div>
-                <label className="block text-slate-400 font-medium mb-1">Account Code (e.g. 6110)</label>
+                <label className="block text-slate-400 font-medium mb-1">{t.legacyUi.accountCodeExample}</label>
                 <input
                   type="text"
                   required
-                  placeholder="6110"
+                  placeholder={translateRawUi('6110')}
                   value={newAccCode}
                   onChange={e => setNewAccCode(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-emerald-500"
@@ -1471,11 +1472,11 @@ export const AccountingManagementView: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-slate-400 font-medium mb-1">Account Name</label>
+                <label className="block text-slate-400 font-medium mb-1">{t.legacyUi.accountName}</label>
                 <input
                   type="text"
                   required
-                  placeholder="Software Subscriptions"
+                  placeholder={translateRawUi('Software Subscriptions')}
                   value={newAccName}
                   onChange={e => setNewAccName(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-emerald-500"
@@ -1483,26 +1484,26 @@ export const AccountingManagementView: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-slate-400 font-medium mb-1">Account Type</label>
+                <label className="block text-slate-400 font-medium mb-1">{t.legacyUi.accountType}</label>
                 <select
                   value={newAccType}
                   onChange={e => setNewAccType(e.target.value as AccountType)}
                   className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-emerald-500"
                 >
-                  <option value="Asset">Asset</option>
-                  <option value="Liability">Liability</option>
-                  <option value="Equity">Equity</option>
-                  <option value="Revenue">Revenue</option>
-                  <option value="COGS">COGS</option>
-                  <option value="Expense">Expense</option>
+                  <option value="Asset">{translateRawUi('Asset')}</option>
+                  <option value="Liability">{translateRawUi('Liability')}</option>
+                  <option value="Equity">{translateRawUi('Equity')}</option>
+                  <option value="Revenue">{translateRawUi('Revenue')}</option>
+                  <option value="COGS">{translateRawUi('COGS')}</option>
+                  <option value="Expense">{translateRawUi('Expense')}</option>
                 </select>
               </div>
 
               <div>
-                <label className="block text-slate-400 font-medium mb-1">Description</label>
+                <label className="block text-slate-400 font-medium mb-1">{translateRawUi('Description')}</label>
                 <textarea
                   rows={2}
-                  placeholder="Optional account notes..."
+                  placeholder={translateRawUi('Optional account notes...')}
                   value={newAccDesc}
                   onChange={e => setNewAccDesc(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-emerald-500"
@@ -1515,13 +1516,13 @@ export const AccountingManagementView: React.FC = () => {
                   onClick={() => setIsAccountModalOpen(false)}
                   className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 font-semibold"
                 >
-                  Cancel
+                  {translateRawUi('Cancel')}
                 </button>
                 <button
                   type="submit"
                   className="px-4 py-2 rounded-xl bg-emerald-500 text-slate-950 font-bold"
                 >
-                  Create Account
+                  {translateRawUi('Create Account')}
                 </button>
               </div>
             </form>
@@ -1534,7 +1535,7 @@ export const AccountingManagementView: React.FC = () => {
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-2xl w-full space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="text-sm font-bold text-white">Post Balanced Journal Entry</h3>
+              <h3 className="text-sm font-bold text-white">{t.legacyUi.postBalancedJournal}</h3>
               <button onClick={() => setIsJournalModalOpen(false)}>
                 <X className="w-4 h-4 text-slate-400" />
               </button>
@@ -1543,7 +1544,7 @@ export const AccountingManagementView: React.FC = () => {
             <form onSubmit={handleCreateJournal} className="space-y-4 text-xs">
               <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-slate-400 font-medium mb-1">Date</label>
+                  <label className="block text-slate-400 font-medium mb-1">{t.legacyUi.dateLabel}</label>
                   <input
                     type="date"
                     required
@@ -1553,21 +1554,21 @@ export const AccountingManagementView: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-slate-400 font-medium mb-1">Reference</label>
+                  <label className="block text-slate-400 font-medium mb-1">{translateRawUi('Reference')}</label>
                   <input
                     type="text"
-                    placeholder="INV-1001 or Voucher"
+                    placeholder={translateRawUi('INV-1001 or Voucher')}
                     value={jeReference}
                     onChange={e => setJeReference(e.target.value)}
                     className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-emerald-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-slate-400 font-medium mb-1">Description</label>
+                  <label className="block text-slate-400 font-medium mb-1">{translateRawUi('Description')}</label>
                   <input
                     type="text"
                     required
-                    placeholder="Payroll accrued / Adjustment"
+                    placeholder={translateRawUi('Payroll accrued / Adjustment')}
                     value={jeDescription}
                     onChange={e => setJeDescription(e.target.value)}
                     className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-emerald-500"
@@ -1578,14 +1579,14 @@ export const AccountingManagementView: React.FC = () => {
               {/* Dynamic Line Items */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="font-bold text-slate-300">Journal Line Items</span>
+                  <span className="font-bold text-slate-300">{t.legacyUi.journalLineItems}</span>
                   <button
                     type="button"
                     onClick={() => setJeLines([...jeLines, { accountId: '', debit: 0, credit: 0, memo: '' }])}
                     className="text-emerald-400 font-bold hover:underline flex items-center gap-1"
                   >
                     <Plus className="w-3.5 h-3.5" />
-                    <span>Add Line</span>
+                    <span>{t.legacyUi.addLine}</span>
                   </button>
                 </div>
 
@@ -1603,7 +1604,7 @@ export const AccountingManagementView: React.FC = () => {
                           }}
                           className="w-full px-2 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-white text-xs"
                         >
-                          <option value="">Select Account...</option>
+                          <option value="">{t.legacyUi.selectAccountEllipsis}</option>
                           {accounts.map(a => (
                             <option key={a.id} value={a.id}>
                               {a.code} - {a.name}
@@ -1616,7 +1617,7 @@ export const AccountingManagementView: React.FC = () => {
                         <input
                           type="number"
                           step="0.01"
-                          placeholder="Debit ($)"
+                          placeholder={t.legacyUi.debitUsd}
                           value={line.debit || ''}
                           onChange={e => {
                             const updated = [...jeLines];
@@ -1631,7 +1632,7 @@ export const AccountingManagementView: React.FC = () => {
                         <input
                           type="number"
                           step="0.01"
-                          placeholder="Credit ($)"
+                          placeholder={t.legacyUi.creditUsd}
                           value={line.credit || ''}
                           onChange={e => {
                             const updated = [...jeLines];
@@ -1677,13 +1678,13 @@ export const AccountingManagementView: React.FC = () => {
                   onClick={() => setIsJournalModalOpen(false)}
                   className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 font-semibold"
                 >
-                  Cancel
+                  {translateRawUi('Cancel')}
                 </button>
                 <button
                   type="submit"
                   className="px-4 py-2 rounded-xl bg-emerald-500 text-slate-950 font-bold"
                 >
-                  Post Journal Entry
+                  {translateRawUi('Post Journal Entry')}
                 </button>
               </div>
             </form>
@@ -1696,7 +1697,7 @@ export const AccountingManagementView: React.FC = () => {
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-md w-full space-y-4 shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="text-sm font-bold text-white">Record Operating Expense</h3>
+              <h3 className="text-sm font-bold text-white">{t.legacyUi.recordOperatingExpense}</h3>
               <button onClick={() => setIsExpenseModalOpen(false)}>
                 <X className="w-4 h-4 text-slate-400" />
               </button>
@@ -1704,11 +1705,11 @@ export const AccountingManagementView: React.FC = () => {
 
             <form onSubmit={handleRecordExpense} className="space-y-3 text-xs">
               <div>
-                <label className="block text-slate-400 font-medium mb-1">Expense Title</label>
+                <label className="block text-slate-400 font-medium mb-1">{t.legacyUi.expenseTitle2}</label>
                 <input
                   type="text"
                   required
-                  placeholder="Generator Diesel Fuel"
+                  placeholder={translateRawUi('Generator Diesel Fuel')}
                   value={expTitle}
                   onChange={e => setExpTitle(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-emerald-500"
@@ -1717,27 +1718,27 @@ export const AccountingManagementView: React.FC = () => {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-slate-400 font-medium mb-1">Category</label>
+                  <label className="block text-slate-400 font-medium mb-1">{translateRawUi('Category')}</label>
                   <select
                     value={expCategory}
                     onChange={e => setExpCategory(e.target.value as ExpenseCategory)}
                     className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-emerald-500"
                   >
-                    <option value="Rent">Rent</option>
-                    <option value="Electricity">Electricity</option>
-                    <option value="Water">Water</option>
-                    <option value="Internet">Internet</option>
-                    <option value="Gas">Gas</option>
-                    <option value="Salaries">Salaries</option>
-                    <option value="Marketing">Marketing</option>
-                    <option value="Maintenance">Maintenance</option>
-                    <option value="Transportation">Transportation</option>
-                    <option value="Miscellaneous">Miscellaneous</option>
+                    <option value="Rent">{translateRawUi('Rent')}</option>
+                    <option value="Electricity">{translateRawUi('Electricity')}</option>
+                    <option value="Water">{translateRawUi('Water')}</option>
+                    <option value="Internet">{translateRawUi('Internet')}</option>
+                    <option value="Gas">{translateRawUi('Gas')}</option>
+                    <option value="Salaries">{translateRawUi('Salaries')}</option>
+                    <option value="Marketing">{translateRawUi('Marketing')}</option>
+                    <option value="Maintenance">{translateRawUi('Maintenance')}</option>
+                    <option value="Transportation">{translateRawUi('Transportation')}</option>
+                    <option value="Miscellaneous">{translateRawUi('Miscellaneous')}</option>
                   </select>
                 </div>
 
                 <div>
-                  <label className="block text-slate-400 font-medium mb-1">Amount ($)</label>
+                  <label className="block text-slate-400 font-medium mb-1">{t.legacyUi.amountUsd}</label>
                   <input
                     type="number"
                     step="0.01"
@@ -1750,22 +1751,22 @@ export const AccountingManagementView: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-slate-400 font-medium mb-1">Payment Method</label>
+                <label className="block text-slate-400 font-medium mb-1">{t.legacyUi.paymentMethod}</label>
                 <select
                   value={expMethod}
                   onChange={e => setExpMethod(e.target.value as 'Cash' | 'Bank')}
                   className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-emerald-500"
                 >
-                  <option value="Cash">Cash on Hand (Till)</option>
-                  <option value="Bank">Bank Account (Premier Bank)</option>
+                  <option value="Cash">{t.legacyUi.cashOnHandTill}</option>
+                  <option value="Bank">{t.legacyUi.bankAccount}</option>
                 </select>
               </div>
 
               <div>
-                <label className="block text-slate-400 font-medium mb-1">Vendor / Payee</label>
+                <label className="block text-slate-400 font-medium mb-1">{t.legacyUi.vendorPayee}</label>
                 <input
                   type="text"
-                  placeholder="Mogadishu Energy Co"
+                  placeholder={translateRawUi('e.g. Utility Company')}
                   value={expVendor}
                   onChange={e => setExpVendor(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-emerald-500"
@@ -1778,13 +1779,13 @@ export const AccountingManagementView: React.FC = () => {
                   onClick={() => setIsExpenseModalOpen(false)}
                   className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 font-semibold"
                 >
-                  Cancel
+                  {translateRawUi('Cancel')}
                 </button>
                 <button
                   type="submit"
                   className="px-4 py-2 rounded-xl bg-emerald-500 text-slate-950 font-bold"
                 >
-                  Save & Post Expense
+                  {translateRawUi('Save & Post Expense')}
                 </button>
               </div>
             </form>
@@ -1797,7 +1798,7 @@ export const AccountingManagementView: React.FC = () => {
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-md w-full space-y-4 shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="text-sm font-bold text-white">Record Customer Payment</h3>
+              <h3 className="text-sm font-bold text-white">{t.legacyUi.recordCustomerPayment}</h3>
               <button onClick={() => setIsARPaymentModalOpen(false)}>
                 <X className="w-4 h-4 text-slate-400" />
               </button>
@@ -1811,7 +1812,7 @@ export const AccountingManagementView: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-slate-400 font-medium mb-1">Payment Amount ($)</label>
+                <label className="block text-slate-400 font-medium mb-1">{t.legacyUi.paymentAmountUsd}</label>
                 <input
                   type="number"
                   step="0.01"
@@ -1823,14 +1824,14 @@ export const AccountingManagementView: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-slate-400 font-medium mb-1">Deposit Into</label>
+                <label className="block text-slate-400 font-medium mb-1">{t.legacyUi.depositInto}</label>
                 <select
                   value={arPayMethod}
                   onChange={e => setArPayMethod(e.target.value as 'Cash' | 'Bank')}
                   className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white"
                 >
-                  <option value="Cash">Cash Till</option>
-                  <option value="Bank">Bank Account</option>
+                  <option value="Cash">{t.legacyUi.cashTill}</option>
+                  <option value="Bank">{t.legacyUi.bankAccount}</option>
                 </select>
               </div>
 
@@ -1840,13 +1841,13 @@ export const AccountingManagementView: React.FC = () => {
                   onClick={() => setIsARPaymentModalOpen(false)}
                   className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 font-semibold"
                 >
-                  Cancel
+                  {translateRawUi('Cancel')}
                 </button>
                 <button
                   type="submit"
                   className="px-4 py-2 rounded-xl bg-emerald-500 text-slate-950 font-bold"
                 >
-                  Submit Payment
+                  {translateRawUi('Submit Payment')}
                 </button>
               </div>
             </form>
@@ -1859,7 +1860,7 @@ export const AccountingManagementView: React.FC = () => {
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-md w-full space-y-4 shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="text-sm font-bold text-white">Record Supplier Bill Payment</h3>
+              <h3 className="text-sm font-bold text-white">{t.legacyUi.recordSupplierBillPayment}</h3>
               <button onClick={() => setIsAPPaymentModalOpen(false)}>
                 <X className="w-4 h-4 text-slate-400" />
               </button>
@@ -1873,7 +1874,7 @@ export const AccountingManagementView: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-slate-400 font-medium mb-1">Payment Amount ($)</label>
+                <label className="block text-slate-400 font-medium mb-1">{t.legacyUi.paymentAmountUsd}</label>
                 <input
                   type="number"
                   step="0.01"
@@ -1885,14 +1886,14 @@ export const AccountingManagementView: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-slate-400 font-medium mb-1">Paid From</label>
+                <label className="block text-slate-400 font-medium mb-1">{t.legacyUi.paidFrom}</label>
                 <select
                   value={apPayMethod}
                   onChange={e => setApPayMethod(e.target.value as 'Cash' | 'Bank')}
                   className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white"
                 >
-                  <option value="Cash">Cash Till</option>
-                  <option value="Bank">Bank Account</option>
+                  <option value="Cash">{t.legacyUi.cashTill}</option>
+                  <option value="Bank">{t.legacyUi.bankAccount}</option>
                 </select>
               </div>
 
@@ -1902,13 +1903,13 @@ export const AccountingManagementView: React.FC = () => {
                   onClick={() => setIsAPPaymentModalOpen(false)}
                   className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 font-semibold"
                 >
-                  Cancel
+                  {translateRawUi('Cancel')}
                 </button>
                 <button
                   type="submit"
                   className="px-4 py-2 rounded-xl bg-amber-500 text-slate-950 font-bold"
                 >
-                  Execute Payment
+                  {translateRawUi('Execute Payment')}
                 </button>
               </div>
             </form>
@@ -1921,7 +1922,7 @@ export const AccountingManagementView: React.FC = () => {
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-md w-full space-y-4 shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="text-sm font-bold text-white">Cash / Bank Fund Transfer</h3>
+              <h3 className="text-sm font-bold text-white">{t.legacyUi.cashBankFundTransfer}</h3>
               <button onClick={() => setIsTransferModalOpen(false)}>
                 <X className="w-4 h-4 text-slate-400" />
               </button>
@@ -1929,14 +1930,14 @@ export const AccountingManagementView: React.FC = () => {
 
             <form onSubmit={handleTransfer} className="space-y-3 text-xs">
               <div>
-                <label className="block text-slate-400 font-medium mb-1">Transfer From Account</label>
+                <label className="block text-slate-400 font-medium mb-1">{t.legacyUi.transferFromAccount}</label>
                 <select
                   required
                   value={transferFrom}
                   onChange={e => setTransferFrom(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white"
                 >
-                  <option value="">Select source account...</option>
+                  <option value="">{t.legacyUi.selectSourceAccount}</option>
                   {accounts.filter(a => a.type === 'Asset').map(a => (
                     <option key={a.id} value={a.id}>
                       {a.code} - {a.name} (${a.balance.toFixed(2)})
@@ -1946,14 +1947,14 @@ export const AccountingManagementView: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-slate-400 font-medium mb-1">Transfer To Account</label>
+                <label className="block text-slate-400 font-medium mb-1">{t.legacyUi.transferToAccount}</label>
                 <select
                   required
                   value={transferTo}
                   onChange={e => setTransferTo(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white"
                 >
-                  <option value="">Select destination account...</option>
+                  <option value="">{t.legacyUi.selectDestinationAccount}</option>
                   {accounts.filter(a => a.type === 'Asset' && a.id !== transferFrom).map(a => (
                     <option key={a.id} value={a.id}>
                       {a.code} - {a.name} (${a.balance.toFixed(2)})
@@ -1963,7 +1964,7 @@ export const AccountingManagementView: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-slate-400 font-medium mb-1">Amount ($)</label>
+                <label className="block text-slate-400 font-medium mb-1">{t.legacyUi.amountUsd}</label>
                 <input
                   type="number"
                   step="0.01"
@@ -1975,10 +1976,10 @@ export const AccountingManagementView: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-slate-400 font-medium mb-1">Transfer Reference</label>
+                <label className="block text-slate-400 font-medium mb-1">{t.legacyUi.transferReference}</label>
                 <input
                   type="text"
-                  placeholder="BANK-DEP-099"
+                  placeholder={translateRawUi('BANK-DEP-099')}
                   value={transferRef}
                   onChange={e => setTransferRef(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white"
@@ -1991,13 +1992,13 @@ export const AccountingManagementView: React.FC = () => {
                   onClick={() => setIsTransferModalOpen(false)}
                   className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 font-semibold"
                 >
-                  Cancel
+                  {translateRawUi('Cancel')}
                 </button>
                 <button
                   type="submit"
                   className="px-4 py-2 rounded-xl bg-emerald-500 text-slate-950 font-bold"
                 >
-                  Execute Transfer
+                  {translateRawUi('Execute Transfer')}
                 </button>
               </div>
             </form>
@@ -2010,7 +2011,7 @@ export const AccountingManagementView: React.FC = () => {
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-md w-full space-y-4 shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="text-sm font-bold text-white">Open Cash Till Register</h3>
+              <h3 className="text-sm font-bold text-white">{t.legacyUi.openCashTillRegister}</h3>
               <button onClick={() => setIsOpenRegisterModalOpen(false)}>
                 <X className="w-4 h-4 text-slate-400" />
               </button>
@@ -2018,7 +2019,7 @@ export const AccountingManagementView: React.FC = () => {
 
             <form onSubmit={handleOpenRegister} className="space-y-3 text-xs">
               <div>
-                <label className="block text-slate-400 font-medium mb-1">Register Name</label>
+                <label className="block text-slate-400 font-medium mb-1">{t.legacyUi.registerName}</label>
                 <input
                   type="text"
                   required
@@ -2029,7 +2030,7 @@ export const AccountingManagementView: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-slate-400 font-medium mb-1">Opening Cash Float ($)</label>
+                <label className="block text-slate-400 font-medium mb-1">{t.legacyUi.openingCashFloat}</label>
                 <input
                   type="number"
                   step="0.01"
@@ -2046,13 +2047,13 @@ export const AccountingManagementView: React.FC = () => {
                   onClick={() => setIsOpenRegisterModalOpen(false)}
                   className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 font-semibold"
                 >
-                  Cancel
+                  {translateRawUi('Cancel')}
                 </button>
                 <button
                   type="submit"
                   className="px-4 py-2 rounded-xl bg-emerald-500 text-slate-950 font-bold"
                 >
-                  Open Shift
+                  {translateRawUi('Open Shift')}
                 </button>
               </div>
             </form>
@@ -2065,7 +2066,7 @@ export const AccountingManagementView: React.FC = () => {
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-md w-full space-y-4 shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="text-sm font-bold text-white">Close & Reconcile Shift</h3>
+              <h3 className="text-sm font-bold text-white">{t.legacyUi.closeReconcileShift}</h3>
               <button onClick={() => setIsCloseRegisterModalOpen(false)}>
                 <X className="w-4 h-4 text-slate-400" />
               </button>
@@ -2079,7 +2080,7 @@ export const AccountingManagementView: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-slate-400 font-medium mb-1">Actual Physical Cash Count ($)</label>
+                <label className="block text-slate-400 font-medium mb-1">{t.legacyUi.actualPhysicalCashCount}</label>
                 <input
                   type="number"
                   step="0.01"
@@ -2105,13 +2106,13 @@ export const AccountingManagementView: React.FC = () => {
                   onClick={() => setIsCloseRegisterModalOpen(false)}
                   className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 font-semibold"
                 >
-                  Cancel
+                  {translateRawUi('Cancel')}
                 </button>
                 <button
                   type="submit"
                   className="px-4 py-2 rounded-xl bg-rose-500 text-white font-bold"
                 >
-                  Confirm & Close Shift
+                  {translateRawUi('Confirm & Close Shift')}
                 </button>
               </div>
             </form>

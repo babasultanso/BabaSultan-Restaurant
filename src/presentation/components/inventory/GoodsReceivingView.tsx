@@ -1,6 +1,8 @@
+import { translations } from '../../../i18n/translations';
+import { translateRawUi } from '../../../i18n/rawUi';
 import React, { useState } from 'react';
 import { PurchaseOrder, InventoryItem } from '../../../domain/entities/inventory';
-import { InventoryLang, inventoryDict } from './translations';
+import { InventoryLang, inventoryDict } from '../../../i18n';
 import { Truck, CheckCircle2, Package, Calendar, Tag, ArrowRight, ShieldCheck, AlertCircle } from 'lucide-react';
 
 interface GoodsReceivingViewProps {
@@ -22,7 +24,7 @@ export const GoodsReceivingView: React.FC<GoodsReceivingViewProps> = ({
   onReceiveGoods,
   selectedPOId
 }) => {
-  const t = inventoryDict[lang] || inventoryDict.en;
+  const t = { ...(inventoryDict[lang] || inventoryDict.en), legacyUi: translations[lang].legacyUi };
 
   // Filter approved or partially received POs
   const receivablePOs = purchaseOrders.filter(
@@ -78,8 +80,7 @@ export const GoodsReceivingView: React.FC<GoodsReceivingViewProps> = ({
   const handleConfirmReceiving = async () => {
     if (!activePO) return;
 
-    const payload = Object.entries(receivingState)
-      .map(([itemId, val]) => ({
+    const payload = (Object.entries(receivingState) as Array<[string, { receivedQty: number; batchNumber: string; expirationDate: string }]>).map(([itemId, val]) => ({
         itemId,
         receivedQty: val.receivedQty,
         batchNumber: val.batchNumber,
@@ -103,10 +104,10 @@ export const GoodsReceivingView: React.FC<GoodsReceivingViewProps> = ({
       <div className="bg-slate-900 border border-slate-800 p-5 rounded-3xl shadow-xl flex flex-col md:flex-row items-center justify-between gap-4">
         <div>
           <h3 className="text-sm font-extrabold text-white flex items-center gap-2">
-            <Truck className="w-5 h-5 text-cyan-400" /> Goods Receiving Inspection & Intake
+            <Truck className="w-5 h-5 text-cyan-400" /> {translateRawUi('Goods Receiving Inspection & Intake')}
           </h3>
           <p className="text-xs text-slate-400">
-            Verify supplier deliveries, assign batch numbers & expiration dates, and auto-update inventory
+            {translateRawUi('Verify supplier deliveries, assign batch numbers & expiration dates, and auto-update inventory')}
           </p>
         </div>
 
@@ -118,7 +119,7 @@ export const GoodsReceivingView: React.FC<GoodsReceivingViewProps> = ({
             className="w-full bg-slate-950 border border-slate-800 text-xs text-amber-400 font-mono font-bold rounded-2xl p-3 focus:outline-none focus:border-amber-500"
           >
             {receivablePOs.length === 0 ? (
-              <option value="">No Approved POs Available</option>
+              <option value="">{t.legacyUi.noApprovedPos}</option>
             ) : (
               receivablePOs.map((po) => (
                 <option key={po.id} value={po.id}>
@@ -134,7 +135,7 @@ export const GoodsReceivingView: React.FC<GoodsReceivingViewProps> = ({
       {!activePO ? (
         <div className="bg-slate-900 border border-slate-800 p-12 rounded-3xl text-center text-slate-500 text-xs">
           <ShieldCheck className="w-12 h-12 mx-auto text-slate-700 mb-2" />
-          No active purchase order selected for goods receiving inspection.
+          {translateRawUi('No active purchase order selected for goods receiving inspection.')}
         </div>
       ) : (
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-6">
@@ -142,22 +143,22 @@ export const GoodsReceivingView: React.FC<GoodsReceivingViewProps> = ({
           {/* PO Summary Header */}
           <div className="p-4 bg-slate-950 border border-slate-800 rounded-2xl flex flex-wrap items-center justify-between gap-4 text-xs">
             <div>
-              <span className="text-slate-500 font-bold block">Purchase Order:</span>
+              <span className="text-slate-500 font-bold block">{t.legacyUi.purchaseOrderColon}</span>
               <span className="text-base font-black font-mono text-amber-400">{activePO.poNumber}</span>
             </div>
 
             <div>
-              <span className="text-slate-500 font-bold block">Supplier:</span>
+              <span className="text-slate-500 font-bold block">{translateRawUi('Supplier:')}</span>
               <span className="font-bold text-white">{activePO.supplierName}</span>
             </div>
 
             <div>
-              <span className="text-slate-500 font-bold block">Status:</span>
+              <span className="text-slate-500 font-bold block">{translateRawUi('Status:')}</span>
               <span className="font-black text-cyan-400 uppercase">{activePO.status}</span>
             </div>
 
             <div>
-              <span className="text-slate-500 font-bold block">Expected Delivery:</span>
+              <span className="text-slate-500 font-bold block">{t.legacyUi.expectedDeliveryColon}</span>
               <span className="font-mono text-slate-300">
                 {activePO.expectedDeliveryDate ? new Date(activePO.expectedDeliveryDate).toLocaleDateString() : 'N/A'}
               </span>
@@ -167,19 +168,19 @@ export const GoodsReceivingView: React.FC<GoodsReceivingViewProps> = ({
           {/* Items Inspection Table */}
           <div className="space-y-3">
             <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-400">
-              Delivery Inspection & Intake Form
+              {translateRawUi('Delivery Inspection & Intake Form')}
             </h4>
 
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] font-extrabold tracking-wider border-b border-slate-800">
                   <tr>
-                    <th className="p-3">Item Details</th>
-                    <th className="p-3 text-center">Ordered Qty</th>
-                    <th className="p-3 text-center">Prev Received</th>
-                    <th className="p-3 text-center">Received Today *</th>
-                    <th className="p-3">Batch Number</th>
-                    <th className="p-3">Expiration Date</th>
+                    <th className="p-3">{t.legacyUi.itemDetails}</th>
+                    <th className="p-3 text-center">{t.legacyUi.orderedQty}</th>
+                    <th className="p-3 text-center">{t.legacyUi.prevReceived}</th>
+                    <th className="p-3 text-center">{t.legacyUi.receivedTodayRequired}</th>
+                    <th className="p-3">{t.legacyUi.batchNumber}</th>
+                    <th className="p-3">{t.legacyUi.expirationDate}</th>
                   </tr>
                 </thead>
 
@@ -212,7 +213,7 @@ export const GoodsReceivingView: React.FC<GoodsReceivingViewProps> = ({
                             value={st.receivedQty}
                             onChange={(e) => handleQtyChange(item.itemId, parseFloat(e.target.value) || 0)}
                             className="w-24 bg-slate-950 border border-slate-800 rounded-xl p-2 text-white font-mono font-black text-center focus:border-amber-500 focus:outline-none"
-                            placeholder="0"
+                            placeholder={translateRawUi('0')}
                           />
                         </td>
 
@@ -222,7 +223,7 @@ export const GoodsReceivingView: React.FC<GoodsReceivingViewProps> = ({
                             value={st.batchNumber}
                             onChange={(e) => handleBatchChange(item.itemId, e.target.value)}
                             className="w-36 bg-slate-950 border border-slate-800 rounded-xl p-2 text-white font-mono text-xs focus:border-amber-500 focus:outline-none"
-                            placeholder="BATCH-1002"
+                            placeholder={translateRawUi('BATCH-1002')}
                           />
                         </td>
 
@@ -248,7 +249,7 @@ export const GoodsReceivingView: React.FC<GoodsReceivingViewProps> = ({
               onClick={handleConfirmReceiving}
               className="px-8 py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-2xl text-xs flex items-center gap-2 cursor-pointer shadow-xl shadow-emerald-500/20"
             >
-              <CheckCircle2 className="w-5 h-5" /> Confirm Goods Intake & Update Inventory
+              <CheckCircle2 className="w-5 h-5" /> {translateRawUi('Confirm Goods Intake & Update Inventory')}
             </button>
           </div>
 

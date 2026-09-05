@@ -149,10 +149,13 @@ export function calculateCEOAnalytics(data: CEODataPackage) {
 
   const todayRevenue = todayOrders.reduce((sum, o) => sum + o.totalAmount, 0);
   const todayCOGS = todayOrders.reduce((sum, o) => sum + (o.cogs || 0), 0);
-  const todayExpenses = expenses.filter(e => e.createdAt && e.createdAt.startsWith(todayStr)).reduce((sum, e) => sum + e.amount, 0) + (totalExpenses / 30);
+  const todayExpenses = expenses.filter(e => e.createdAt && e.createdAt.startsWith(todayStr)).reduce((sum, e) => sum + e.amount, 0);
   const todayProfit = todayRevenue - todayCOGS - todayExpenses;
 
-  const totalOrdersCount = completedOrders.length || orders.length;
+  const totalOrdersCount = completedOrders.length;
+  const last30CompletedOrders = completedOrders.filter(o => { const d = new Date(o.createdAt); const now = new Date(); return Number.isFinite(d.getTime()) && d >= new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000); });
+  const observedDays30 = new Set(last30CompletedOrders.map(o => getMogadishuDateString(new Date(o.createdAt)))).size;
+  const averageObservedDailyRevenue = observedDays30 > 0 ? last30CompletedOrders.reduce((sum, o) => sum + Number(o.totalAmount || 0), 0) / observedDays30 : 0;
   const averageOrderValue = totalOrdersCount > 0 ? Number((totalRevenue / totalOrdersCount).toFixed(2)) : 0;
 
   // 2. PRODUCT PERFORMANCE (BEST & WORST SELLING)
@@ -165,7 +168,7 @@ export function calculateCEOAnalytics(data: CEODataPackage) {
   orders.forEach(ord => {
     ord.items?.forEach(item => {
       if (!productSalesMap[item.productId]) {
-        productSalesMap[item.productId] = { name: item.productName, salesCount: 0, revenue: 0, stock: 10 };
+        productSalesMap[item.productId] = { name: item.productName, salesCount: 0, revenue: 0, stock: 0 };
       }
       productSalesMap[item.productId].salesCount += item.quantity;
       productSalesMap[item.productId].revenue += item.totalPrice;
@@ -184,7 +187,7 @@ export function calculateCEOAnalytics(data: CEODataPackage) {
   const customerSatisfactionPercentage = ratedOrders.length > 0 ? Math.round((avgCustomerRating / 5) * 100) : 0;
 
   // 4. KITCHEN & DELIVERY PERFORMANCE
-  const delayedOrders = orders.filter(o => (o.prepTimeMinutes || 0) > (o.targetPrepTimeMinutes || 15));
+  const delayedOrders = orders.filter(o => Number.isFinite(Number(o.prepTimeMinutes)) && Number.isFinite(Number(o.targetPrepTimeMinutes)) && Number(o.prepTimeMinutes) > Number(o.targetPrepTimeMinutes));
   const delayedOrdersCount = delayedOrders.length;
   const kitchenPrepStatus = delayedOrdersCount > 2 ? 'Overloaded' : delayedOrdersCount > 0 ? 'Busy' : 'Optimal';
 
@@ -196,6 +199,16 @@ export function calculateCEOAnalytics(data: CEODataPackage) {
   // 5. INVENTORY & EMPLOYEE PERFORMANCE
   const lowStockItemsCount = products.filter(p => p.stock <= p.minStockAlert).length + ingredients.filter(i => i.stock <= i.minStockAlert).length;
   const totalInventoryValuation = products.reduce((sum, p) => sum + (p.stock * p.cost), 0) + ingredients.reduce((sum, i) => sum + (i.stock * i.costPerUnit), 0);
+  const supplierValueTotals: Record<string, number> = {};
+  ingredients.forEach((i) => {
+    const supplier = String(i.supplierName || i.supplierId || '').trim();
+    if (!supplier) return;
+    supplierValueTotals[supplier] = (supplierValueTotals[supplier] || 0) + Math.max(0, Number(i.stock || 0)) * Math.max(0, Number(i.costPerUnit || 0));
+  });
+  const supplierExposure = Object.entries(supplierValueTotals).sort((a, b) => b[1] - a[1]);
+  const topSupplier = supplierExposure[0];
+  const totalSupplierValue = supplierExposure.reduce((sum, [, value]) => sum + value, 0);
+  const topSupplierShare = totalSupplierValue > 0 && topSupplier ? (topSupplier[1] / totalSupplierValue) * 100 : 0;
 
   const presentCount = attendance.filter(a => a.status === 'present').length;
   const lateCount = attendance.filter(a => a.status === 'late').length;
@@ -208,15 +221,16 @@ export function calculateCEOAnalytics(data: CEODataPackage) {
   const cashFlowBalance = totalIncome - totalOutflow;
 
   // 7. COMPUTE BUSINESS HEALTH SCORE (0 - 100)
-  const salesScore = Math.min(100, Math.max(0, Math.round((todayRevenue / 500) * 100)));
+  const salesScore = averageObservedDailyRevenue > 0 ? Math.min(100, Math.max(0, Math.round((todayRevenue / averageObservedDailyRevenue) * 100))) : 0;
   const netMargin = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0;
   const profitScore = Math.min(100, Math.max(0, Math.round((netMargin / 25) * 100)));
   const customerSatisfactionScore = customerSatisfactionPercentage;
   const inventoryScore = lowStockItemsCount === 0 ? 100 : Math.max(30, 100 - (lowStockItemsCount * 15));
   const employeeProductivityScore = employeeAttendanceRate;
   const deliveryPerformanceScore = deliverySuccessRatePercentage;
-  const wasteControlScore = 100;
-  const cashFlowScore = cashFlowBalance >= 0 ? 95 : 40;
+  // Waste data is not part of CEODataPackage, so do not fabricate a perfect score. Exclude it from the weighted score below.
+  const wasteControlScore = 0;
+  const cashFlowScore = totalIncome + totalOutflow > 0 ? Math.min(100, Math.max(0, Math.round(((cashFlowBalance + totalOutflow) / (totalIncome + totalOutflow)) * 100))) : 0;
 
   const rawHealthScore = Math.round(
     (salesScore * 0.20) +
@@ -225,8 +239,7 @@ export function calculateCEOAnalytics(data: CEODataPackage) {
     (inventoryScore * 0.10) +
     (employeeProductivityScore * 0.10) +
     (deliveryPerformanceScore * 0.10) +
-    (wasteControlScore * 0.05) +
-    (cashFlowScore * 0.10)
+    (cashFlowScore * 0.15)
   );
 
   const businessHealthScore = Math.min(100, Math.max(10, rawHealthScore));
@@ -281,9 +294,9 @@ export function calculateCEOAnalytics(data: CEODataPackage) {
       category: 'Financial',
       severity: (totalCOGS / (totalRevenue || 1)) > 0.48 ? 'critical' : 'warning',
       title: 'Food Cost Ratio Above Benchmark',
-      description: `COGS currently represents ${Math.round((totalCOGS / (totalRevenue || 1)) * 100)}% of revenue (Benchmark target is < 35%). Raw meat and rice price increases are compressing margins.`,
-      mitigationStrategy: 'Re-negotiate bulk procurement pricing with Somali Fresh Livestock or adjust dish pricing.',
-      impactPotential: '+$850 monthly margin recovery'
+      description: `COGS currently represents ${Math.round((totalCOGS / (totalRevenue || 1)) * 100)}% of revenue (Benchmark target is < 35%). Review the recorded item-level COGS and supplier prices before acting.`,
+      mitigationStrategy: 'Review supplier quotes and verified item costs before renegotiating or repricing.',
+      impactPotential: 'Impact not estimated until current sales volume and pricing scenario are calculated.'
     },
     {
       id: 'risk_inv_stockout',
@@ -292,16 +305,16 @@ export function calculateCEOAnalytics(data: CEODataPackage) {
       title: 'Raw Ingredient Stockout Threat',
       description: `${lowStockItemsCount} critical ingredient(s) are below safety stock buffers, threatening dinner menu item availability.`,
       mitigationStrategy: 'Issue automated purchase orders to primary suppliers with same-day dispatch.',
-      impactPotential: 'Prevents $420 in lost weekend orders'
+      impactPotential: 'Loss prevention impact requires historical order-value data.'
     },
     {
       id: 'risk_ops_delay',
       category: 'Operational',
       severity: delayedOrdersCount > 0 ? 'warning' : 'info',
       title: 'Kitchen Prep Bottleneck During Peak Hours',
-      description: `${delayedOrdersCount} orders exceeded 15-minute preparation limit at the Grill Station.`,
+      description: `${delayedOrdersCount} orders exceeded their configured preparation-time target.`,
       mitigationStrategy: 'Re-balance prep workload from Grill to Mandi / Side Stations.',
-      impactPotential: 'Reduces customer wait times by 4.5 minutes'
+      impactPotential: 'Impact requires before/after prep-time measurement.'
     },
     {
       id: 'risk_emp_lateness',
@@ -315,11 +328,15 @@ export function calculateCEOAnalytics(data: CEODataPackage) {
     {
       id: 'risk_supp_single',
       category: 'Supplier',
-      severity: 'warning',
-      title: 'Single-Supplier Dependency for Basmati Rice',
-      description: 'Over 80% of rice inventory is sourced from a single supplier (Mogadishu Grain Co), creating supply vulnerability.',
-      mitigationStrategy: 'Qualify secondary grain vendor (Global Imports Ltd) for backup stock.',
-      impactPotential: 'Ensures supply chain continuity'
+      severity: topSupplierShare >= 80 ? 'warning' : 'info',
+      title: 'Supplier Concentration Risk',
+      description: topSupplier
+        ? `${topSupplier[0]} represents ${Math.round(topSupplierShare)}% of inventoried supplier-attributed value.`
+        : 'No supplier-attributed inventory value is available for concentration analysis.',
+      mitigationStrategy: topSupplierShare >= 80
+        ? 'Qualify a secondary supplier and diversify critical ingredients.'
+        : 'Continue monitoring supplier concentration as inventory attribution improves.',
+      impactPotential: 'Reduce supply-chain concentration exposure.'
     },
     {
       id: 'risk_cust_complaint',
@@ -328,93 +345,88 @@ export function calculateCEOAnalytics(data: CEODataPackage) {
       title: 'Unresolved Delivery Speed Complaints',
       description: `${feedbacks.filter(f => f.status === 'open').length} customer complaint(s) logged regarding delivery time during rainy hours.`,
       mitigationStrategy: 'Issue automated apology discounts and assign fast-route tuk-tuk drivers.',
-      impactPotential: 'Protects 95% customer retention rate'
+      impactPotential: 'Retention impact requires historical customer retention data.'
     },
     {
       id: 'risk_cash_buffer',
       category: 'Cash Flow',
       severity: cashFlowBalance < 2000 ? 'warning' : 'info',
       title: 'Working Capital Reserves Buffer',
-      description: `Current liquid cash reserve is $${cashFlowBalance.toLocaleString()}, representing ~18 days of operating expenses.`,
+      description: `Current liquid cash reserve is $${cashFlowBalance.toLocaleString()}; days-of-coverage are not estimated without a period-aligned expense basis.`,
       mitigationStrategy: 'Maintain strict accounts receivable collections and delay non-urgent capital expenditure.',
-      impactPotential: 'Ensures 100% payroll & rent stability'
+      impactPotential: 'Coverage impact requires period-aligned payroll and rent commitments.'
     },
     {
       id: 'risk_growth_table',
       category: 'Growth',
       severity: 'info',
       title: 'Underutilized Dining Seating on Weekdays',
-      description: 'Weekday lunch seat occupancy averages 58% compared to 92% weekend dinner occupancy.',
+      description: 'No reliable weekday/weekend occupancy comparison is available from the supplied data package.',
       mitigationStrategy: 'Launch a "Corporate Executive Express Lunch" combo offer to boost weekday footfall.',
-      impactPotential: '+$1,400 projected weekly revenue'
+      impactPotential: 'Revenue impact requires historical occupancy and conversion data.'
     }
   ];
 
-  // 9. STRATEGIC SMART DECISIONS WITH FULL AI DECISION SUPPORT
-  const smartDecisions: CEOSmartDecision[] = [
-    {
-      id: 'dec_1',
-      type: 'increase_price',
-      title: 'Strategic Price Adjustment on High-Demand Camel Meat Mandi',
-      summary: 'Increase price of Camel Meat Rice Mandi from $12.00 to $13.50.',
-      whyMade: 'Demand for Camel Meat Rice Mandi is inelastic with high repeat sales (185 units sold this month). COGS for fresh camel meat increased by 8%, making this adjustment necessary to maintain a 62% gross margin.',
-      expectedImpact: '+$648 Net Monthly Profit Increase with zero impact on order volume.',
-      possibleRisks: 'Slight initial resistance from budget customers; mitigated by bundling with complimentary cardamom tea.',
-      confidencePercentage: 94,
-      actionCategory: 'Pricing'
-    },
-    {
-      id: 'dec_2',
-      type: 'hire_staff',
-      title: 'Appoint Weekend Night Assistant Grill Chef',
-      summary: 'Recruit 1 part-time chef for Friday & Saturday evening shifts (6 PM - 11 PM).',
-      whyMade: 'Kitchen KDS data shows Grill Station bottleneck peaking at 85% capacity between 7 PM and 9 PM on weekends, causing 4 order prep delays.',
-      expectedImpact: 'Eliminates 90% of weekend kitchen prep delays and increases order throughput by 12%.',
-      possibleRisks: 'Monthly labor expense increase of $220.',
-      confidencePercentage: 91,
-      actionCategory: 'HR & Staffing'
-    },
-    {
-      id: 'dec_3',
-      type: 'launch_promo',
-      title: 'Launch "Family Feast Combo" Promotion for Delivery',
-      summary: 'Package 1 Full Grilled Chicken + Mandi Rice + Sambusa + 2 Drinks for $24.99.',
-      whyMade: 'Average order value for delivery is $18.50. Bundling high-margin beverages and sambusas increases average basket size by $6.49.',
-      expectedImpact: '+$1,850 projected monthly delivery sales volume.',
-      possibleRisks: 'High kitchen prep load if delivery orders spike simultaneously.',
-      confidencePercentage: 88,
-      actionCategory: 'Marketing & Sales'
-    },
-    {
-      id: 'dec_4',
-      type: 'expand_branch',
-      title: 'Evaluate Westside Suburb Express Takeaway Branch Expansion',
-      summary: 'Prepare feasibility plan for opening a 40m² Express Delivery/Takeaway Hub.',
-      whyMade: 'Delivery heatmaps indicate 38% of delivery orders originate from Westside district, where delivery drivers currently spend 28 minutes in transit.',
-      expectedImpact: 'Projected $14,000 monthly sales with ROI break-even in 7.5 months.',
-      possibleRisks: 'Initial capital expenditure required ($12,000 upfront lease & setup).',
-      confidencePercentage: 85,
-      actionCategory: 'Business Expansion'
-    }
-  ];
+  // 9. DATA-DRIVEN SMART DECISIONS — never display fabricated product/branch metrics.
+  const smartDecisions: CEOSmartDecision[] = [];
+  const topLowMargin = [...products]
+    .filter(p => Number(p.price) > 0 && Number(p.cost) >= 0)
+    .map(p => ({ p, margin: ((Number(p.price) - Number(p.cost)) / Number(p.price)) * 100 }))
+    .filter(x => x.margin < 25)
+    .sort((a, b) => a.margin - b.margin)[0];
+  if (topLowMargin) {
+    smartDecisions.push({
+      id: 'dec_low_margin', type: 'increase_price', title: `Review pricing for ${topLowMargin.p.name}`,
+      summary: `Recorded gross margin is ${topLowMargin.margin.toFixed(1)}%.`,
+      whyMade: `The current recorded price is $${Number(topLowMargin.p.price).toFixed(2)} against cost $${Number(topLowMargin.p.cost).toFixed(2)}. Review pricing or recipe cost before changing the price.`,
+      expectedImpact: 'Impact requires a scenario calculation from current sales volume and configured pricing policy.',
+      possibleRisks: 'Price changes can reduce demand; validate before applying.', confidencePercentage: 70, actionCategory: 'Pricing',
+      actionPayload: { productId: topLowMargin.p.id, currentPrice: Number(topLowMargin.p.price), currentCost: Number(topLowMargin.p.cost) }
+    });
+  }
+  const lowStockProduct = products.filter(p => Number(p.stock) <= Number(p.minStockAlert)).sort((a,b) => Number(a.stock)-Number(b.stock))[0];
+  if (lowStockProduct) {
+    smartDecisions.push({
+      id: 'dec_low_stock', type: 'reorder_inventory', title: `Review replenishment for ${lowStockProduct.name}`,
+      summary: `Recorded stock is ${Number(lowStockProduct.stock)} against a minimum alert of ${Number(lowStockProduct.minStockAlert)}.`,
+      whyMade: 'The recommendation is based on the item’s current recorded stock and configured minimum threshold.',
+      expectedImpact: 'Reorder quantity and financial impact require current supplier/PO pricing.',
+      possibleRisks: 'Over-ordering can create holding and expiry risk.', confidencePercentage: 80, actionCategory: 'Inventory'
+    });
+  }
+  if (delayedOrdersCount > 0) {
+    smartDecisions.push({
+      id: 'dec_kitchen_delay', type: 'reduce_expenses', title: 'Review kitchen bottlenecks',
+      summary: `${delayedOrdersCount} recorded orders exceeded their configured prep-time target.`,
+      whyMade: 'This decision is derived from actual prep-time and target values recorded on orders.',
+      expectedImpact: 'Potential throughput improvement requires station-level capacity analysis.',
+      possibleRisks: 'Changing staffing or station allocation can affect labor cost and quality.', confidencePercentage: 75, actionCategory: 'Operations'
+    });
+  }
 
   // 10. AI FORECASTING MODEL
+  const forecastDailyBase = averageObservedDailyRevenue;
+  const projectedNextDaySales = Math.round(forecastDailyBase);
+  const projected7DaySales = Math.round(forecastDailyBase * 7);
+  const projected30DaySales = Math.round(forecastDailyBase * 30);
+  const projectedMonthlyExpenses = observedDays30 > 0 ? Math.round(totalExpenses / observedDays30 * 30) : 0;
+  const projectedMonthlyProfit = projected30DaySales - projectedMonthlyExpenses;
+  const forecastDays = [1, 2, 3, 4].map((week, idx) => ({
+    periodLabel: `Week ${week}`,
+    projectedRevenue: Math.round(forecastDailyBase * 7),
+    projectedProfit: Math.round(((netProfit / Math.max(1, observedDays30)) * 7))
+  }));
   const forecast: CEOForecastModel = {
-    projectedNextDaySales: Math.round(todayRevenue * 1.08 + 120),
-    projected7DaySales: Math.round(totalRevenue * 0.28 + 2400),
-    projected30DaySales: Math.round(totalRevenue * 1.15 + 9800),
-    projectedMonthlyProfit: Math.round(netProfit * 1.12 + 2100),
-    projectedMonthlyExpenses: Math.round(totalExpenses * 1.02),
-    predictedCustomerGrowthPercentage: 14.5,
-    predictedInventoryNeedsValuation: Math.round(totalInventoryValuation * 0.85),
-    recommendedNewHiresCount: 2,
-    seasonalDemandInsight: 'High demand anticipated for upcoming weekend cultural gatherings and evening delivery orders.',
-    futureRevenueTrend: [
-      { periodLabel: 'Week 1', projectedRevenue: Math.round(totalRevenue * 0.23), projectedProfit: Math.round(netProfit * 0.23) },
-      { periodLabel: 'Week 2', projectedRevenue: Math.round(totalRevenue * 0.25), projectedProfit: Math.round(netProfit * 0.25) },
-      { periodLabel: 'Week 3', projectedRevenue: Math.round(totalRevenue * 0.27), projectedProfit: Math.round(netProfit * 0.27) },
-      { periodLabel: 'Week 4', projectedRevenue: Math.round(totalRevenue * 0.30), projectedProfit: Math.round(netProfit * 0.30) }
-    ]
+    projectedNextDaySales,
+    projected7DaySales,
+    projected30DaySales,
+    projectedMonthlyProfit,
+    projectedMonthlyExpenses,
+    predictedCustomerGrowthPercentage: 0,
+    predictedInventoryNeedsValuation: 0,
+    recommendedNewHiresCount: delayedOrdersCount > 0 ? 1 : 0,
+    seasonalDemandInsight: 'No seasonal adjustment is applied without sufficient historical seasonal data.',
+    futureRevenueTrend: forecastDays
   };
 
   // 11. MULTI-LINGUAL EXECUTIVE QUESTIONS & AI RESPONSES (EN, AR, SO)
@@ -446,8 +458,8 @@ export function calculateCEOAnalytics(data: CEODataPackage) {
       question_so: 'Ma awoodaa inaan furo laan cusub?',
       answer_en: `**Branch Expansion Feasibility Analysis:**
 - **Current Liquidity**: $${cashFlowBalance.toLocaleString()} in liquid cash reserves.
-- **Estimated Setup Capital Needed**: ~$12,000 for a 40m² Takeaway Express Hub.
-- **Recommendation**: Yes! However, maintain a $5,000 operational cash cushion. We recommend initiating a 60% equity / 40% vendor credit model for equipment financing.
+- **Estimated Setup Capital Needed**: Not available without branch-specific lease, equipment, and financing data.
+- **Recommendation**: Complete a branch feasibility model using recorded operating and capital-cost data before approval.
 - **Expected Payback Period**: 7.5 months based on current Westside delivery volume.`,
       answer_ar: `**تحليل جدوى توسع الفروع:**
 - **السيولة الحالية**: $${cashFlowBalance.toLocaleString()} كاحتياطي نقدي.
@@ -465,8 +477,8 @@ export function calculateCEOAnalytics(data: CEODataPackage) {
       question_so: 'Ma u baahanahay inaan shaqaale cusوب qorto?',
       answer_en: `**Staffing Capacity Analysis:**
 - **Current Workforce**: ${totalStaff} active staff members.
-- **Recommendation**: Hire **1 Assistant Grill Chef** for weekend evening shifts (6 PM - 11 PM) to alleviate kitchen bottlenecks where prep time hits 18 mins.
-- **Financial Cost**: +$220 monthly payroll vs +$850 saved in order cancellation prevention.`,
+- **Recommendation**: Review staffing only when recorded prep-time delays persist against configured targets.
+- **Financial Cost**: Determine from configured payroll rates before hiring.`,
       answer_ar: `**تحليل طاقة الكادر الوظيفي:**
 - **الكادر الحالي**: ${totalStaff} موظفين.
 - **التوصية**: توظيف **طباخ مشويات مساعد واحد** لشيفتات نهاية الأسبوع المسائية.
@@ -480,16 +492,16 @@ export function calculateCEOAnalytics(data: CEODataPackage) {
       question_ar: 'هل يجب أن أرفع الأسعار؟',
       question_so: 'Ma waa inaan kordhiyaa qiimaha cibadada?',
       answer_en: `**Strategic Pricing Recommendation:**
-- **Target Item**: Camel Meat Rice Mandi (Price: $12.00 -> $13.50).
-- **Reasoning**: Raw meat procurement cost rose 8%. Demand is inelastic (185 units sold).
-- **Estimated Margin Gain**: +$648 Net Monthly Profit with high 94% confidence percentage.`,
+- **Target Item**: Use the recorded low-margin/high-demand product data above rather than a fixed example product.
+- **Reasoning**: The recommendation uses currently recorded product cost, price, and sales data.
+- **Estimated Margin Gain**: Calculate from current recorded sales volume and approved pricing scenarios; no fixed gain is assumed.`,
       answer_ar: `**توصية تسعير استراتيجية:**
-- **الطبق المستهدف**: لحم حاشي مع أرز مندي ($12.00 -> $13.50).
-- **السبب**: ارتفاع سعر التكلفة الخام بنسبة 8%.
-- **الربح المكتسب**: +$648 شهرياً مع نسبة ثقة 94%.`,
+- **الطبق المستهدف**: استخدم بيانات المنتجات المسجلة ذات الهامش المنخفض.
+- **السبب**: القرار يعتمد على سعر البيع والتكلفة المسجلين حاليًا.
+- **الربح المكتسب**: يحتاج إلى حساب سيناريو سعري من بيانات المبيعات الحالية.`,
       answer_so: `**Talo Kordhinta Qiimaha:**
-- **Cuntada**: Bariis iyo Hilib Geel ($12.00 -> $13.50).
-- **Faa'iidada Doorta**: +$648 bishii.`
+- **Cuntada**: Alaabta leh faa'iido yar ee xogta hadda.
+- **Faa'iidada Doorta**: Waxaa lagu xisaabinayaa xogta iibka hadda.`
     },
     losses_department: {
       question_en: 'Which department is causing losses?',
@@ -510,12 +522,12 @@ export function calculateCEOAnalytics(data: CEODataPackage) {
       question_ar: 'ما هو أكبر خطورة تواجه مشروعي حالياً؟',
       question_so: 'Waa maxay khatarta ugu weyn ee ganacsigaayga?',
       answer_en: `**Top Business Risk Identified:**
-- **Primary Risk**: Food Cost Margin Compression due to single-supplier dependency for Basmati Rice and raw camel meat price fluctuations.
-- **Severity**: High / Warning.
-- **Mitigation Action**: Qualify secondary bulk supplier and apply recommended +$1.50 menu price adjustment on top-selling dishes.`,
+- **Primary Risk**: Food-cost margin pressure and supplier concentration based on current recorded data.
+- **Severity**: Derived from the current financial and supplier exposure metrics.
+- **Mitigation Action**: Review high-cost ingredients, supplier concentration, and verified menu margins before changing prices.`,
       answer_ar: `**أكبر خطورة تجارية محددة:**
-- **الخطورة الرئيسية**: انكماش هامش الربح بسبب التوريد الأحد للأرز واللحوم.
-- **الحل**: اعتماد مورد ثانوية وتعديل أسعار الأطباق الأكثر مبيعاً.`,
+- **الخطورة الرئيسية**: ضغط هامش تكلفة الطعام وتركيز الموردين وفق البيانات المسجلة حالياً.
+- **الحل**: مراجعة تكلفة المكونات وتركيز الموردين قبل أي تعديل سعري.`,
       answer_so: `**Khatarta Ugu Munaasabsan:**
 - **Khatarta**: Qiimaha maaddooyinka cuntada oo kordhay. Waad maamuli kartaa inaad qiimaha kordhiso.`
     }

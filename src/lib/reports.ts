@@ -2,6 +2,7 @@ import jsPDF from 'jspdf';
 import autoTableFunc from 'jspdf-autotable';
 import { Order, Expense, Product, Ingredient, Employee, Purchase, Supplier, CPAMetrics, CustomerRefund, BankTransaction, SalaryPayment } from '../types';
 
+import { employeeMonthlyPayrollEquivalent } from './payroll';
 export function downloadPDFReport(title: string, subtitle: string, dataSections: Array<{ heading: string; columns: string[]; rows: (string | number)[][] }>) {
   const doc = new jsPDF();
 
@@ -69,7 +70,7 @@ export function downloadInvoicePDF(order: Order) {
 
   const tableRows = (order.items || []).map(item => [
     item.productName || 'Item',
-    (item.quantity || 1).toString(),
+    (item.quantity ?? 0).toString(),
     `$${(item.unitPrice || 0).toFixed(2)}`,
     `$${(item.totalPrice || 0).toFixed(2)}`
   ]);
@@ -256,7 +257,7 @@ export function generateCPAReport(
       rows: [
         ['NET OPERATING PROFIT', `$${metrics.netProfit.toFixed(2)}`],
         [`Estimated VAT / Sales Tax Payable (${vatRateDisplay})`, `$${metrics.taxEstimatedVAT.toFixed(2)}`],
-        ['Estimated Corporate Income Tax (15%)', `$${metrics.taxEstimatedCorporate.toFixed(2)}`]
+        ['Estimated Corporate Income Tax (Configured / Provided)', `$${metrics.taxEstimatedCorporate.toFixed(2)}`]
       ]
     });
   } else if (type === 'cashflow') {
@@ -318,11 +319,12 @@ export function generateCPAReport(
 
     sections.push({
       heading: 'Employee Salary Payments',
-      columns: ['Employee Name', 'Role', 'Monthly Salary ($)', 'Period', 'Status'],
+      columns: ['Employee Name', 'Role', 'Salary / Cycle ($)', 'Monthly Payroll Equivalent ($)', 'Period', 'Status'],
       rows: raw.employees.map(e => [
         e.name,
         e.role,
-        `$${e.salary.toFixed(2)}`,
+        `$${Number(e.salary || 0).toFixed(2)} / ${(e.payFrequency || 'monthly').toUpperCase()}`,
+        `$${employeeMonthlyPayrollEquivalent(e).toFixed(2)}`,
         new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
         'PAID'
       ])
@@ -340,7 +342,7 @@ export function generateCPAReport(
       columns: ['Tax Type', 'Tax Base Amount ($)', 'Rate', 'Tax Liability ($)'],
       rows: [
         ['Value Added Tax (VAT)', `$${metrics.netRevenue.toFixed(2)}`, vatRateReportDisplay, `$${metrics.taxEstimatedVAT.toFixed(2)}`],
-        ['Corporate Net Income Tax', `$${metrics.netProfit.toFixed(2)}`, '15%', `$${metrics.taxEstimatedCorporate.toFixed(2)}`]
+        ['Corporate Net Income Tax (Configured / Provided)', `$${metrics.netProfit.toFixed(2)}`, 'Configured / Provided rate', `$${metrics.taxEstimatedCorporate.toFixed(2)}`]
       ]
     });
   }

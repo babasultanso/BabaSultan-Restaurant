@@ -1,3 +1,4 @@
+import { translateRawUi } from '../../i18n';
 import React, { useState } from 'react';
 import { Expense, Order } from '../../types';
 import { FinancialsRepositoryImpl } from '../../data/repositories/FinancialsRepositoryImpl';
@@ -28,10 +29,10 @@ export const FinancialsView: React.FC<FinancialsViewProps> = ({
   orders,
   onRefresh
 }) => {
-  const { user } = useAuth();
+  const { user, t } = useAuth();
   const [isAddExpenseOpen, setIsAddExpenseOpen] = useState<boolean>(false);
   const [title, setTitle] = useState<string>('');
-  const [amount, setAmount] = useState<number>(150);
+  const [amount, setAmount] = useState<number>(0);
   const [category, setCategory] = useState<string>('Utilities');
   const [description, setDescription] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
@@ -45,6 +46,10 @@ export const FinancialsView: React.FC<FinancialsViewProps> = ({
 
   const handleCreateExpense = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!title.trim() || !Number.isFinite(amount) || amount <= 0) {
+      alert('Expense title and a positive amount are required.');
+      return;
+    }
     setIsSubmitting(true);
     try {
       await finRepo.createExpense({
@@ -86,10 +91,10 @@ export const FinancialsView: React.FC<FinancialsViewProps> = ({
         <div>
           <h2 className="text-xl font-bold text-white flex items-center gap-2">
             <DollarSign className="w-6 h-6 text-emerald-400" />
-            Financial Ledgers & P&L Statement
+            {translateRawUi('Financial Ledgers & P&L Statement')}
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            General ledger accounting, cash flow, operational expense logging & profit margins
+            {translateRawUi('General ledger accounting, cash flow, operational expense logging & profit margins')}
           </p>
         </div>
 
@@ -99,14 +104,14 @@ export const FinancialsView: React.FC<FinancialsViewProps> = ({
             className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-4 py-2 rounded-2xl text-xs transition flex items-center gap-1.5 cursor-pointer shadow-lg shadow-emerald-500/20"
           >
             <PlusCircle className="w-4 h-4" />
-            Log Operational Expense
+            {translateRawUi('Log Operational Expense')}
           </button>
           <button
             onClick={handleExportExcel}
             className="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3.5 py-2 rounded-2xl text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer"
           >
             <Download className="w-4 h-4 text-emerald-400" />
-            Export Ledger
+            {translateRawUi('Export Ledger')}
           </button>
         </div>
       </div>
@@ -114,25 +119,25 @@ export const FinancialsView: React.FC<FinancialsViewProps> = ({
       {/* Financial Summary Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-lg">
-          <span className="text-xs text-slate-400 font-bold uppercase tracking-wider">Gross Sales</span>
+          <span className="text-xs text-slate-400 font-bold uppercase tracking-wider">{t.legacyUi.grossSales}</span>
           <h3 className="text-2xl font-extrabold text-white mt-2">${totalRevenue.toFixed(2)}</h3>
-          <p className="text-[10px] text-emerald-400 mt-1">From POS & Online Orders</p>
+          <p className="text-[10px] text-emerald-400 mt-1">{t.legacyUi.fromPosOnlineOrders}</p>
         </div>
 
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-lg">
-          <span className="text-xs text-slate-400 font-bold uppercase tracking-wider">Kitchen COGS</span>
+          <span className="text-xs text-slate-400 font-bold uppercase tracking-wider">{t.legacyUi.kitchenCogs}</span>
           <h3 className="text-2xl font-extrabold text-white mt-2">${totalCOGS.toFixed(2)}</h3>
-          <p className="text-[10px] text-slate-400 mt-1">Raw Food Ingredients Cost</p>
+          <p className="text-[10px] text-slate-400 mt-1">{t.legacyUi.rawFoodIngredientCost}</p>
         </div>
 
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-lg">
-          <span className="text-xs text-slate-400 font-bold uppercase tracking-wider">Operating Expenses</span>
+          <span className="text-xs text-slate-400 font-bold uppercase tracking-wider">{t.legacyUi.operatingExpenses}</span>
           <h3 className="text-2xl font-extrabold text-amber-400 mt-2">${totalExpenses.toFixed(2)}</h3>
-          <p className="text-[10px] text-slate-400 mt-1">Utilities, Rent & Supplies</p>
+          <p className="text-[10px] text-slate-400 mt-1">{t.legacyUi.utilitiesRentSupplies}</p>
         </div>
 
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-lg">
-          <span className="text-xs text-slate-400 font-bold uppercase tracking-wider">Net Profit & Margin</span>
+          <span className="text-xs text-slate-400 font-bold uppercase tracking-wider">{t.legacyUi.netProfitMarginCombined}</span>
           <h3 className={`text-2xl font-extrabold mt-2 ${netProfit >= 0 ? 'text-teal-400' : 'text-rose-400'}`}>
             ${netProfit.toFixed(2)}
           </h3>
@@ -145,7 +150,7 @@ export const FinancialsView: React.FC<FinancialsViewProps> = ({
         <div className="p-4 border-b border-slate-800 flex items-center justify-between">
           <h3 className="text-sm font-bold text-white flex items-center gap-2">
             <Receipt className="w-4 h-4 text-emerald-400" />
-            Recorded Operating Expense Transactions
+            {translateRawUi('Recorded Operating Expense Transactions')}
           </h3>
           <span className="text-xs text-slate-400 font-mono">{expenses.length} entries</span>
         </div>
@@ -154,19 +159,19 @@ export const FinancialsView: React.FC<FinancialsViewProps> = ({
           <table className="w-full text-left text-sm text-slate-300">
             <thead className="bg-slate-950 text-xs uppercase tracking-wider text-slate-400 border-b border-slate-800">
               <tr>
-                <th className="py-4 px-6">Expense Title</th>
-                <th className="py-4 px-6">Category</th>
-                <th className="py-4 px-6">Amount ($)</th>
-                <th className="py-4 px-6">Description</th>
-                <th className="py-4 px-6">Logged By</th>
-                <th className="py-4 px-6 text-right">Timestamp</th>
+                <th className="py-4 px-6">{t.legacyUi.expenseTitle}</th>
+                <th className="py-4 px-6">{t.legacyUi.category}</th>
+                <th className="py-4 px-6">{t.legacyUi.amount}</th>
+                <th className="py-4 px-6">{t.legacyUi.description}</th>
+                <th className="py-4 px-6">{t.legacyUi.loggedBy}</th>
+                <th className="py-4 px-6 text-right">{t.legacyUi.timestamp}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60 text-xs">
               {expenses.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="py-8 text-center text-slate-500">
-                    No operating expenses recorded yet. Click "Log Operational Expense" to add one.
+                    {translateRawUi('No operating expenses recorded yet. Click "Log Operational Expense" to add one.')}
                   </td>
                 </tr>
               ) : (
@@ -199,15 +204,15 @@ export const FinancialsView: React.FC<FinancialsViewProps> = ({
             <button type="button" onClick={() => setIsAddExpenseOpen(false)} className="absolute right-4 top-4 text-slate-400 hover:text-white">
               <X className="w-5 h-5" />
             </button>
-            <h3 className="text-lg font-bold text-white">Log Operational Expense</h3>
+            <h3 className="text-lg font-bold text-white">{t.legacyUi.logOperationalExpense}</h3>
 
             <div className="space-y-3">
               <div>
-                <label className="text-slate-400 font-bold block mb-1">Expense Title</label>
+                <label className="text-slate-400 font-bold block mb-1">{t.legacyUi.expenseTitle}</label>
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Monthly Electricity Bill / Kitchen Maintenance"
+                  placeholder={translateRawUi('e.g. Monthly Electricity Bill / Kitchen Maintenance')}
                   value={title}
                   onChange={e => setTitle(e.target.value)}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:border-emerald-500 focus:outline-none"
@@ -216,7 +221,7 @@ export const FinancialsView: React.FC<FinancialsViewProps> = ({
 
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="text-slate-400 font-bold block mb-1">Amount ($)</label>
+                  <label className="text-slate-400 font-bold block mb-1">{t.legacyUi.amount}</label>
                   <input
                     type="number"
                     step="0.01"
@@ -227,27 +232,27 @@ export const FinancialsView: React.FC<FinancialsViewProps> = ({
                   />
                 </div>
                 <div>
-                  <label className="text-slate-400 font-bold block mb-1">Category</label>
+                  <label className="text-slate-400 font-bold block mb-1">{t.legacyUi.category}</label>
                   <select
                     value={category}
                     onChange={e => setCategory(e.target.value)}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:border-emerald-500 focus:outline-none"
                   >
-                    <option value="Utilities">Utilities</option>
-                    <option value="Rent & Lease">Rent & Lease</option>
-                    <option value="Kitchen Supplies">Kitchen Supplies</option>
-                    <option value="Marketing">Marketing</option>
-                    <option value="Equipment Repair">Equipment Repair</option>
-                    <option value="Licenses & Permits">Licenses & Permits</option>
+                    <option value="Utilities">{translateRawUi('Utilities')}</option>
+                    <option value="Rent & Lease">{t.legacyUi.rentLease}</option>
+                    <option value="Kitchen Supplies">{t.legacyUi.kitchenSupplies}</option>
+                    <option value="Marketing">{translateRawUi('Marketing')}</option>
+                    <option value="Equipment Repair">{t.legacyUi.equipmentRepair}</option>
+                    <option value="Licenses & Permits">{t.legacyUi.licensesPermits}</option>
                   </select>
                 </div>
               </div>
 
               <div>
-                <label className="text-slate-400 font-bold block mb-1">Description / Notes</label>
+                <label className="text-slate-400 font-bold block mb-1">{t.legacyUi.descriptionNotes}</label>
                 <textarea
                   rows={2}
-                  placeholder="Additional context or invoice ref number..."
+                  placeholder={translateRawUi('Additional context or invoice ref number...')}
                   value={description}
                   onChange={e => setDescription(e.target.value)}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:border-emerald-500 focus:outline-none resize-none"

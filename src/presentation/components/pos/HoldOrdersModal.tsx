@@ -1,3 +1,5 @@
+import { translateRawUi } from '../../../i18n';
+import { useAuth } from '../../context/AuthContext';
 import React, { useState, useEffect } from 'react';
 import { HoldOrder } from '../../../types';
 import { fetchHoldOrdersFirestore, deleteHoldOrderFirestore } from '../../../lib/firebase';
@@ -12,6 +14,7 @@ export const HoldOrdersModal: React.FC<HoldOrdersModalProps> = ({
   onClose,
   onResumeOrder
 }) => {
+  const { t } = useAuth();
   const [holdOrders, setHoldOrders] = useState<HoldOrder[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
@@ -49,20 +52,20 @@ export const HoldOrdersModal: React.FC<HoldOrdersModalProps> = ({
             <PauseCircle className="w-6 h-6" />
           </div>
           <div>
-            <h3 className="text-lg font-bold text-white">Parked / Held Orders</h3>
-            <p className="text-xs text-slate-400">Resume held order into cart to finish checkout</p>
+            <h3 className="text-lg font-bold text-white">{t.legacyUi.parkedHeldOrders}</h3>
+            <p className="text-xs text-slate-400">{t.legacyUi.resumeHeldOrder}</p>
           </div>
         </div>
 
         {/* Hold List */}
         <div className="space-y-3">
           {isLoading ? (
-            <div className="py-8 text-center text-xs text-slate-500">Loading held orders...</div>
+            <div className="py-8 text-center text-xs text-slate-500">{t.legacyUi.loadingHeldOrders}</div>
           ) : holdOrders.length === 0 ? (
             <div className="py-12 text-center text-slate-500 space-y-2">
               <Package className="w-10 h-10 mx-auto text-slate-700" />
-              <p className="text-xs">No held orders found</p>
-              <p className="text-[10px] text-slate-600">You can hold an active cart using the &quot;Hold Order&quot; button in POS</p>
+              <p className="text-xs">{t.legacyUi.noHeldOrders}</p>
+              <p className="text-[10px] text-slate-600">{t.legacyUi.holdCartHelp}</p>
             </div>
           ) : (
             holdOrders.map(hold => (
@@ -83,8 +86,8 @@ export const HoldOrdersModal: React.FC<HoldOrdersModalProps> = ({
                       <Clock className="w-3 h-3 text-slate-500" />
                       {new Date(hold.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </span>
-                    <span>Items: <strong className="text-white">{hold.items.length}</strong></span>
-                    {hold.tableNumber && <span>Table: <strong className="text-emerald-400">{hold.tableNumber}</strong></span>}
+                    <span>{translateRawUi('Items:')} <strong className="text-white">{hold.items.length}</strong></span>
+                    {hold.tableNumber && <span>{translateRawUi('Table:')} <strong className="text-emerald-400">{hold.tableNumber}</strong></span>}
                   </div>
 
                   <p className="text-xs text-emerald-400 font-extrabold pt-0.5">
@@ -102,7 +105,7 @@ export const HoldOrdersModal: React.FC<HoldOrdersModalProps> = ({
                     className="px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-xs transition cursor-pointer flex items-center gap-1.5 shadow-md shadow-emerald-500/10"
                   >
                     <Play className="w-3.5 h-3.5 fill-current" />
-                    <span>Resume</span>
+                    <span>{translateRawUi('Resume')}</span>
                   </button>
 
                   <button

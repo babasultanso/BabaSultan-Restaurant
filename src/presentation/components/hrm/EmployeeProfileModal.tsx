@@ -1,3 +1,4 @@
+import { translateRawUi } from '../../../i18n/rawUi';
 import React, { useState, useEffect } from 'react';
 import {
   Employee,
@@ -8,6 +9,7 @@ import {
   EmployeeDocument
 } from '../../../domain/entities/hrm';
 import { HRMRepositoryImpl } from '../../../data/repositories/HRMRepositoryImpl';
+import { useAuth } from '../../context/AuthContext';
 import {
   X,
   User,
@@ -40,6 +42,8 @@ interface Props {
 }
 
 export const EmployeeProfileModal: React.FC<Props> = ({ employee, isOpen, onClose, onUpdate }) => {
+  const { t } = useAuth();
+  const pt = t.hrm.payrollManagement;
   const [activeTab, setActiveTab] = useState<'overview' | 'documents' | 'attendance' | 'payroll' | 'performance' | 'leave'>('overview');
   const [documents, setDocuments] = useState<EmployeeDocument[]>([]);
   const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
@@ -194,23 +198,23 @@ export const EmployeeProfileModal: React.FC<Props> = ({ employee, isOpen, onClos
               <div className="p-5 rounded-2xl bg-slate-950/60 border border-slate-800 space-y-3">
                 <h3 className="text-sm font-bold text-white flex items-center gap-2 border-b border-slate-800 pb-2">
                   <User className="w-4 h-4 text-emerald-400" />
-                  Personal & Identifiers
+                  {translateRawUi('Personal & Identifiers')}
                 </h3>
                 <div className="grid grid-cols-2 gap-3 text-slate-300">
                   <div>
-                    <span className="text-slate-500 block">National ID / Passport</span>
+                    <span className="text-slate-500 block">{translateRawUi('National ID / Passport')}</span>
                     <span className="font-semibold text-white">{employee.nationalIdOrPassport || 'N/A'}</span>
                   </div>
                   <div>
-                    <span className="text-slate-500 block">Gender</span>
+                    <span className="text-slate-500 block">{t.legacyUi.gender}</span>
                     <span className="font-semibold text-white">{employee.gender}</span>
                   </div>
                   <div>
-                    <span className="text-slate-500 block">Date of Birth</span>
+                    <span className="text-slate-500 block">{t.legacyUi.dateOfBirth}</span>
                     <span className="font-semibold text-white">{employee.dateOfBirth}</span>
                   </div>
                   <div>
-                    <span className="text-slate-500 block">Nationality</span>
+                    <span className="text-slate-500 block">{translateRawUi('Nationality')}</span>
                     <span className="font-semibold text-white">{employee.nationality}</span>
                   </div>
                 </div>
@@ -220,32 +224,32 @@ export const EmployeeProfileModal: React.FC<Props> = ({ employee, isOpen, onClos
               <div className="p-5 rounded-2xl bg-slate-950/60 border border-slate-800 space-y-3">
                 <h3 className="text-sm font-bold text-white flex items-center gap-2 border-b border-slate-800 pb-2">
                   <Briefcase className="w-4 h-4 text-emerald-400" />
-                  Job Position & Compensation
+                  {translateRawUi('Job Position & Compensation')}
                 </h3>
                 <div className="grid grid-cols-2 gap-3 text-slate-300">
                   <div>
-                    <span className="text-slate-500 block">Job Title</span>
+                    <span className="text-slate-500 block">{t.legacyUi.jobTitle}</span>
                     <span className="font-semibold text-white">{employee.jobTitle}</span>
                   </div>
                   <div>
-                    <span className="text-slate-500 block">Role</span>
+                    <span className="text-slate-500 block">{translateRawUi('Role')}</span>
                     <span className="font-semibold text-white">{employee.role}</span>
                   </div>
                   <div>
-                    <span className="text-slate-500 block">Department</span>
+                    <span className="text-slate-500 block">{translateRawUi('Department')}</span>
                     <span className="font-semibold text-white">{employee.department}</span>
                   </div>
                   <div>
-                    <span className="text-slate-500 block">Branch</span>
+                    <span className="text-slate-500 block">{translateRawUi('Branch')}</span>
                     <span className="font-semibold text-white">{employee.branch}</span>
                   </div>
                   <div>
-                    <span className="text-slate-500 block">Hire Date</span>
+                    <span className="text-slate-500 block">{t.legacyUi.hireDate}</span>
                     <span className="font-semibold text-white">{employee.hireDate}</span>
                   </div>
                   <div>
-                    <span className="text-slate-500 block">Monthly Base Salary</span>
-                    <span className="font-bold text-emerald-400 text-sm">${employee.salary.toLocaleString()}</span>
+                    <span className="text-slate-500 block">{pt.salaryPerCycle}</span>
+                    <span className="font-bold text-emerald-400 text-sm">${employee.salary.toLocaleString()} · {(employee.payFrequency || 'monthly').toUpperCase()}</span>
                   </div>
                 </div>
               </div>
@@ -254,7 +258,7 @@ export const EmployeeProfileModal: React.FC<Props> = ({ employee, isOpen, onClos
               <div className="p-5 rounded-2xl bg-slate-950/60 border border-slate-800 space-y-3">
                 <h3 className="text-sm font-bold text-white flex items-center gap-2 border-b border-slate-800 pb-2">
                   <Phone className="w-4 h-4 text-emerald-400" />
-                  Contact & Address
+                  {translateRawUi('Contact & Address')}
                 </h3>
                 <div className="space-y-2 text-slate-300">
                   <div className="flex items-center gap-2">
@@ -267,7 +271,7 @@ export const EmployeeProfileModal: React.FC<Props> = ({ employee, isOpen, onClos
                   </div>
                   <div className="flex items-start gap-2">
                     <MapPin className="w-3.5 h-3.5 text-slate-500 mt-0.5" />
-                    <span>{employee.address || 'Mogadishu, Somalia'}</span>
+                    <span>{employee.address || '—'}</span>
                   </div>
                 </div>
               </div>
@@ -276,15 +280,15 @@ export const EmployeeProfileModal: React.FC<Props> = ({ employee, isOpen, onClos
               <div className="p-5 rounded-2xl bg-slate-950/60 border border-slate-800 space-y-3">
                 <h3 className="text-sm font-bold text-white flex items-center gap-2 border-b border-slate-800 pb-2">
                   <Heart className="w-4 h-4 text-emerald-400" />
-                  Emergency Contact & Banking
+                  {translateRawUi('Emergency Contact & Banking')}
                 </h3>
                 <div className="space-y-2 text-slate-300">
                   <div>
-                    <span className="text-slate-500 block">Emergency Contact Name</span>
+                    <span className="text-slate-500 block">{t.legacyUi.emergencyContactName}</span>
                     <span className="font-semibold text-white">{employee.emergencyContact?.name || 'N/A'} ({employee.emergencyContact?.relationship || 'Family'})</span>
                   </div>
                   <div>
-                    <span className="text-slate-500 block">Emergency Phone</span>
+                    <span className="text-slate-500 block">{t.legacyUi.emergencyPhone}</span>
                     <span className="font-semibold text-white">{employee.emergencyContact?.phone || 'N/A'}</span>
                   </div>
                   {employee.bankAccount && (
@@ -303,21 +307,21 @@ export const EmployeeProfileModal: React.FC<Props> = ({ employee, isOpen, onClos
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="text-sm font-bold text-white">Employee Documents & Storage</h3>
-                  <p className="text-xs text-slate-400">Contracts, National IDs, Passports, Licenses & Certificates</p>
+                  <h3 className="text-sm font-bold text-white">{t.legacyUi.employeeDocumentsStorage}</h3>
+                  <p className="text-xs text-slate-400">{t.legacyUi.employeeDocumentsTypes}</p>
                 </div>
                 <button
                   onClick={() => setShowDocModal(true)}
                   className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-3.5 py-2 rounded-xl text-xs flex items-center gap-1.5 transition cursor-pointer"
                 >
                   <Plus className="w-4 h-4" />
-                  <span>Upload Document</span>
+                  <span>{translateRawUi('Upload Document')}</span>
                 </button>
               </div>
 
               {documents.length === 0 ? (
                 <div className="p-8 text-center bg-slate-950/40 border border-slate-800/80 rounded-2xl text-slate-400 text-xs">
-                  No stored documents for this employee. Click "Upload Document" to attach contracts, passport, or ID.
+                  {translateRawUi('No stored documents for this employee. Click "Upload Document" to attach contracts, passport, or ID.')}
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -365,26 +369,26 @@ export const EmployeeProfileModal: React.FC<Props> = ({ employee, isOpen, onClos
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="text-sm font-bold text-white">Attendance & Clock Logs</h3>
-                  <p className="text-xs text-slate-400">Clock in/out history, working hours & overtime</p>
+                  <h3 className="text-sm font-bold text-white">{t.legacyUi.attendanceClockLogs}</h3>
+                  <p className="text-xs text-slate-400">{t.legacyUi.clockHistoryHoursOvertime}</p>
                 </div>
               </div>
 
               {attendance.length === 0 ? (
                 <div className="p-8 text-center bg-slate-950/40 border border-slate-800/80 rounded-2xl text-slate-400 text-xs">
-                  No attendance records logged for this employee.
+                  {translateRawUi('No attendance records logged for this employee.')}
                 </div>
               ) : (
                 <div className="overflow-x-auto rounded-2xl border border-slate-800">
                   <table className="w-full text-left text-xs text-slate-300">
                     <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] font-bold tracking-wider">
                       <tr>
-                        <th className="p-3">Date</th>
-                        <th className="p-3">Clock In</th>
-                        <th className="p-3">Clock Out</th>
-                        <th className="p-3">Hours</th>
-                        <th className="p-3">Overtime</th>
-                        <th className="p-3">Status</th>
+                        <th className="p-3">{t.legacyUi.dateLabel}</th>
+                        <th className="p-3">{t.legacyUi.clockIn}</th>
+                        <th className="p-3">{t.legacyUi.clockOut}</th>
+                        <th className="p-3">{translateRawUi('Hours')}</th>
+                        <th className="p-3">{translateRawUi('Overtime')}</th>
+                        <th className="p-3">{translateRawUi('Status')}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/60 bg-slate-900/50">
@@ -393,7 +397,7 @@ export const EmployeeProfileModal: React.FC<Props> = ({ employee, isOpen, onClos
                           <td className="p-3 font-semibold text-white">{att.date}</td>
                           <td className="p-3">
                             {att.clockIn ? new Date(att.clockIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-'}
-                            {att.isLate && <span className="ml-1.5 text-[9px] bg-rose-500/20 text-rose-300 px-1.5 py-0.5 rounded">Late</span>}
+                            {att.isLate && <span className="ml-1.5 text-[9px] bg-rose-500/20 text-rose-300 px-1.5 py-0.5 rounded">{translateRawUi('Late')}</span>}
                           </td>
                           <td className="p-3">
                             {att.clockOut ? new Date(att.clockOut).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Active'}
@@ -419,14 +423,14 @@ export const EmployeeProfileModal: React.FC<Props> = ({ employee, isOpen, onClos
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="text-sm font-bold text-white">Payroll & Salary Slips</h3>
-                  <p className="text-xs text-slate-400">Monthly payout receipts and salary calculations</p>
+                  <h3 className="text-sm font-bold text-white">{pt.title}</h3>
+                  <p className="text-xs text-slate-400">{pt.subtitle}</p>
                 </div>
               </div>
 
               {payroll.length === 0 ? (
                 <div className="p-8 text-center bg-slate-950/40 border border-slate-800/80 rounded-2xl text-slate-400 text-xs">
-                  No payroll slips recorded.
+                  {pt.noData}
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -434,7 +438,7 @@ export const EmployeeProfileModal: React.FC<Props> = ({ employee, isOpen, onClos
                     <div key={pay.id} className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800 flex items-center justify-between">
                       <div>
                         <div className="flex items-center gap-2">
-                          <h4 className="text-sm font-bold text-white">{pay.month} Payroll Slip</h4>
+                          <h4 className="text-sm font-bold text-white">{(pay.payFrequency || 'monthly').toUpperCase()} · {pay.periodStart || pay.month} Payroll Slip</h4>
                           <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                             pay.paymentStatus === 'paid' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300'
                           }`}>
@@ -447,7 +451,7 @@ export const EmployeeProfileModal: React.FC<Props> = ({ employee, isOpen, onClos
                       </div>
 
                       <div className="text-right">
-                        <span className="text-xs text-slate-400 block">Net Salary Payout</span>
+                        <span className="text-xs text-slate-400 block">{pt.netPayout}</span>
                         <span className="text-lg font-black text-emerald-400">${pay.netSalary.toLocaleString()}</span>
                       </div>
                     </div>
@@ -460,11 +464,11 @@ export const EmployeeProfileModal: React.FC<Props> = ({ employee, isOpen, onClos
           {/* TAB 5: LEAVES */}
           {activeTab === 'leave' && (
             <div className="space-y-4">
-              <h3 className="text-sm font-bold text-white">Leave Requests & Approvals</h3>
+              <h3 className="text-sm font-bold text-white">{t.legacyUi.leaveRequestsApprovals}</h3>
 
               {leaveRequests.length === 0 ? (
                 <div className="p-8 text-center bg-slate-950/40 border border-slate-800/80 rounded-2xl text-slate-400 text-xs">
-                  No leave requests submitted for this employee.
+                  {translateRawUi('No leave requests submitted for this employee.')}
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -490,11 +494,11 @@ export const EmployeeProfileModal: React.FC<Props> = ({ employee, isOpen, onClos
           {/* TAB 6: PERFORMANCE */}
           {activeTab === 'performance' && (
             <div className="space-y-4">
-              <h3 className="text-sm font-bold text-white">Performance Metrics</h3>
+              <h3 className="text-sm font-bold text-white">{translateRawUi('Performance Metrics')}</h3>
 
               {performance.length === 0 ? (
                 <div className="p-8 text-center bg-slate-950/40 border border-slate-800/80 rounded-2xl text-slate-400 text-xs">
-                  No performance evaluation records logged for this employee.
+                  {translateRawUi('No performance evaluation records logged for this employee.')}
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -506,19 +510,19 @@ export const EmployeeProfileModal: React.FC<Props> = ({ employee, isOpen, onClos
                       </div>
                       <div className="grid grid-cols-2 gap-2 text-xs">
                         <div>
-                          <span className="text-slate-500 block">Attendance Rate</span>
+                          <span className="text-slate-500 block">{t.legacyUi.attendanceRate}</span>
                           <span className="font-bold text-emerald-400">{perf.attendanceRate}%</span>
                         </div>
                         <div>
-                          <span className="text-slate-500 block">Customer Rating</span>
+                          <span className="text-slate-500 block">{t.legacyUi.customerRating}</span>
                           <span className="font-bold text-amber-400">★ {perf.customerRatings} / 5</span>
                         </div>
                         <div>
-                          <span className="text-slate-500 block">Productivity Score</span>
+                          <span className="text-slate-500 block">{translateRawUi('Productivity Score')}</span>
                           <span className="font-bold text-blue-400">{perf.productivity}%</span>
                         </div>
                         <div>
-                          <span className="text-slate-500 block">Completed Orders</span>
+                          <span className="text-slate-500 block">{t.legacyUi.completedOrders}</span>
                           <span className="font-bold text-white">{perf.completedOrders}</span>
                         </div>
                       </div>
@@ -535,50 +539,50 @@ export const EmployeeProfileModal: React.FC<Props> = ({ employee, isOpen, onClos
       {showDocModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
           <form onSubmit={handleAddDocument} className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-md w-full space-y-4 shadow-2xl">
-            <h3 className="text-base font-bold text-white">Upload Employee Document</h3>
+            <h3 className="text-base font-bold text-white">{translateRawUi('Upload Employee Document')}</h3>
 
             <div>
-              <label className="text-xs font-bold text-slate-300 block mb-1">Document Title</label>
+              <label className="text-xs font-bold text-slate-300 block mb-1">{t.legacyUi.documentTitle}</label>
               <input
                 type="text"
                 required
                 value={docTitle}
                 onChange={(e) => setDocTitle(e.target.value)}
-                placeholder="e.g. Signed Employment Contract 2026"
+                placeholder={translateRawUi('e.g. Signed Employment Contract 2026')}
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white"
               />
             </div>
 
             <div>
-              <label className="text-xs font-bold text-slate-300 block mb-1">Document Type</label>
+              <label className="text-xs font-bold text-slate-300 block mb-1">{t.legacyUi.documentType}</label>
               <select
                 value={docType}
                 onChange={(e) => setDocType(e.target.value as any)}
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white"
               >
-                <option value="Employment Contract">Employment Contract</option>
-                <option value="National ID">National ID</option>
-                <option value="Passport">Passport</option>
-                <option value="Driving License">Driving License</option>
-                <option value="Certificates">Certificates</option>
-                <option value="Other Documents">Other Documents</option>
+                <option value="Employment Contract">{t.legacyUi.employmentContract}</option>
+                <option value="National ID">{translateRawUi('National ID')}</option>
+                <option value="Passport">{translateRawUi('Passport')}</option>
+                <option value="Driving License">{t.legacyUi.drivingLicense}</option>
+                <option value="Certificates">{translateRawUi('Certificates')}</option>
+                <option value="Other Documents">{translateRawUi('Other Documents')}</option>
               </select>
             </div>
 
             <div>
-              <label className="text-xs font-bold text-slate-300 block mb-1">Document File URL</label>
+              <label className="text-xs font-bold text-slate-300 block mb-1">{t.legacyUi.documentFileUrl}</label>
               <input
                 type="url"
                 value={docUrl}
                 onChange={(e) => setDocUrl(e.target.value)}
-                placeholder="https://..."
+                placeholder={translateRawUi('https://...')}
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white"
               />
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-xs font-bold text-slate-300 block mb-1">Issue Date</label>
+                <label className="text-xs font-bold text-slate-300 block mb-1">{t.legacyUi.issueDate}</label>
                 <input
                   type="date"
                   value={docIssueDate}
@@ -587,7 +591,7 @@ export const EmployeeProfileModal: React.FC<Props> = ({ employee, isOpen, onClos
                 />
               </div>
               <div>
-                <label className="text-xs font-bold text-slate-300 block mb-1">Expiry Date</label>
+                <label className="text-xs font-bold text-slate-300 block mb-1">{t.legacyUi.expiryDate}</label>
                 <input
                   type="date"
                   value={docExpiryDate}
@@ -603,13 +607,13 @@ export const EmployeeProfileModal: React.FC<Props> = ({ employee, isOpen, onClos
                 onClick={() => setShowDocModal(false)}
                 className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 font-semibold"
               >
-                Cancel
+                {translateRawUi('Cancel')}
               </button>
               <button
                 type="submit"
                 className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold"
               >
-                Save Document
+                {translateRawUi('Save Document')}
               </button>
             </div>
           </form>

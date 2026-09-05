@@ -1,3 +1,5 @@
+import { translateRawUi } from '../../../i18n';
+import { useAuth } from '../../context/AuthContext';
 import React, { useState, useEffect } from 'react';
 import { Customer } from '../../../types';
 import { fetchCustomersFirestore, addCustomerFirestore } from '../../../lib/firebase';
@@ -12,6 +14,7 @@ export const CustomerModal: React.FC<CustomerModalProps> = ({
   onClose,
   onSelectCustomer
 }) => {
+  const { t } = useAuth();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -78,9 +81,9 @@ export const CustomerModal: React.FC<CustomerModalProps> = ({
           <div>
             <h3 className="text-lg font-bold text-white flex items-center gap-2">
               <UserCheck className="w-5 h-5 text-emerald-400" />
-              Customer Selection & Directory
+              {translateRawUi('Customer Selection & Directory')}
             </h3>
-            <p className="text-xs text-slate-400">Select customer for order history & loyalty tracking</p>
+            <p className="text-xs text-slate-400">{t.legacyUi.selectCustomerHistory}</p>
           </div>
 
           <button
@@ -96,11 +99,11 @@ export const CustomerModal: React.FC<CustomerModalProps> = ({
           /* Add New Customer Form */
           <form onSubmit={handleCreateCustomer} className="space-y-4 text-xs">
             <div>
-              <label className="text-slate-300 font-bold block mb-1">Customer Full Name *</label>
+              <label className="text-slate-300 font-bold block mb-1">{t.legacyUi.customerFullNameRequired}</label>
               <input
                 type="text"
                 required
-                placeholder="e.g. Ahmed Ali / Hodan Hassan"
+                placeholder={translateRawUi('e.g. Ahmed Ali / Hodan Hassan')}
                 value={newName}
                 onChange={e => setNewName(e.target.value)}
                 className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-3.5 py-2.5 text-white focus:outline-none focus:border-emerald-500"
@@ -108,11 +111,11 @@ export const CustomerModal: React.FC<CustomerModalProps> = ({
             </div>
 
             <div>
-              <label className="text-slate-300 font-bold block mb-1">Phone Number *</label>
+              <label className="text-slate-300 font-bold block mb-1">{t.legacyUi.phoneNumberRequired}</label>
               <input
                 type="text"
                 required
-                placeholder="e.g. +252615000000 / +254712000000"
+                placeholder={translateRawUi('e.g. +252615000000 / +254712000000')}
                 value={newPhone}
                 onChange={e => setNewPhone(e.target.value)}
                 className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-3.5 py-2.5 text-white focus:outline-none focus:border-emerald-500"
@@ -120,10 +123,10 @@ export const CustomerModal: React.FC<CustomerModalProps> = ({
             </div>
 
             <div>
-              <label className="text-slate-300 font-bold block mb-1">Email Address (Optional)</label>
+              <label className="text-slate-300 font-bold block mb-1">{t.legacyUi.emailAddressOptional}</label>
               <input
                 type="email"
-                placeholder="e.g. ahmed@example.com"
+                placeholder={translateRawUi('e.g. ahmed@example.com')}
                 value={newEmail}
                 onChange={e => setNewEmail(e.target.value)}
                 className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-3.5 py-2.5 text-white focus:outline-none focus:border-emerald-500"
@@ -131,10 +134,10 @@ export const CustomerModal: React.FC<CustomerModalProps> = ({
             </div>
 
             <div>
-              <label className="text-slate-300 font-bold block mb-1">Delivery Address (Optional)</label>
+              <label className="text-slate-300 font-bold block mb-1">{t.legacyUi.deliveryAddressOptional}</label>
               <input
                 type="text"
-                placeholder="e.g. Hodan District, Maka Al Mukarama St, Mogadishu"
+                placeholder={translateRawUi('e.g. District, Street Name, Area')}
                 value={newAddress}
                 onChange={e => setNewAddress(e.target.value)}
                 className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-3.5 py-2.5 text-white focus:outline-none focus:border-emerald-500"
@@ -157,7 +160,7 @@ export const CustomerModal: React.FC<CustomerModalProps> = ({
               <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
               <input
                 type="text"
-                placeholder="Search by customer name or phone..."
+                placeholder={translateRawUi('Search by customer name or phone...')}
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
                 className="w-full bg-slate-950 border border-slate-800 rounded-2xl pl-10 pr-4 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500"
@@ -166,10 +169,10 @@ export const CustomerModal: React.FC<CustomerModalProps> = ({
 
             <div className="space-y-2 max-h-60 overflow-y-auto no-scrollbar pr-1">
               {isLoading ? (
-                <div className="py-8 text-center text-xs text-slate-500">Loading customer database...</div>
+                <div className="py-8 text-center text-xs text-slate-500">{t.legacyUi.loadingCustomerDatabase}</div>
               ) : filteredCustomers.length === 0 ? (
                 <div className="py-8 text-center text-xs text-slate-500">
-                  No customers found. Click &quot;Add New&quot; to register a customer.
+                  {translateRawUi('No customers found. Click &quot;Add New&quot; to register a customer.')}
                 </div>
               ) : (
                 filteredCustomers.map(cust => (
@@ -189,13 +192,13 @@ export const CustomerModal: React.FC<CustomerModalProps> = ({
                         <span className="flex items-center gap-1">
                           <Phone className="w-3 h-3 text-emerald-400" /> {cust.phone}
                         </span>
-                        <span>Orders: <strong>{cust.totalOrders || 0}</strong></span>
-                        <span>Spent: <strong>${(cust.totalSpent || 0).toFixed(2)}</strong></span>
+                        <span>{translateRawUi('Orders:')} <strong>{cust.totalOrders || 0}</strong></span>
+                        <span>{translateRawUi('Spent:')} <strong>${(cust.totalSpent || 0).toFixed(2)}</strong></span>
                       </div>
                     </div>
 
                     <button className="px-3 py-1.5 rounded-xl bg-slate-800 text-slate-200 group-hover:bg-emerald-500 group-hover:text-slate-950 font-bold text-[10px] transition">
-                      Select
+                      {translateRawUi('Select')}
                     </button>
                   </div>
                 ))

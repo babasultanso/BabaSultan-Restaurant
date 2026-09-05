@@ -1,7 +1,6 @@
-import { Product, SelectedOptionChoice } from '../../types';
+import { Product, SelectedOptionChoice, OrderType, PaymentMethod } from '../../types';
 
-export type OrderType = 'dine_in' | 'takeaway' | 'delivery' | 'online' | 'reservation';
-export type PaymentMethod = 'cash' | 'card' | 'mobile_money' | 'online' | 'split';
+export type { OrderType, PaymentMethod };
 
 export interface CartItem {
   product: Product;

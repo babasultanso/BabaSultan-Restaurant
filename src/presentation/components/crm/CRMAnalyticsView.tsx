@@ -1,3 +1,5 @@
+import { useAuth } from '../../context/AuthContext';
+import { translateRawUi } from '../../../i18n';
 import React, { useState, useEffect } from 'react';
 import { CustomerAnalyticsData } from '../../../domain/entities/customer';
 import { CustomerRepositoryImpl } from '../../../data/repositories/CustomerRepositoryImpl';
@@ -17,6 +19,7 @@ import {
 const repo = new CustomerRepositoryImpl();
 
 export const CRMAnalyticsView: React.FC = () => {
+  const { t } = useAuth();
   const [analytics, setAnalytics] = useState<CustomerAnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -40,7 +43,7 @@ export const CRMAnalyticsView: React.FC = () => {
     return (
       <div className="p-12 text-center text-slate-400 bg-slate-900 border border-slate-800 rounded-3xl">
         <RefreshCw className="w-8 h-8 animate-spin text-emerald-400 mx-auto mb-2" />
-        <p className="text-xs">Computing CRM Intelligence & Customer Lifetime Metrics...</p>
+        <p className="text-xs">{t.legacyUi.computingCrmMetrics}</p>
       </div>
     );
   }
@@ -54,10 +57,10 @@ export const CRMAnalyticsView: React.FC = () => {
         <div>
           <h2 className="text-xl font-black text-white flex items-center gap-2.5">
             <BarChart3 className="w-6 h-6 text-emerald-400" />
-            <span>CRM & Customer Retention Intelligence</span>
+            <span>{t.legacyUi.crmRetentionIntelligence}</span>
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            Customer Growth, Churn Rate, Lifetime Value (CLV), and VIP Spending Performance
+            {translateRawUi('Customer Growth, Churn Rate, Lifetime Value (CLV), and VIP Spending Performance')}
           </p>
         </div>
 
@@ -66,39 +69,39 @@ export const CRMAnalyticsView: React.FC = () => {
           className="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold flex items-center gap-2 cursor-pointer"
         >
           <RefreshCw className="w-4 h-4 text-emerald-400" />
-          <span>Refresh Analytics</span>
+          <span>{t.legacyUi.refreshAnalytics}</span>
         </button>
       </div>
 
       {/* 6 Metric Highlight Cards */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
         <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl space-y-1">
-          <span className="text-[10px] font-bold text-slate-500 uppercase block">Total Customers</span>
+          <span className="text-[10px] font-bold text-slate-500 uppercase block">{t.legacyUi.totalCustomers2}</span>
           <span className="text-xl font-black text-white">{analytics.totalCustomers}</span>
         </div>
 
         <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl space-y-1">
-          <span className="text-[10px] font-bold text-slate-500 uppercase block">Active Members</span>
+          <span className="text-[10px] font-bold text-slate-500 uppercase block">{t.legacyUi.activeMembers}</span>
           <span className="text-xl font-black text-emerald-400">{analytics.activeCustomers}</span>
         </div>
 
         <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl space-y-1">
-          <span className="text-[10px] font-bold text-slate-500 uppercase block">Retention Rate</span>
+          <span className="text-[10px] font-bold text-slate-500 uppercase block">{t.legacyUi.retentionRate}</span>
           <span className="text-xl font-black text-blue-400">{(analytics.retentionRate || 0).toFixed(1)}%</span>
         </div>
 
         <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl space-y-1">
-          <span className="text-[10px] font-bold text-slate-500 uppercase block">Churn Rate</span>
+          <span className="text-[10px] font-bold text-slate-500 uppercase block">{t.legacyUi.churnRate}</span>
           <span className="text-xl font-black text-rose-400">{(analytics.churnRate || 0).toFixed(1)}%</span>
         </div>
 
         <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl space-y-1">
-          <span className="text-[10px] font-bold text-slate-500 uppercase block">Wallet Balance</span>
+          <span className="text-[10px] font-bold text-slate-500 uppercase block">{t.legacyUi.walletBalance}</span>
           <span className="text-xl font-black text-amber-400">${(analytics.totalWalletBalance || 0).toFixed(2)}</span>
         </div>
 
         <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl space-y-1">
-          <span className="text-[10px] font-bold text-slate-500 uppercase block">Avg CLV</span>
+          <span className="text-[10px] font-bold text-slate-500 uppercase block">{t.legacyUi.avgClv}</span>
           <span className="text-xl font-black text-purple-400">${(analytics.avgCustomerLifetimeValue || 0).toFixed(2)}</span>
         </div>
       </div>
@@ -107,18 +110,18 @@ export const CRMAnalyticsView: React.FC = () => {
       <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 space-y-4">
         <h3 className="text-sm font-bold text-white flex items-center gap-2 border-b border-slate-800 pb-3">
           <Crown className="w-4 h-4 text-amber-400" />
-          <span>Top 5 Highest Lifetime Spending Customers</span>
+          <span>{t.legacyUi.top5LifetimeSpending}</span>
         </h3>
 
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead>
               <tr className="border-b border-slate-800 text-slate-500 uppercase text-[10px] tracking-wider">
-                <th className="py-2.5 px-3">Customer Name</th>
-                <th className="py-2.5 px-3">Loyalty Tier</th>
-                <th className="py-2.5 px-3">Phone Number</th>
-                <th className="py-2.5 px-3">Total Orders</th>
-                <th className="py-2.5 px-3 text-right">Lifetime Spending</th>
+                <th className="py-2.5 px-3">{t.legacyUi.customerName}</th>
+                <th className="py-2.5 px-3">{t.legacyUi.loyaltyTier}</th>
+                <th className="py-2.5 px-3">{translateRawUi('Phone Number')}</th>
+                <th className="py-2.5 px-3">{t.legacyUi.totalOrders}</th>
+                <th className="py-2.5 px-3 text-right">{t.legacyUi.lifetimeSpending}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60">

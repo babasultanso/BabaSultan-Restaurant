@@ -5,40 +5,15 @@ import {
   KitchenPerformanceMetrics,
   KitchenPrepStatus
 } from '../entities/kitchen';
+import { kitchenAudioService } from './kitchenAudioService';
 
 export class KitchenService {
 
   /**
-   * Sound Notification for New Orders using Web Audio API
+   * Sound Notification for New Orders using Shared Audio Service
    */
-  public playNewOrderChime() {
-    try {
-      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-      if (!AudioContextClass) return;
-      const ctx = new AudioContextClass();
-
-      const playNote = (freq: number, startTime: number, duration: number) => {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(freq, ctx.currentTime + startTime);
-        
-        gain.gain.setValueAtTime(0.3, ctx.currentTime + startTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + startTime + duration);
-
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-
-        osc.start(ctx.currentTime + startTime);
-        osc.stop(ctx.currentTime + startTime + duration);
-      };
-
-      // Dual-chime sequence (High A5 -> D6)
-      playNote(880, 0, 0.25);
-      playNote(1174.66, 0.2, 0.45);
-    } catch (e) {
-      console.warn('Audio chime playback omitted or blocked by browser gesture policy:', e);
-    }
+  public playNewOrderChime(orderCount: number = 1) {
+    kitchenAudioService.triggerNewOrderAlarm(orderCount);
   }
 
   /**

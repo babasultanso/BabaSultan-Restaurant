@@ -28,7 +28,8 @@ export function downloadPDFInvoice(order: Order | ReceiptData, restaurantName: s
 
   doc.setFontSize(12);
   doc.setTextColor(16, 185, 129);
-  doc.text(`INVOICE #${'orderNumber' in order ? order.orderNumber : 'ORD-1001'}`, 150, 18);
+  const invoiceNumber = ('orderNumber' in order && order.orderNumber) ? order.orderNumber : ('id' in order ? order.id : 'N/A');
+  doc.text(`INVOICE #${invoiceNumber}`, 150, 18);
 
   const dateStr = 'createdAt' in order ? new Date(order.createdAt).toLocaleString() : ('timestamp' in order ? new Date(order.timestamp).toLocaleString() : new Date().toLocaleString());
   doc.setFontSize(9);

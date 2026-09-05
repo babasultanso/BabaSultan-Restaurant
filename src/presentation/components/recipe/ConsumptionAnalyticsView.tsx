@@ -1,7 +1,9 @@
+import { translateRawUi } from '../../../i18n';
+import { translations } from '../../../i18n/translations';
 import React, { useState, useEffect } from 'react';
 import { ConsumptionStat } from '../../../domain/entities/recipe';
 import { RecipeController } from '../../../controllers/RecipeController';
-import { recipeDict, RecipeLang } from './translations';
+import { recipeDict, RecipeLang } from '../../../i18n';
 import { TrendingUp, Activity, Flame, Zap, ArrowDown, ArrowUp } from 'lucide-react';
 
 interface ConsumptionAnalyticsViewProps {
@@ -13,7 +15,7 @@ export const ConsumptionAnalyticsView: React.FC<ConsumptionAnalyticsViewProps> =
   controller,
   lang
 }) => {
-  const t = recipeDict[lang] || recipeDict.en;
+  const t = { ...(recipeDict[lang] || recipeDict.en), legacyUi: translations[lang].legacyUi };
 
   const [stats, setStats] = useState<ConsumptionStat[]>([]);
   const [filter, setFilter] = useState<'all' | 'fast' | 'slow' | 'moderate'>('all');
@@ -36,7 +38,7 @@ export const ConsumptionAnalyticsView: React.FC<ConsumptionAnalyticsViewProps> =
             {t.consumption.title}
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            Real-time tracking of ingredient burn rates, fast/slow moving velocity, and total cost of consumption.
+            {translateRawUi('Real-time tracking of ingredient burn rates, fast/slow moving velocity, and total cost of consumption.')}
           </p>
         </div>
 
@@ -47,7 +49,7 @@ export const ConsumptionAnalyticsView: React.FC<ConsumptionAnalyticsViewProps> =
               filter === 'all' ? 'bg-amber-500 text-slate-950' : 'text-slate-400 hover:text-white'
             }`}
           >
-            All
+            {translateRawUi('All')}
           </button>
           <button
             onClick={() => setFilter('fast')}
@@ -72,17 +74,17 @@ export const ConsumptionAnalyticsView: React.FC<ConsumptionAnalyticsViewProps> =
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
         <div className="p-5 bg-slate-900 border border-slate-800 rounded-3xl space-y-1">
-          <p className="text-xs text-slate-400 font-bold">Total Consumption Cost</p>
+          <p className="text-xs text-slate-400 font-bold">{t.legacyUi.totalConsumptionCost}</p>
           <p className="text-2xl font-black text-amber-400 font-mono">${totalUsedCost.toFixed(2)}</p>
         </div>
 
         <div className="p-5 bg-slate-900 border border-slate-800 rounded-3xl space-y-1">
-          <p className="text-xs text-slate-400 font-bold">Tracked Ingredients</p>
+          <p className="text-xs text-slate-400 font-bold">{t.legacyUi.trackedIngredients}</p>
           <p className="text-2xl font-black text-white font-mono">{stats.length}</p>
         </div>
 
         <div className="p-5 bg-slate-900 border border-slate-800 rounded-3xl space-y-1">
-          <p className="text-xs text-slate-400 font-bold">Fast-Moving High Velocity Items</p>
+          <p className="text-xs text-slate-400 font-bold">{t.legacyUi.fastMovingItems}</p>
           <p className="text-2xl font-black text-emerald-400 font-mono">
             {stats.filter((s) => s.movementType === 'fast').length} Items
           </p>
@@ -95,12 +97,12 @@ export const ConsumptionAnalyticsView: React.FC<ConsumptionAnalyticsViewProps> =
           <table className="w-full text-xs text-left">
             <thead className="text-[10px] uppercase font-bold text-slate-400 bg-slate-950">
               <tr>
-                <th className="p-3 rounded-l-xl">Ingredient Name</th>
-                <th className="p-3">Velocity Speed</th>
+                <th className="p-3 rounded-l-xl">{t.legacyUi.ingredientName}</th>
+                <th className="p-3">{t.legacyUi.velocitySpeed}</th>
                 <th className="p-3">{t.consumption.avgDaily}</th>
                 <th className="p-3">{t.consumption.avgMonthly}</th>
-                <th className="p-3">Total Deductions</th>
-                <th className="p-3 text-right rounded-r-xl">Total Cost ($)</th>
+                <th className="p-3">{t.legacyUi.totalDeductions}</th>
+                <th className="p-3 text-right rounded-r-xl">{t.legacyUi.totalCostUsd}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800">
@@ -140,7 +142,7 @@ export const ConsumptionAnalyticsView: React.FC<ConsumptionAnalyticsViewProps> =
               {filteredStats.length === 0 && (
                 <tr>
                   <td colSpan={6} className="p-8 text-center text-slate-400">
-                    No consumption data recorded for this filter.
+                    {translateRawUi('No consumption data recorded for this filter.')}
                   </td>
                 </tr>
               )}

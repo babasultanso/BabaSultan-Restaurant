@@ -1,3 +1,5 @@
+import { translateRawUi } from '../../../i18n/rawUi';
+import { useAuth } from '../../context/AuthContext';
 import React, { useState, useEffect } from 'react';
 import { Customer, Order } from '../../../types';
 import { fetchCustomersFirestore } from '../../../lib/firebase';
@@ -8,6 +10,7 @@ interface CustomerHistoryViewProps {
 }
 
 export const CustomerHistoryView: React.FC<CustomerHistoryViewProps> = ({ orders }) => {
+  const { t } = useAuth();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
@@ -45,10 +48,10 @@ export const CustomerHistoryView: React.FC<CustomerHistoryViewProps> = ({ orders
         <div>
           <h3 className="text-lg font-bold text-white flex items-center gap-2">
             <Users className="w-5 h-5 text-emerald-400" />
-            Customer Directory & Order History
+            {translateRawUi('Customer Directory & Order History')}
           </h3>
           <p className="text-xs text-slate-400 mt-0.5">
-            Track customer profiles, phone contacts, total spend & past order logs
+            {translateRawUi('Track customer profiles, phone contacts, total spend & past order logs')}
           </p>
         </div>
       </div>
@@ -62,7 +65,7 @@ export const CustomerHistoryView: React.FC<CustomerHistoryViewProps> = ({ orders
             <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
             <input
               type="text"
-              placeholder="Search customer name or phone..."
+              placeholder={translateRawUi('Search customer name or phone...')}
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               className="w-full bg-slate-900 border border-slate-800 rounded-2xl pl-10 pr-4 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500"
@@ -71,9 +74,9 @@ export const CustomerHistoryView: React.FC<CustomerHistoryViewProps> = ({ orders
 
           <div className="space-y-2 max-h-[600px] overflow-y-auto no-scrollbar pr-1">
             {isLoading ? (
-              <div className="py-8 text-center text-xs text-slate-500">Loading customer profiles...</div>
+              <div className="py-8 text-center text-xs text-slate-500">{t.legacyUi.loadingCustomerProfiles}</div>
             ) : filteredCustomers.length === 0 ? (
-              <div className="py-8 text-center text-xs text-slate-500">No customers found.</div>
+              <div className="py-8 text-center text-xs text-slate-500">{translateRawUi('No customers found.')}</div>
             ) : (
               filteredCustomers.map(cust => {
                 const isSel = selectedCustomer?.id === cust.id;
@@ -135,12 +138,12 @@ export const CustomerHistoryView: React.FC<CustomerHistoryViewProps> = ({ orders
 
                   <div className="flex items-center gap-3 bg-slate-950 p-3 rounded-2xl border border-slate-800">
                     <div className="text-center px-2">
-                      <span className="text-[10px] text-slate-400 block uppercase font-bold">Total Orders</span>
+                      <span className="text-[10px] text-slate-400 block uppercase font-bold">{t.legacyUi.totalOrders}</span>
                       <span className="text-base font-extrabold text-white">{customerOrders.length}</span>
                     </div>
                     <div className="w-px h-8 bg-slate-800" />
                     <div className="text-center px-2">
-                      <span className="text-[10px] text-slate-400 block uppercase font-bold">Lifetime Value</span>
+                      <span className="text-[10px] text-slate-400 block uppercase font-bold">{t.legacyUi.lifetimeValue}</span>
                       <span className="text-base font-extrabold text-emerald-400">
                         ${customerOrders.reduce((sum, o) => sum + (o.totalAmount || 0), 0).toFixed(2)}
                       </span>
@@ -152,12 +155,12 @@ export const CustomerHistoryView: React.FC<CustomerHistoryViewProps> = ({ orders
                 <div className="space-y-3">
                   <h4 className="text-sm font-bold text-white flex items-center gap-2">
                     <ShoppingBag className="w-4 h-4 text-emerald-400" />
-                    Customer Order History
+                    {translateRawUi('Customer Order History')}
                   </h4>
 
                   {customerOrders.length === 0 ? (
                     <div className="py-8 text-center text-xs text-slate-500 bg-slate-950 rounded-2xl border border-slate-800">
-                      No order records found for this customer.
+                      {translateRawUi('No order records found for this customer.')}
                     </div>
                   ) : (
                     <div className="space-y-2 max-h-[400px] overflow-y-auto no-scrollbar">
@@ -196,7 +199,7 @@ export const CustomerHistoryView: React.FC<CustomerHistoryViewProps> = ({ orders
             </>
           ) : (
             <div className="bg-slate-900 border border-slate-800 rounded-3xl p-12 text-center text-slate-500">
-              Select a customer from the left directory to view full profile & order history.
+              {translateRawUi('Select a customer from the left directory to view full profile & order history.')}
             </div>
           )}
         </div>

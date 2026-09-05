@@ -1,4 +1,4 @@
-import { Order, OrderItem } from '../../types';
+import { Order, OrderItem, PaymentMethod, OrderType } from '../../types';
 
 export interface CreateOrderPayload {
   customerName?: string;
@@ -11,8 +11,8 @@ export interface CreateOrderPayload {
   }>;
   employeeId?: string;
   employeeName?: string;
-  paymentMethod?: 'cash' | 'card' | 'mobile_money';
-  type?: 'dine_in' | 'takeaway' | 'delivery';
+  paymentMethod?: PaymentMethod;
+  type?: OrderType;
 }
 
 export type { Order, OrderItem };

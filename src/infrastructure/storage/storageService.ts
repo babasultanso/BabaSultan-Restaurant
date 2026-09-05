@@ -19,8 +19,9 @@ export class StorageService {
       return url;
     } catch (error: any) {
       logger.error(`Storage upload failed for path: ${path}`, 'StorageService', error);
-      // Fallback data URL or local object URL if storage fails or quota exceeded
-      return URL.createObjectURL(file);
+      // Never return a temporary blob URL as if it were a durable asset. Callers must
+      // surface the upload failure and retry/repair the storage path instead.
+      throw new Error(`File upload failed for '${path}'. Please retry the upload.`);
     }
   }
 

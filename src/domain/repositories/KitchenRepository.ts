@@ -7,10 +7,21 @@ import {
 } from '../entities/kitchen';
 
 export interface KitchenRepository {
-  subscribeKitchenTickets(callback: (tickets: KitchenTicket[]) => void, branchId?: string, isHQ?: boolean, onError?: (err: Error) => void): () => void;
-  subscribeKitchenStations(callback: (stations: KitchenStation[]) => void, onError?: (err: Error) => void): () => void;
+  subscribeKitchenTickets(
+    callback: (tickets: KitchenTicket[]) => void,
+    branchId?: string,
+    isHQ?: boolean,
+    onError?: (err: Error) => void,
+    onNewTickets?: (newTickets: KitchenTicket[]) => void
+  ): () => void;
+  subscribeKitchenStations(
+    callback: (stations: KitchenStation[]) => void,
+    branchId?: string,
+    isHQ?: boolean,
+    onError?: (err: Error) => void
+  ): () => void;
   getKitchenTickets(branchId?: string, isHQ?: boolean): Promise<KitchenTicket[]>;
-  getKitchenStations(): Promise<KitchenStation[]>;
+  getKitchenStations(branchId?: string, isHQ?: boolean): Promise<KitchenStation[]>;
   updateTicketStatus(ticketId: string, status: KitchenPrepStatus): Promise<void>;
   updateTicketPriority(ticketId: string, priority: KitchenOrderPriority): Promise<void>;
   updateItemStatusInTicket(ticketId: string, productId: string, itemStatus: KitchenPrepStatus): Promise<void>;

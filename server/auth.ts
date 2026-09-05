@@ -10,6 +10,9 @@ export interface AuthenticatedUser {
   email: string;
   phone?: string;
   idToken: string;
+  isHQ?: boolean;
+  isAdmin?: boolean;
+  isOwner?: boolean;
 }
 
 const KNOWN_BRANCH_ALIASES: Record<string, string> = {
@@ -128,6 +131,9 @@ export async function authenticateTrustedUser(
     let email = tokenEmail;
     let foundProfile = false;
     let userStatus = 'active';
+    let isHQ = false;
+    let isAdmin = false;
+    let isOwner = false;
 
     try {
       const db = getAdminDb();
@@ -142,6 +148,9 @@ export async function authenticateTrustedUser(
         }
         role = userData.role || '';
         branchId = normalizeCanonicalBranchId(userData.branchId || userData.branch || '');
+        isAdmin = userData.isAdmin === true || String(role).toLowerCase() === 'admin';
+        isOwner = userData.isOwner === true || String(role).toLowerCase() === 'owner';
+        isHQ = userData.isHQ === true || (isAdmin && branchId === 'all');
         name = userData.name || userData.displayName || '';
         email = userData.email || email || tokenEmail;
         foundProfile = true;
@@ -164,6 +173,9 @@ export async function authenticateTrustedUser(
           }
           role = userData.role || '';
           branchId = normalizeCanonicalBranchId(userData.branchId || userData.branch || '');
+          isAdmin = userData.isAdmin === true || String(role).toLowerCase() === 'admin';
+          isOwner = userData.isOwner === true || String(role).toLowerCase() === 'owner';
+          isHQ = userData.isHQ === true || (isAdmin && branchId === 'all');
           name = userData.name || userData.displayName || '';
           email = userData.email || email || tokenEmail;
           foundProfile = true;
@@ -178,7 +190,7 @@ export async function authenticateTrustedUser(
       return null;
     }
 
-    return { uid, role, branchId, name, email, idToken };
+    return { uid, role, branchId, name, email, idToken, isHQ, isAdmin, isOwner };
   } catch (err: any) {
     console.error('Trusted Auth Verification Error:', err?.message || err);
     res.status(401).json({ error: 'Unauthorized: Invalid or expired authentication credentials.' });

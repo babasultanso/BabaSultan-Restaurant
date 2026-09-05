@@ -6,14 +6,14 @@ import {
   setDoc,
   addDoc,
   updateDoc,
-  deleteDoc,
   onSnapshot,
   query,
   where,
   orderBy,
-  writeBatch
+  writeBatch,
+  deleteDoc
 } from 'firebase/firestore';
-import { db, COLLECTIONS, recordInventoryMovementFirestore } from '../../lib/firebase';
+import { db, COLLECTIONS, recordInventoryMovementFirestore, getEffectiveBranchId, getAuthToken } from '../../lib/firebase';
 import { IRecipeRepository } from '../../domain/repositories/IRecipeRepository';
 import {
   Recipe,
@@ -29,15 +29,16 @@ import {
   FoodCostDashboardData
 } from '../../domain/entities/recipe';
 import { UnitConversionEngine } from '../../lib/unitConversionEngine';
+import { getApiUrl } from '../../lib/apiConfig';
 
-// Phase 16 Collections
+// Canonical Collections
 const RECIPES_COLL = 'recipes';
 const RECIPE_VERSIONS_COLL = 'recipe_versions';
 const INGREDIENTS_COLL = 'ingredients';
-const INGREDIENT_MOVEMENTS_COLL = 'ingredient_movements';
+const INGREDIENT_MOVEMENTS_COLL = 'inventory_movements';
 const UNIT_CONVERSIONS_COLL = 'unit_conversions';
 const STOCK_COUNTS_COLL = 'stock_counts';
-const WASTE_RECORDS_COLL = 'waste_records';
+const WASTE_RECORDS_COLL = 'kitchen_waste';
 
 export class RecipeRepositoryImpl implements IRecipeRepository {
   // ==========================================
@@ -90,7 +91,8 @@ export class RecipeRepositoryImpl implements IRecipeRepository {
 
   async getRecipeByProductId(productId: string): Promise<Recipe | null> {
     try {
-      const q = query(collection(db, RECIPES_COLL), where('productId', '==', productId));
+      const branchId = getEffectiveBranchId();
+      const q = query(collection(db, RECIPES_COLL), where('productId', '==', productId), where('branchId', '==', branchId));
       const snap = await getDocs(q);
       if (!snap.empty) {
         const docSnap = snap.docs[0];
@@ -103,36 +105,16 @@ export class RecipeRepositoryImpl implements IRecipeRepository {
   }
 
   async createRecipe(recipeData: Omit<Recipe, 'id' | 'createdAt' | 'updatedAt'>): Promise<Recipe> {
-    const ref = doc(collection(db, RECIPES_COLL));
-    const now = new Date().toISOString();
-
-    const newRecipe: Recipe = {
-      ...recipeData,
-      id: ref.id,
-      version: recipeData.version || 1,
-      isActive: recipeData.isActive ?? true,
-      createdAt: now,
-      updatedAt: now
-    };
-
-    await setDoc(ref, newRecipe);
-
-    // Record Initial Version History
-    await addDoc(collection(db, RECIPE_VERSIONS_COLL), {
-      recipeId: ref.id,
-      productId: recipeData.productId,
-      productName: recipeData.productName,
-      version: newRecipe.version,
-      items: recipeData.items,
-      totalCost: recipeData.totalCost,
-      foodCostPercentage: recipeData.foodCostPercentage,
-      sellingPrice: recipeData.sellingPrice,
-      changedBy: recipeData.createdBy || 'System Admin',
-      changeReason: 'Initial Recipe Creation',
-      createdAt: now
+    const token = await getAuthToken();
+    const idempotencyKey = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const response = await fetch(getApiUrl('/api/recipes'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey, ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify({ recipeData })
     });
-
-    return newRecipe;
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || `Recipe creation failed (${response.status})`);
+    return data.recipe || data;
   }
 
   async updateRecipe(
@@ -141,46 +123,35 @@ export class RecipeRepositoryImpl implements IRecipeRepository {
     changeReason?: string,
     changedBy?: string
   ): Promise<void> {
-    const ref = doc(db, RECIPES_COLL, id);
-    const existing = await this.getRecipeById(id);
-    const now = new Date().toISOString();
-
-    const newVersion = (existing?.version || 1) + 1;
-    const updates = {
-      ...recipeData,
-      version: newVersion,
-      updatedAt: now
-    };
-
-    await updateDoc(ref, updates);
-
-    // Save Version History
-    if (existing) {
-      await addDoc(collection(db, RECIPE_VERSIONS_COLL), {
-        recipeId: id,
-        productId: recipeData.productId || existing.productId,
-        productName: recipeData.productName || existing.productName,
-        version: newVersion,
-        items: recipeData.items || existing.items,
-        totalCost: recipeData.totalCost ?? existing.totalCost,
-        foodCostPercentage: recipeData.foodCostPercentage ?? existing.foodCostPercentage,
-        sellingPrice: recipeData.sellingPrice ?? existing.sellingPrice,
-        changedBy: changedBy || 'Admin',
-        changeReason: changeReason || `Updated to version ${newVersion}`,
-        createdAt: now
-      });
-    }
+    const token = await getAuthToken();
+    const idempotencyKey = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const response = await fetch(getApiUrl(`/api/recipes/${encodeURIComponent(id)}/update`), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey, ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify({ recipeData: { ...recipeData, changeReason, changedBy } })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || `Recipe update failed (${response.status})`);
   }
 
   async deleteRecipe(id: string): Promise<void> {
-    await deleteDoc(doc(db, RECIPES_COLL, id));
+    const token = await getAuthToken();
+    const idempotencyKey = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const response = await fetch(getApiUrl(`/api/recipes/${encodeURIComponent(id)}`), {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey, ...(token ? { Authorization: `Bearer ${token}` } : {}) }
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || `Recipe deletion failed (${response.status})`);
   }
 
   async fetchRecipeHistory(recipeId: string): Promise<RecipeVersionHistory[]> {
     try {
+      const branchId = getEffectiveBranchId();
       const q = query(
         collection(db, RECIPE_VERSIONS_COLL),
-        where('recipeId', '==', recipeId)
+        where('recipeId', '==', recipeId),
+        where('branchId', '==', branchId)
       );
       const snap = await getDocs(q);
       const list: RecipeVersionHistory[] = [];
@@ -240,28 +211,54 @@ export class RecipeRepositoryImpl implements IRecipeRepository {
         ? 'low_stock'
         : 'in_stock';
 
+    const requestedOpeningStock = Number(ingredientData.currentStockUsageUnit || 0);
+    if (!Number.isFinite(requestedOpeningStock) || requestedOpeningStock < 0) {
+      throw new Error('Initial ingredient stock must be a finite non-negative number.');
+    }
+
+    // Firestore rules intentionally forbid client-side stock initialization.
+    // Create the master record at zero, then establish any opening balance through
+    // the trusted inventory adjustment endpoint so stock + movement stay authoritative.
     const newIng: Ingredient = {
       ...ingredientData,
+      currentStockUsageUnit: 0,
       id: ref.id,
       costPerUsageUnit,
-      status,
+      status: 'out_of_stock',
       createdAt: now,
       updatedAt: now
     };
 
     await setDoc(ref, newIng);
 
-    // Record initial movement log
-    if (ingredientData.currentStockUsageUnit > 0) {
-      await recordInventoryMovementFirestore({
-        type: 'in',
-        itemType: 'ingredient',
-        itemId: ref.id,
-        itemName: newIng.name,
-        quantity: newIng.currentStockUsageUnit,
-        reason: 'Initial Ingredient Stocking',
-        createdBy: 'Admin'
+    if (requestedOpeningStock > 0) {
+      const token = await getAuthToken();
+      const idempotencyKey = `ingredient-opening:${ref.id}:${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
+      const res = await fetch(getApiUrl('/api/inventory/adjust'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': idempotencyKey,
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({
+          movementData: {
+            type: 'adjustment',
+            itemType: 'ingredient',
+            itemId: ref.id,
+            mode: 'set',
+            quantity: requestedOpeningStock,
+            reason: 'Initial Ingredient Stocking',
+            idempotencyKey
+          }
+        })
       });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Failed to initialize ingredient stock: HTTP ${res.status}`);
+      }
+      newIng.currentStockUsageUnit = requestedOpeningStock;
+      newIng.status = requestedOpeningStock <= (ingredientData.minStockUsageUnit || 0) ? 'low_stock' : 'in_stock';
     }
 
     return newIng;
@@ -271,7 +268,8 @@ export class RecipeRepositoryImpl implements IRecipeRepository {
     const ref = doc(db, INGREDIENTS_COLL, id);
     const now = new Date().toISOString();
 
-    const updates: any = { ...ingredientData, updatedAt: now };
+    const { currentStockUsageUnit: _clientStock, stock: _clientStockLegacy, status: _clientStatus, branchId: _clientBranch, ...safeIngredientData } = ingredientData as any;
+    const updates: any = { ...safeIngredientData, updatedAt: now };
 
     // Recalculate cost per usage unit if purchaseCost or conversionFactor updated
     if (ingredientData.purchaseCost !== undefined || ingredientData.conversionFactor !== undefined) {
@@ -289,7 +287,7 @@ export class RecipeRepositoryImpl implements IRecipeRepository {
       const snap = await getDoc(ref);
       if (snap.exists()) {
         const cur = snap.data();
-        const minStock = ingredientData.minStockUsageUnit ?? cur.minStockUsageUnit ?? 10;
+        const minStock = Number(ingredientData.minStockUsageUnit ?? cur.minStockUsageUnit ?? 0);
         updates.status =
           ingredientData.currentStockUsageUnit <= 0
             ? 'out_of_stock'
@@ -308,7 +306,12 @@ export class RecipeRepositoryImpl implements IRecipeRepository {
   }
 
   async deleteIngredient(id: string): Promise<void> {
-    await deleteDoc(doc(db, INGREDIENTS_COLL, id));
+    await updateDoc(doc(db, INGREDIENTS_COLL, id), {
+      isActive: false,
+      isArchived: true,
+      deletedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    } as any);
   }
 
   private async recalculateRecipeCostsForIngredient(ingredientId: string, newCostPerUsageUnit: number) {
@@ -333,15 +336,14 @@ export class RecipeRepositoryImpl implements IRecipeRepository {
           const grossProfit = recipe.sellingPrice - costPerPortion;
           const grossProfitMargin = recipe.sellingPrice > 0 ? (grossProfit / recipe.sellingPrice) * 100 : 0;
 
-          await updateDoc(doc(db, RECIPES_COLL, recipe.id), {
+          await this.updateRecipe(recipe.id, {
             items: newItems,
             totalCost,
             costPerPortion,
             foodCostPercentage,
             grossProfit,
-            grossProfitMargin,
-            updatedAt: new Date().toISOString()
-          });
+            grossProfitMargin
+          }, `Automatic cost recalculation after ingredient ${ingredientId} cost update`, 'System');
         }
       }
     } catch (err) {
@@ -354,11 +356,13 @@ export class RecipeRepositoryImpl implements IRecipeRepository {
   // ==========================================
   async fetchIngredientMovements(ingredientId?: string): Promise<IngredientMovement[]> {
     try {
-      let q = query(collection(db, INGREDIENT_MOVEMENTS_COLL), orderBy('createdAt', 'desc'));
+      const branchId = getEffectiveBranchId();
+      let q = query(collection(db, INGREDIENT_MOVEMENTS_COLL), where('branchId', '==', branchId), orderBy('createdAt', 'desc'));
       if (ingredientId) {
         q = query(
           collection(db, INGREDIENT_MOVEMENTS_COLL),
           where('ingredientId', '==', ingredientId),
+          where('branchId', '==', branchId),
           orderBy('createdAt', 'desc')
         );
       }
@@ -372,7 +376,12 @@ export class RecipeRepositoryImpl implements IRecipeRepository {
   }
 
   subscribeIngredientMovements(callback: (movements: IngredientMovement[]) => void): () => void {
-    const q = query(collection(db, INGREDIENT_MOVEMENTS_COLL), orderBy('createdAt', 'desc'));
+    let q;
+    try {
+      q = query(collection(db, INGREDIENT_MOVEMENTS_COLL), where('branchId', '==', getEffectiveBranchId()), orderBy('createdAt', 'desc'));
+    } catch {
+      return () => {};
+    }
     return onSnapshot(
       q,
       (snap) => {
@@ -421,32 +430,41 @@ export class RecipeRepositoryImpl implements IRecipeRepository {
           );
 
           const previousStock = ingData.currentStockUsageUnit || 0;
-          const newStock = Math.max(0, previousStock - deductedInUsageUnit);
+          const newStock = previousStock - deductedInUsageUnit;
+          if (newStock < 0) {
+            throw new Error(`Insufficient stock for ${ingData.name}.`);
+          }
 
-          const status =
-            newStock <= 0
-              ? 'out_of_stock'
-              : newStock <= ingData.minStockUsageUnit
-              ? 'low_stock'
-              : 'in_stock';
-
-          // Update Ingredient Stock
-          await updateDoc(ingRef, {
-            currentStockUsageUnit: newStock,
-            status,
-            updatedAt: now
+          // Automatic order deductions must be executed atomically by the trusted backend.
+          // This legacy repository method is retained for interface compatibility, but refuses to
+          // perform a partial client-side stock write that could diverge from POS/Accounting.
+          if (newStock < 0) {
+            throw new Error(`Insufficient stock for ${ingData.name}.`);
+          }
+          const token = await (await import('../../lib/firebase')).getAuthToken();
+          const response = await fetch((await import('../../lib/firebase')).getApiUrl('/api/inventory/adjust'), {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+            },
+            body: JSON.stringify({
+              movementData: {
+                type: 'order_deduction',
+                mode: 'delta',
+                itemType: 'ingredient',
+                itemId: ingData.id,
+                itemName: ingData.name,
+                quantity: deductedInUsageUnit,
+                reason: `Auto-deduction for ${orderItem.quantity}x ${orderItem.productName} (Order #${orderNumber})`,
+                createdBy: createdBy || 'POS System'
+              }
+            })
           });
-
-          // Log Ingredient Movement
-          await recordInventoryMovementFirestore({
-            type: 'out',
-            itemType: 'ingredient',
-            itemId: ingData.id,
-            itemName: ingData.name,
-            quantity: deductedInUsageUnit,
-            reason: `Auto-deduction for ${orderItem.quantity}x ${orderItem.productName} (Order #${orderNumber})`,
-            createdBy: createdBy || 'POS System'
-          });
+          if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.error || `Trusted ingredient deduction failed (${response.status}).`);
+          }
         }
       }
     } catch (err) {
@@ -459,7 +477,9 @@ export class RecipeRepositoryImpl implements IRecipeRepository {
   // ==========================================
   async fetchUnitConversions(): Promise<UnitConversion[]> {
     try {
-      const snap = await getDocs(collection(db, UNIT_CONVERSIONS_COLL));
+      const branchId = getEffectiveBranchId();
+      const q = query(collection(db, UNIT_CONVERSIONS_COLL), where('branchId', '==', branchId));
+      const snap = await getDocs(q);
       const list: UnitConversion[] = [];
       snap.forEach((d) => list.push({ id: d.id, ...d.data() } as UnitConversion));
       return list;
@@ -469,8 +489,14 @@ export class RecipeRepositoryImpl implements IRecipeRepository {
   }
 
   subscribeUnitConversions(callback: (conversions: UnitConversion[]) => void): () => void {
+    let q;
+    try {
+      q = query(collection(db, UNIT_CONVERSIONS_COLL), where('branchId', '==', getEffectiveBranchId()));
+    } catch {
+      return () => {};
+    }
     return onSnapshot(
-      collection(db, UNIT_CONVERSIONS_COLL),
+      q,
       (snap) => {
         const list: UnitConversion[] = [];
         snap.forEach((d) => list.push({ id: d.id, ...d.data() } as UnitConversion));
@@ -487,6 +513,7 @@ export class RecipeRepositoryImpl implements IRecipeRepository {
     const now = new Date().toISOString();
     const newConv: UnitConversion = {
       ...data,
+      branchId: (data as any).branchId || getEffectiveBranchId(),
       id: ref.id,
       createdAt: now,
       updatedAt: now
@@ -504,7 +531,8 @@ export class RecipeRepositoryImpl implements IRecipeRepository {
   // ==========================================
   async fetchStockCounts(): Promise<StockCount[]> {
     try {
-      const q = query(collection(db, STOCK_COUNTS_COLL), orderBy('createdAt', 'desc'));
+      const branchId = getEffectiveBranchId();
+      const q = query(collection(db, STOCK_COUNTS_COLL), where('branchId', '==', branchId), orderBy('createdAt', 'desc'));
       const snap = await getDocs(q);
       const list: StockCount[] = [];
       snap.forEach((d) => list.push({ id: d.id, ...d.data() } as StockCount));
@@ -521,6 +549,7 @@ export class RecipeRepositoryImpl implements IRecipeRepository {
     const countNumber = `STK-${Math.floor(10000 + Math.random() * 90000)}`;
     const newCount: StockCount = {
       ...data,
+      branchId: (data as any).branchId || getEffectiveBranchId(),
       id: ref.id,
       countNumber: data.countNumber || countNumber,
       createdAt: now,
@@ -539,37 +568,41 @@ export class RecipeRepositoryImpl implements IRecipeRepository {
     const countData = snap.data() as StockCount;
     const now = new Date().toISOString();
 
-    for (const item of countData.items) {
+    if (countData.status === 'adjusted') return;
+
+    for (const [index, item] of countData.items.entries()) {
       if (item.difference !== 0) {
         const ingRef = doc(db, INGREDIENTS_COLL, item.ingredientId);
         const ingSnap = await getDoc(ingRef);
         if (ingSnap.exists()) {
           const ingData = ingSnap.data() as Ingredient;
-          const previousStock = ingData.currentStockUsageUnit || 0;
-          const newStock = item.actualQuantity;
-
-          const status =
-            newStock <= 0
-              ? 'out_of_stock'
-              : newStock <= ingData.minStockUsageUnit
-              ? 'low_stock'
-              : 'in_stock';
-
-          await updateDoc(ingRef, {
-            currentStockUsageUnit: newStock,
-            status,
-            updatedAt: now
+          const token = await (await import('../../lib/firebase')).getAuthToken();
+          const idempotencyKey = `stock-count:${stockCountId}:${index}:${item.ingredientId}`;
+          const response = await fetch((await import('../../lib/firebase')).getApiUrl('/api/inventory/adjust'), {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Idempotency-Key': idempotencyKey,
+              ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+            },
+            body: JSON.stringify({
+              movementData: {
+                type: item.difference < 0 ? 'out' : 'in',
+                mode: 'delta',
+                itemType: 'ingredient',
+                itemId: ingData.id || item.ingredientId,
+                itemName: ingData.name || item.ingredientName,
+                quantity: Math.abs(item.difference),
+                reason: `Physical Stock Count Adjustment (${item.difference > 0 ? '+' : ''}${item.difference} ${item.unit})`,
+                createdBy: user,
+                idempotencyKey
+              }
+            })
           });
-
-          await recordInventoryMovementFirestore({
-            type: 'adjustment',
-            itemType: 'ingredient',
-            itemId: ingData.id,
-            itemName: ingData.name,
-            quantity: Math.abs(item.difference),
-            reason: `Physical Stock Count Adjustment (${item.difference > 0 ? '+' : ''}${item.difference} ${item.unit})`,
-            createdBy: user
-          });
+          if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.error || `Stock count adjustment failed (${response.status}).`);
+          }
         }
       }
     }
@@ -613,50 +646,33 @@ export class RecipeRepositoryImpl implements IRecipeRepository {
   }
 
   async recordWaste(data: Omit<WasteRecord, 'id' | 'createdAt'>): Promise<WasteRecord> {
-    const ref = doc(collection(db, WASTE_RECORDS_COLL));
-    const now = new Date().toISOString();
-
-    const record: WasteRecord = {
-      ...data,
-      id: ref.id,
-      createdAt: now
-    };
-
-    await setDoc(ref, record);
-
-    // Deduct stock from ingredient
-    const ingRef = doc(db, INGREDIENTS_COLL, data.ingredientId);
-    const ingSnap = await getDoc(ingRef);
-    if (ingSnap.exists()) {
-      const ingData = ingSnap.data() as Ingredient;
-      const previousStock = ingData.currentStockUsageUnit || 0;
-      const newStock = Math.max(0, previousStock - data.quantity);
-
-      const status =
-        newStock <= 0
-          ? 'out_of_stock'
-          : newStock <= ingData.minStockUsageUnit
-          ? 'low_stock'
-          : 'in_stock';
-
-      await updateDoc(ingRef, {
-        currentStockUsageUnit: newStock,
-        status,
-        updatedAt: now
-      });
-
-      await recordInventoryMovementFirestore({
-        type: 'out',
-        itemType: 'ingredient',
-        itemId: ingData.id,
-        itemName: ingData.name,
-        quantity: data.quantity,
-        reason: `Waste Recorded: ${(data.reason || 'waste').replace('_', ' ').toUpperCase()} - ${data.notes || ''}`,
-        createdBy: data.recordedBy || 'Kitchen'
-      });
+    const token = await getAuthToken();
+    const idempotencyKey = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const response = await fetch(getApiUrl('/api/kitchen/waste'), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': idempotencyKey,
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify({
+        wasteData: {
+          itemId: data.ingredientId,
+          itemType: 'ingredient',
+          quantity: data.quantity,
+          unit: data.unit,
+          reason: data.reason,
+          notes: data.notes,
+          cost: data.totalCost,
+          branchId: (data as any).branchId || getEffectiveBranchId()
+        }
+      })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(result.error || `Kitchen waste logging failed (${response.status})`);
     }
-
-    return record;
+    return (result.waste || result.wasteRecord || result) as WasteRecord;
   }
 
   // ==========================================
@@ -716,23 +732,23 @@ export class RecipeRepositoryImpl implements IRecipeRepository {
 
     return ingredients.map((ing) => {
       const stat = analyticsMap.get(ing.id);
-      const avgDaily = stat && stat.averageDailyUsage > 0 ? stat.averageDailyUsage : 10;
+      const avgDaily = stat && stat.averageDailyUsage > 0 ? stat.averageDailyUsage : 0;
       const currentStock = ing.currentStockUsageUnit || 0;
 
-      const daysRemaining = Math.max(0, Math.floor(currentStock / avgDaily));
+      const daysRemaining = avgDaily > 0 ? Math.max(0, Math.floor(currentStock / avgDaily)) : 0;
       const expected30Days = Number((avgDaily * 30).toFixed(2));
       const suggestedReorder = Math.max(0, expected30Days - currentStock + ing.minStockUsageUnit);
 
       let reorderStatus: IngredientForecast['reorderStatus'] = 'normal';
-      let purchaseRecommendation = 'Stock level is healthy.';
+      let purchaseRecommendation = avgDaily > 0 ? 'Stock level is healthy.' : 'Insufficient consumption history to forecast demand.';
 
-      if (daysRemaining <= 3) {
+      if (avgDaily > 0 && daysRemaining <= 3) {
         reorderStatus = 'urgent';
         purchaseRecommendation = `URGENT: Reorder at least ${suggestedReorder} ${ing.usageUnit} immediately! Only ${daysRemaining} days remaining.`;
-      } else if (daysRemaining <= 7) {
+      } else if (avgDaily > 0 && daysRemaining <= 7) {
         reorderStatus = 'warning';
         purchaseRecommendation = `WARNING: Reorder ${suggestedReorder} ${ing.usageUnit} soon. Stock covers ${daysRemaining} days.`;
-      } else if (daysRemaining > 60) {
+      } else if (avgDaily > 0 && daysRemaining > 60) {
         reorderStatus = 'overstocked';
         purchaseRecommendation = 'Stock level high. Reduce upcoming purchase orders.';
       }

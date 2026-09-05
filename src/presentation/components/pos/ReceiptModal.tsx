@@ -1,3 +1,5 @@
+import { useAuth } from '../../context/AuthContext';
+import { translateRawUi } from '../../../i18n/rawUi';
 import React, { useState } from 'react';
 import { ReceiptData } from '../../../domain/entities/pos';
 import { downloadPDFInvoice } from '../../../domain/services/receiptService';
@@ -12,6 +14,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
   receipt,
   onClose
 }) => {
+  const { t } = useAuth();
   const [activeView, setActiveView] = useState<'customer' | 'kitchen'>('customer');
 
   const handlePrint = () => {
@@ -49,7 +52,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
             }`}
           >
             <FileText className="w-3.5 h-3.5" />
-            <span>Customer Receipt</span>
+            <span>{t.legacyUi.customerReceipt}</span>
           </button>
           <button
             onClick={() => setActiveView('kitchen')}
@@ -60,7 +63,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
             }`}
           >
             <Utensils className="w-3.5 h-3.5" />
-            <span>Kitchen Ticket (KDS)</span>
+            <span>{t.legacyUi.kitchenTicketKds}</span>
           </button>
         </div>
 
@@ -71,28 +74,28 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
             /* Customer Receipt Format */
             <>
               <div className="text-center space-y-1 border-b border-dashed border-slate-800 pb-3">
-                <h4 className="font-extrabold text-sm text-white">RESTAURANT ERP RECEIPT</h4>
+                <h4 className="font-extrabold text-sm text-white">{t.legacyUi.restaurantErpReceipt}</h4>
                 <p className="text-[10px] text-slate-400">Order #{receipt.orderNumber}</p>
                 <p className="text-[10px] text-slate-500">{new Date(receipt.timestamp).toLocaleString()}</p>
               </div>
 
               <div className="space-y-1 text-[11px] border-b border-dashed border-slate-800 pb-3">
                 <div className="flex justify-between">
-                  <span className="text-slate-400">Customer:</span>
+                  <span className="text-slate-400">{translateRawUi('Customer:')}</span>
                   <span className="text-white font-bold">{receipt.customerName}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-400">Order Type:</span>
+                  <span className="text-slate-400">{t.legacyUi.orderTypeColon}</span>
                   <span className="text-emerald-400 font-bold uppercase">{(receipt.orderType || 'dine_in').replace('_', ' ')}</span>
                 </div>
                 {receipt.tableNumber && (
                   <div className="flex justify-between">
-                    <span className="text-slate-400">Table #:</span>
+                    <span className="text-slate-400">{t.legacyUi.tableNumberColon}</span>
                     <span className="text-white font-bold">{receipt.tableNumber}</span>
                   </div>
                 )}
                 <div className="flex justify-between">
-                  <span className="text-slate-400">Cashier:</span>
+                  <span className="text-slate-400">{translateRawUi('Cashier:')}</span>
                   <span className="text-white font-bold">{receipt.cashierName}</span>
                 </div>
               </div>
@@ -115,7 +118,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
               {/* Totals */}
               <div className="space-y-1 text-xs">
                 <div className="flex justify-between text-slate-400">
-                  <span>Subtotal:</span>
+                  <span>{translateRawUi('Subtotal:')}</span>
                   <span>${(receipt.subtotal || 0).toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between text-slate-400">
@@ -124,12 +127,12 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
                 </div>
                 {(receipt.discount || 0) > 0 && (
                   <div className="flex justify-between text-emerald-400">
-                    <span>Discount:</span>
+                    <span>{translateRawUi('Discount:')}</span>
                     <span>-${(receipt.discount || 0).toFixed(2)}</span>
                   </div>
                 )}
                 <div className="flex justify-between text-sm font-extrabold text-white pt-2 border-t border-slate-800">
-                  <span>TOTAL PAID:</span>
+                  <span>{t.legacyUi.totalPaid}</span>
                   <span className="text-emerald-400">${(receipt.totalAmount || 0).toFixed(2)}</span>
                 </div>
                 {receipt.amountTendered !== undefined && (
@@ -145,12 +148,12 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
             <>
               <div className="text-center space-y-1 border-b border-dashed border-amber-500/40 pb-3">
                 <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-400 text-[10px] font-bold uppercase">
-                  KITCHEN DISPATCH TICKET
+                  {translateRawUi('KITCHEN DISPATCH TICKET')}
                 </span>
                 <h4 className="font-extrabold text-base text-white mt-1">ORDER #{receipt.orderNumber}</h4>
                 <div className="flex justify-center gap-3 text-[10px] text-slate-400">
-                  <span>Type: <strong className="text-amber-400 uppercase">{receipt.orderType}</strong></span>
-                  {receipt.tableNumber && <span>Table: <strong className="text-white">{receipt.tableNumber}</strong></span>}
+                  <span>{translateRawUi('Type:')} <strong className="text-amber-400 uppercase">{receipt.orderType}</strong></span>
+                  {receipt.tableNumber && <span>{translateRawUi('Table:')} <strong className="text-white">{receipt.tableNumber}</strong></span>}
                 </div>
               </div>
 
@@ -183,7 +186,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
             className="bg-slate-800 hover:bg-slate-700 text-white font-bold py-3 rounded-2xl text-xs transition cursor-pointer flex items-center justify-center gap-2"
           >
             <Printer className="w-4 h-4 text-emerald-400" />
-            <span>Print Receipt</span>
+            <span>{t.legacyUi.printReceipt}</span>
           </button>
 
           <button
@@ -191,7 +194,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
             className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold py-3 rounded-2xl text-xs transition cursor-pointer flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20"
           >
             <Download className="w-4 h-4" />
-            <span>PDF Invoice</span>
+            <span>{t.legacyUi.pdfInvoiceLabel}</span>
           </button>
         </div>
       </div>

@@ -1,3 +1,4 @@
+import { translateRawUi } from '../../i18n/rawUi';
 import React, { useState, useEffect, useMemo } from 'react';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { db, COLLECTIONS, auth } from '../../lib/firebase';
@@ -101,7 +102,7 @@ export const AIBusinessPlatformView: React.FC<AIBusinessPlatformViewProps> = ({
   initialPurchases = [],
   language: initialLang
 }) => {
-  const { userRecord, role, language: authLang, setLanguage } = useAuth();
+  const { userRecord, role, language: authLang, setLanguage, t} = useAuth();
   const activeLang = (initialLang || authLang || 'en') as Language;
   const [currentLang, setCurrentLang] = useState<Language>(activeLang);
 
@@ -384,7 +385,7 @@ export const AIBusinessPlatformView: React.FC<AIBusinessPlatformViewProps> = ({
       ['AI Operations', 'Avg Kitchen Prep Time', `${analytics.avgPrepTimeMinutes || 0} min`, 'Optimal Target < 15 min'],
       ['AI Sales', 'Top Product', analytics.bestSellingProducts[0]?.name || 'N/A', `${analytics.bestSellingProducts[0]?.revenue || 0} USD`],
       ['AI Inventory', 'Low Stock Count', `${(analytics.lowStockIngredients || []).length} items`, 'Action Required'],
-      ['AI Forecasting', 'Projected 30-Day Sales', `$${(analytics.projected30DaySales || 0).toLocaleString()}`, 'Growth Trend +8%']
+      ['AI Forecasting', 'Projected 30-Day Sales', `$${(analytics.projected30DaySales || 0).toLocaleString()}`, 'Based on recorded forecast data']
     ];
     exportToExcel('AI_Business_Intelligence_Executive_Audit', columns, rows);
   };
@@ -407,19 +408,19 @@ export const AIBusinessPlatformView: React.FC<AIBusinessPlatformViewProps> = ({
           <div>
             <div className="flex items-center gap-2 mb-2">
               <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-wider flex items-center gap-1.5 shadow-sm">
-                <Crown className="w-3.5 h-3.5 text-amber-400" /> Phase 12 AI Business Platform
+                <Crown className="w-3.5 h-3.5 text-amber-400" /> {translateRawUi('Phase 12 AI Business Platform')}
               </span>
               <span className="bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-[10px] font-bold px-3 py-1 rounded-full flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" /> Real-time Firestore Sync
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" /> {translateRawUi('Real-time Firestore Sync')}
               </span>
             </div>
 
             <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white flex items-center gap-3">
               <Brain className="w-8 h-8 text-emerald-400" />
-              AI Business Intelligence Platform
+              {translateRawUi('AI Business Intelligence Platform')}
             </h1>
             <p className="text-slate-300 text-xs sm:text-sm mt-1 max-w-3xl leading-relaxed">
-              Autonomous multi-agent platform analyzing real-time Firestore ledger data across Accounting, Kitchen Operations, Sales Trends, Inventory Forecasting, Customer Retention & Executive Risk Radar.
+              {translateRawUi('Autonomous multi-agent platform analyzing real-time Firestore ledger data across Accounting, Kitchen Operations, Sales Trends, Inventory Forecasting, Customer Retention & Executive Risk Radar.')}
             </p>
           </div>
 
@@ -432,7 +433,7 @@ export const AIBusinessPlatformView: React.FC<AIBusinessPlatformViewProps> = ({
                   currentLang === 'en' ? 'bg-emerald-500 text-slate-950 shadow-md' : 'text-slate-400 hover:text-white'
                 }`}
               >
-                English
+                {translateRawUi('English')}
               </button>
               <button
                 onClick={() => handleLanguageChange('ar')}
@@ -448,7 +449,7 @@ export const AIBusinessPlatformView: React.FC<AIBusinessPlatformViewProps> = ({
                   currentLang === 'so' ? 'bg-emerald-500 text-slate-950 shadow-md' : 'text-slate-400 hover:text-white'
                 }`}
               >
-                Soomaali
+                {translateRawUi('Soomaali')}
               </button>
             </div>
 
@@ -457,7 +458,7 @@ export const AIBusinessPlatformView: React.FC<AIBusinessPlatformViewProps> = ({
               className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold px-4 py-2.5 rounded-2xl text-xs transition flex items-center gap-2 cursor-pointer shadow-lg shadow-emerald-500/20"
             >
               <FileSpreadsheet className="w-4 h-4" />
-              Export Executive Audit (.XLSX)
+              {translateRawUi('Export Executive Audit (.XLSX)')}
             </button>
           </div>
         </div>
@@ -473,35 +474,35 @@ export const AIBusinessPlatformView: React.FC<AIBusinessPlatformViewProps> = ({
               {analytics.healthScore}
             </div>
             <div>
-              <span className="text-[10px] text-slate-400 uppercase font-bold block">Health Score</span>
+              <span className="text-[10px] text-slate-400 uppercase font-bold block">{t.legacyUi.healthScore}</span>
               <span className="text-xs font-extrabold text-white">{analytics.healthRating}</span>
             </div>
           </div>
 
           <div className="bg-slate-900/80 p-3.5 rounded-2xl border border-slate-800">
-            <span className="text-[10px] text-slate-400 uppercase font-bold block">Today Revenue</span>
+            <span className="text-[10px] text-slate-400 uppercase font-bold block">{t.legacyUi.todayRevenue}</span>
             <span className="text-sm font-extrabold text-emerald-400 mt-0.5 block">${(analytics.todayRevenue || 0).toFixed(2)}</span>
           </div>
 
           <div className="bg-slate-900/80 p-3.5 rounded-2xl border border-slate-800">
-            <span className="text-[10px] text-slate-400 uppercase font-bold block">Today Net Profit</span>
+            <span className="text-[10px] text-slate-400 uppercase font-bold block">{t.legacyUi.todayNetProfit}</span>
             <span className={`text-sm font-extrabold mt-0.5 block ${(analytics.todayNetProfit || 0) >= 0 ? 'text-indigo-400' : 'text-rose-400'}`}>
               ${(analytics.todayNetProfit || 0).toFixed(2)}
             </span>
           </div>
 
           <div className="bg-slate-900/80 p-3.5 rounded-2xl border border-slate-800">
-            <span className="text-[10px] text-slate-400 uppercase font-bold block">Inventory Valuation</span>
+            <span className="text-[10px] text-slate-400 uppercase font-bold block">{t.legacyUi.inventoryValuation}</span>
             <span className="text-sm font-extrabold text-teal-400 mt-0.5 block">${(analytics.totalInventoryValuation || 0).toLocaleString()}</span>
           </div>
 
           <div className="bg-slate-900/80 p-3.5 rounded-2xl border border-slate-800">
-            <span className="text-[10px] text-slate-400 uppercase font-bold block">Active Alerts</span>
+            <span className="text-[10px] text-slate-400 uppercase font-bold block">{t.legacyUi.activeAlerts}</span>
             <span className="text-sm font-extrabold text-amber-400 mt-0.5 block">{analytics.alerts.length} Warnings</span>
           </div>
 
           <div className="bg-slate-900/80 p-3.5 rounded-2xl border border-slate-800">
-            <span className="text-[10px] text-slate-400 uppercase font-bold block">Customer Rating</span>
+            <span className="text-[10px] text-slate-400 uppercase font-bold block">{t.legacyUi.customerRating}</span>
             <span className="text-sm font-extrabold text-purple-400 mt-0.5 block">★ {analytics.customerSatisfactionScore}%</span>
           </div>
         </div>
@@ -519,7 +520,7 @@ export const AIBusinessPlatformView: React.FC<AIBusinessPlatformViewProps> = ({
             }`}
           >
             <Crown className="w-4 h-4" />
-            Executive Dashboard
+            {translateRawUi('Executive Dashboard')}
           </button>
 
           <button
@@ -531,7 +532,7 @@ export const AIBusinessPlatformView: React.FC<AIBusinessPlatformViewProps> = ({
             }`}
           >
             <Calculator className="w-4 h-4" />
-            AI Accountant
+            {translateRawUi('AI Accountant')}
           </button>
 
           <button
@@ -543,7 +544,7 @@ export const AIBusinessPlatformView: React.FC<AIBusinessPlatformViewProps> = ({
             }`}
           >
             <Activity className="w-4 h-4" />
-            Operations Manager
+            {translateRawUi('Operations Manager')}
           </button>
 
           <button
@@ -555,7 +556,7 @@ export const AIBusinessPlatformView: React.FC<AIBusinessPlatformViewProps> = ({
             }`}
           >
             <TrendingUp className="w-4 h-4" />
-            Sales Analyst
+            {translateRawUi('Sales Analyst')}
           </button>
 
           <button
@@ -567,7 +568,7 @@ export const AIBusinessPlatformView: React.FC<AIBusinessPlatformViewProps> = ({
             }`}
           >
             <Package className="w-4 h-4" />
-            Inventory Analyst
+            {translateRawUi('Inventory Analyst')}
           </button>
 
           <button
@@ -579,7 +580,7 @@ export const AIBusinessPlatformView: React.FC<AIBusinessPlatformViewProps> = ({
             }`}
           >
             <Users className="w-4 h-4" />
-            Customer Analyst
+            {translateRawUi('Customer Analyst')}
           </button>
 
           <button
@@ -591,7 +592,7 @@ export const AIBusinessPlatformView: React.FC<AIBusinessPlatformViewProps> = ({
             }`}
           >
             <LineChart className="w-4 h-4" />
-            AI Forecasting
+            {translateRawUi('AI Forecasting')}
           </button>
 
           <button
@@ -615,7 +616,7 @@ export const AIBusinessPlatformView: React.FC<AIBusinessPlatformViewProps> = ({
             }`}
           >
             <Bot className="w-4 h-4 text-amber-300" />
-            Multilingual AI Chat
+            {translateRawUi('Multilingual AI Chat')}
           </button>
         </div>
       </div>
@@ -626,23 +627,23 @@ export const AIBusinessPlatformView: React.FC<AIBusinessPlatformViewProps> = ({
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4">
               <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <Crown className="w-4 h-4 text-amber-400" /> Executive Strategic Recommendations
+                <Crown className="w-4 h-4 text-amber-400" /> {translateRawUi('Executive Strategic Recommendations')}
               </h3>
               <div className="space-y-3">
                 <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 text-xs space-y-1">
-                  <span className="font-bold text-emerald-400 block">Menu Margin Optimization</span>
-                  <p className="text-slate-300">Increase price on top sellers by +$0.50 to yield additional $1,400 monthly margin without impacting volume.</p>
+                  <span className="font-bold text-emerald-400 block">{t.legacyUi.menuMarginOptimization}</span>
+                  <p className="text-slate-300">{translateRawUi('Increase price on top sellers by +$0.50 to yield additional $1,400 monthly margin without impacting volume.')}</p>
                 </div>
                 <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 text-xs space-y-1">
-                  <span className="font-bold text-indigo-400 block">Inventory Holding Efficiency</span>
-                  <p className="text-slate-300">Reorder ingredients automatically via supplier bulk contracts to reduce raw food waste by 18%.</p>
+                  <span className="font-bold text-indigo-400 block">{t.legacyUi.inventoryHoldingEfficiency}</span>
+                  <p className="text-slate-300">{t.legacyUi.reorderWasteReduction}</p>
                 </div>
               </div>
             </div>
 
             <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4">
               <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <ShieldAlert className="w-4 h-4 text-rose-400" /> Business Risk Radar
+                <ShieldAlert className="w-4 h-4 text-rose-400" /> {translateRawUi('Business Risk Radar')}
               </h3>
               <div className="space-y-3">
                 {analytics.accountingAnomalies.length > 0 ? (
@@ -655,7 +656,7 @@ export const AIBusinessPlatformView: React.FC<AIBusinessPlatformViewProps> = ({
                   ))
                 ) : (
                   <div className="p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-300 font-semibold">
-                    No critical risk anomalies detected in ledger!
+                    {translateRawUi('No critical risk anomalies detected in ledger!')}
                   </div>
                 )}
               </div>
@@ -663,19 +664,19 @@ export const AIBusinessPlatformView: React.FC<AIBusinessPlatformViewProps> = ({
 
             <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4">
               <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <LineChart className="w-4 h-4 text-emerald-400" /> Profit & Sales 30-Day Forecast
+                <LineChart className="w-4 h-4 text-emerald-400" /> {translateRawUi('Profit & Sales 30-Day Forecast')}
               </h3>
               <div className="space-y-3 text-xs">
                 <div className="flex justify-between items-center p-3 rounded-2xl bg-slate-950 border border-slate-800">
-                  <span className="text-slate-400">Projected 30-Day Revenue</span>
+                  <span className="text-slate-400">{t.legacyUi.projected30DayRevenue}</span>
                   <span className="font-extrabold text-emerald-400">${(analytics.projected30DaySales || 0).toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between items-center p-3 rounded-2xl bg-slate-950 border border-slate-800">
-                  <span className="text-slate-400">Projected Monthly Profit</span>
+                  <span className="text-slate-400">{t.legacyUi.projectedMonthlyProfit}</span>
                   <span className="font-extrabold text-indigo-400">${(analytics.projectedMonthlyProfit || 0).toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between items-center p-3 rounded-2xl bg-slate-950 border border-slate-800">
-                  <span className="text-slate-400">Projected Operating Expenses</span>
+                  <span className="text-slate-400">{t.legacyUi.projectedOperatingExpenses}</span>
                   <span className="font-extrabold text-slate-300">${(analytics.projectedMonthlyExpenses || 0).toLocaleString()}</span>
                 </div>
               </div>
@@ -691,9 +692,9 @@ export const AIBusinessPlatformView: React.FC<AIBusinessPlatformViewProps> = ({
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-base font-bold text-white flex items-center gap-2">
-                  <Calculator className="w-5 h-5 text-emerald-400" /> AI Certified Public Accountant (CPA Audit)
+                  <Calculator className="w-5 h-5 text-emerald-400" /> {translateRawUi('AI Certified Public Accountant (CPA Audit)')}
                 </h3>
-                <p className="text-xs text-slate-400 mt-0.5">Comprehensive audit of sales revenue, overhead expenses, COGS food cost, net margins & accounting anomalies.</p>
+                <p className="text-xs text-slate-400 mt-0.5">{translateRawUi('Comprehensive audit of sales revenue, overhead expenses, COGS food cost, net margins & accounting anomalies.')}</p>
               </div>
 
               <button
@@ -713,25 +714,25 @@ export const AIBusinessPlatformView: React.FC<AIBusinessPlatformViewProps> = ({
                 }}
                 className="bg-slate-800 hover:bg-slate-700 text-emerald-400 font-bold px-3.5 py-2 rounded-2xl text-xs flex items-center gap-2 cursor-pointer border border-slate-700"
               >
-                <Printer className="w-4 h-4" /> Print Financial Audit
+                <Printer className="w-4 h-4" /> {translateRawUi('Print Financial Audit')}
               </button>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
               <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-1">
-                <span className="text-xs text-slate-400 font-medium block">Total Sales Revenue</span>
+                <span className="text-xs text-slate-400 font-medium block">{t.legacyUi.totalSalesRevenue}</span>
                 <span className="text-lg font-bold text-emerald-400 block">${(analytics.totalRevenue || 0).toFixed(2)}</span>
               </div>
               <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-1">
-                <span className="text-xs text-slate-400 font-medium block">Total Operating Expenses</span>
+                <span className="text-xs text-slate-400 font-medium block">{t.legacyUi.totalOperatingExpenses}</span>
                 <span className="text-lg font-bold text-rose-400 block">${(analytics.totalExpenses || 0).toFixed(2)}</span>
               </div>
               <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-1">
-                <span className="text-xs text-slate-400 font-medium block">Net Operating Profit</span>
+                <span className="text-xs text-slate-400 font-medium block">{t.legacyUi.netOperatingProfit}</span>
                 <span className="text-lg font-bold text-indigo-400 block">${(analytics.netProfit || 0).toFixed(2)}</span>
               </div>
               <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-1">
-                <span className="text-xs text-slate-400 font-medium block">Liquid Reserve Balance</span>
+                <span className="text-xs text-slate-400 font-medium block">{t.legacyUi.liquidReserveBalance}</span>
                 <span className="text-lg font-bold text-teal-400 block">${(analytics.liquidBalance || 0).toFixed(2)}</span>
               </div>
             </div>
@@ -762,31 +763,31 @@ export const AIBusinessPlatformView: React.FC<AIBusinessPlatformViewProps> = ({
         <div className="space-y-6">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-6">
             <h3 className="text-base font-bold text-white flex items-center gap-2">
-              <Activity className="w-5 h-5 text-indigo-400" /> AI Operations & Kitchen Efficiency Engine
+              <Activity className="w-5 h-5 text-indigo-400" /> {translateRawUi('AI Operations & Kitchen Efficiency Engine')}
             </h3>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800">
-                <span className="text-xs text-slate-400 font-medium block">Avg Kitchen Prep Time</span>
+                <span className="text-xs text-slate-400 font-medium block">{t.legacyUi.avgKitchenPrepTime}</span>
                 <span className="text-lg font-bold text-emerald-400 block mt-1">{analytics.avgPrepTimeMinutes} minutes</span>
-                <span className="text-[10px] text-slate-500">Target SLA &lt; 15 min</span>
+                <span className="text-[10px] text-slate-500">{t.legacyUi.targetSlaConfigured}</span>
               </div>
 
               <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800">
-                <span className="text-xs text-slate-400 font-medium block">Avg Customer Wait Time</span>
+                <span className="text-xs text-slate-400 font-medium block">{t.legacyUi.avgCustomerWaitTime}</span>
                 <span className="text-lg font-bold text-indigo-400 block mt-1">{analytics.avgWaitTimeMinutes} minutes</span>
-                <span className="text-[10px] text-slate-500">Dine-in & Takeaway orders</span>
+                <span className="text-[10px] text-slate-500">{t.legacyUi.dineInTakeawayOrders}</span>
               </div>
 
               <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800">
-                <span className="text-xs text-slate-400 font-medium block">Active Staff Productivity</span>
+                <span className="text-xs text-slate-400 font-medium block">{t.legacyUi.activeStaffProductivity}</span>
                 <span className="text-lg font-bold text-teal-400 block mt-1">{employees.length} Staff Members</span>
-                <span className="text-[10px] text-emerald-400 font-semibold">{employees.filter(e => e.status === 'active').length} Active On Roster</span>
+                <span className="text-[10px] text-emerald-400 font-semibold">{employees.filter(e => e.status === 'active').length} {translateRawUi('Active On Roster')}</span>
               </div>
             </div>
 
             <div className="space-y-3">
-              <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-wider">Operational Recommendations</h4>
+              <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-wider">{t.legacyUi.operationalRecommendations}</h4>
               {analytics.operationalRecommendations.map((op, idx) => (
                 <div key={idx} className="p-4 rounded-2xl bg-slate-950 border border-slate-800 flex items-center justify-between gap-4 text-xs">
                   <div>
@@ -809,7 +810,7 @@ export const AIBusinessPlatformView: React.FC<AIBusinessPlatformViewProps> = ({
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4">
               <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <ArrowUpRight className="w-4 h-4 text-emerald-400" /> Best Selling Products
+                <ArrowUpRight className="w-4 h-4 text-emerald-400" /> {translateRawUi('Best Selling Products')}
               </h3>
               <div className="space-y-3">
                 {analytics.bestSellingProducts.map((p, idx) => (
@@ -826,19 +827,19 @@ export const AIBusinessPlatformView: React.FC<AIBusinessPlatformViewProps> = ({
 
             <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4">
               <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <Clock className="w-4 h-4 text-indigo-400" /> Peak vs Slow Hours Analysis
+                <Clock className="w-4 h-4 text-indigo-400" /> {translateRawUi('Peak vs Slow Hours Analysis')}
               </h3>
               <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3 text-xs">
                 <div className="flex justify-between items-center border-b border-slate-800 pb-2">
-                  <span className="text-slate-400">Peak Demand Hour</span>
+                  <span className="text-slate-400">{t.legacyUi.peakDemandHour}</span>
                   <span className="font-extrabold text-emerald-400">{analytics.peakHourLabel}</span>
                 </div>
                 <div className="flex justify-between items-center border-b border-slate-800 pb-2">
-                  <span className="text-slate-400">Slow Off-Peak Hour</span>
+                  <span className="text-slate-400">{t.legacyUi.slowOffPeakHour}</span>
                   <span className="font-extrabold text-amber-400">{analytics.slowHourLabel}</span>
                 </div>
                 <p className="text-slate-300 pt-1">
-                  💡 <strong>AI Strategy:</strong> Run a 20% Happy Hour discount during {analytics.slowHourLabel} to stimulate footfall and increase off-peak order volume.
+                  💡 <strong>{t.legacyUi.aiStrategy}</strong> {translateRawUi('Use the recorded slow-hour demand data to evaluate an appropriate promotional scenario before applying any discount.')}
                 </p>
               </div>
             </div>
@@ -851,7 +852,7 @@ export const AIBusinessPlatformView: React.FC<AIBusinessPlatformViewProps> = ({
         <div className="space-y-6">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-6">
             <h3 className="text-base font-bold text-white flex items-center gap-2">
-              <Package className="w-5 h-5 text-teal-400" /> AI Inventory & Raw Material Consumption Engine
+              <Package className="w-5 h-5 text-teal-400" /> {translateRawUi('AI Inventory & Raw Material Consumption Engine')}
             </h3>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -862,13 +863,13 @@ export const AIBusinessPlatformView: React.FC<AIBusinessPlatformViewProps> = ({
                 {analytics.lowStockIngredients.map((i) => (
                   <div key={i.id} className="flex justify-between items-center text-xs p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20">
                     <span className="font-bold text-white">{i.name}</span>
-                    <span className="text-rose-300 font-extrabold">{i.stock} {i.unit} (Min: {i.minStockAlert || 5})</span>
+                    <span className="text-rose-300 font-extrabold">{i.stock} {i.unit} (Min: {Number.isFinite(Number(i.minStockAlert)) ? i.minStockAlert : 0})</span>
                   </div>
                 ))}
               </div>
 
               <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
-                <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-wider">Purchasing Recommendations per Supplier</h4>
+                <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-wider">{t.legacyUi.purchasingRecommendationsSupplier}</h4>
                 {analytics.purchasingRecommendations.map((pr, idx) => (
                   <div key={idx} className="flex justify-between items-center text-xs p-2.5 rounded-xl bg-slate-900 border border-slate-800">
                     <div>
@@ -889,29 +890,29 @@ export const AIBusinessPlatformView: React.FC<AIBusinessPlatformViewProps> = ({
         <div className="space-y-6">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-6">
             <h3 className="text-base font-bold text-white flex items-center gap-2">
-              <Users className="w-5 h-5 text-purple-400" /> AI Customer Retention & Loyalty Analytics
+              <Users className="w-5 h-5 text-purple-400" /> {translateRawUi('AI Customer Retention & Loyalty Analytics')}
             </h3>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800">
-                <span className="text-xs text-slate-400 font-medium block">Total Tracked Customers</span>
+                <span className="text-xs text-slate-400 font-medium block">{t.legacyUi.totalTrackedCustomers}</span>
                 <span className="text-lg font-bold text-white block mt-1">{analytics.totalCustomerCount} Registered</span>
               </div>
               <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800">
-                <span className="text-xs text-slate-400 font-medium block">VIP Loyalty Tier</span>
+                <span className="text-xs text-slate-400 font-medium block">{t.legacyUi.vipLoyaltyTier}</span>
                 <span className="text-lg font-bold text-amber-400 block mt-1">{analytics.vipCount} VIP Guests</span>
               </div>
               <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800">
-                <span className="text-xs text-slate-400 font-medium block">Customer Satisfaction Score</span>
+                <span className="text-xs text-slate-400 font-medium block">{t.legacyUi.customerSatisfactionScore}</span>
                 <span className="text-lg font-bold text-purple-400 block mt-1">★ {analytics.customerSatisfactionScore}% Satisfied</span>
               </div>
             </div>
 
             <div className="space-y-3">
-              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Top Customer Lifetime Value (LTV)</h4>
+              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">{t.legacyUi.topCustomerLifetimeValue}</h4>
               <div className="space-y-2">
                 {analytics.customerList.length === 0 ? (
-                  <p className="text-xs text-slate-500 text-center py-4 bg-slate-950 rounded-2xl border border-slate-800">No customer records found.</p>
+                  <p className="text-xs text-slate-500 text-center py-4 bg-slate-950 rounded-2xl border border-slate-800">{t.legacyUi.noCustomerRecords}</p>
                 ) : (
                   analytics.customerList.map((c: any) => {
                     const spend = Number(c.totalSpending ?? c.totalSpent ?? c.orderSummary?.totalSpent ?? 0);
@@ -940,22 +941,22 @@ export const AIBusinessPlatformView: React.FC<AIBusinessPlatformViewProps> = ({
         <div className="space-y-6">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-6">
             <h3 className="text-base font-bold text-white flex items-center gap-2">
-              <LineChart className="w-5 h-5 text-emerald-400" /> AI Predictive Revenue & Demand Models
+              <LineChart className="w-5 h-5 text-emerald-400" /> {translateRawUi('AI Predictive Revenue & Demand Models')}
             </h3>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-1">
-                <span className="text-xs text-slate-400 font-medium block">Tomorrow Revenue Forecast</span>
+                <span className="text-xs text-slate-400 font-medium block">{t.legacyUi.tomorrowRevenueForecast}</span>
                 <span className="text-xl font-bold text-emerald-400 block">${(analytics.projectedNextDaySales || 0).toLocaleString()}</span>
               </div>
 
               <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-1">
-                <span className="text-xs text-slate-400 font-medium block">7-Day Revenue Forecast</span>
+                <span className="text-xs text-slate-400 font-medium block">{t.legacyUi.sevenDayRevenueForecast}</span>
                 <span className="text-xl font-bold text-indigo-400 block">${(analytics.projected7DaySales || 0).toLocaleString()}</span>
               </div>
 
               <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-1">
-                <span className="text-xs text-slate-400 font-medium block">30-Day Revenue Forecast</span>
+                <span className="text-xs text-slate-400 font-medium block">{t.legacyUi.thirtyDayRevenueForecast}</span>
                 <span className="text-xl font-bold text-purple-400 block">${(analytics.projected30DaySales || 0).toLocaleString()}</span>
               </div>
             </div>
@@ -968,7 +969,7 @@ export const AIBusinessPlatformView: React.FC<AIBusinessPlatformViewProps> = ({
         <div className="space-y-6">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-6">
             <h3 className="text-base font-bold text-white flex items-center gap-2">
-              <Bell className="w-5 h-5 text-amber-400" /> AI Automated Operational & Financial Alerts
+              <Bell className="w-5 h-5 text-amber-400" /> {translateRawUi('AI Automated Operational & Financial Alerts')}
             </h3>
 
             <div className="space-y-3">
@@ -996,9 +997,9 @@ export const AIBusinessPlatformView: React.FC<AIBusinessPlatformViewProps> = ({
         <div className="bg-slate-950 border border-slate-800 rounded-3xl p-6 text-white shadow-2xl space-y-6">
           <div>
             <h3 className="text-base font-bold flex items-center gap-2 text-white">
-              <Bot className="w-6 h-6 text-emerald-400" /> Multilingual AI Business Chat (English / العربية / Soomaali)
+              <Bot className="w-6 h-6 text-emerald-400" /> {translateRawUi('Multilingual AI Business Chat (English / العربية / Soomaali)')}
             </h3>
-            <p className="text-xs text-slate-400 mt-1">Ask questions in any language. The AI auto-detects language and returns real-time data calculations.</p>
+            <p className="text-xs text-slate-400 mt-1">{t.legacyUi.askAnyLanguage}</p>
           </div>
 
           {/* Prompt Shortcuts */}
@@ -1028,7 +1029,7 @@ export const AIBusinessPlatformView: React.FC<AIBusinessPlatformViewProps> = ({
               <div key={msg.id} className={`flex gap-3 text-xs ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
                 {msg.sender === 'assistant' && (
                   <div className="w-7 h-7 rounded-xl bg-emerald-500 flex items-center justify-center shrink-0 text-slate-950 font-black">
-                    AI
+                    {translateRawUi('AI')}
                   </div>
                 )}
                 <div
@@ -1044,7 +1045,7 @@ export const AIBusinessPlatformView: React.FC<AIBusinessPlatformViewProps> = ({
             ))}
             {isChatLoading && (
               <div className="flex items-center gap-2 text-xs text-emerald-400 font-semibold">
-                <RefreshCw className="w-4 h-4 animate-spin" /> AI Analyzing Firestore Ledger...
+                <RefreshCw className="w-4 h-4 animate-spin" /> {translateRawUi('AI Analyzing Firestore Ledger...')}
               </div>
             )}
           </div>
@@ -1070,7 +1071,7 @@ export const AIBusinessPlatformView: React.FC<AIBusinessPlatformViewProps> = ({
               disabled={isChatLoading}
               className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold px-5 py-3 rounded-2xl text-xs flex items-center gap-2 cursor-pointer shadow-lg shadow-emerald-500/20"
             >
-              <Send className="w-4 h-4" /> Send
+              <Send className="w-4 h-4" /> {translateRawUi('Send')}
             </button>
           </div>
         </div>

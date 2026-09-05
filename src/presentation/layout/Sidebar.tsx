@@ -1,3 +1,4 @@
+import { translateRawUi } from '../../i18n';
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -78,9 +79,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <div className="p-4 border-b border-slate-800 flex items-center justify-between">
         <div>
           <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest block">
-            ERP PHASE 2 PORTAL
+            {translateRawUi('ERP PHASE 2 PORTAL')}
           </span>
-          <span className="text-xs text-slate-400 font-medium">Enterprise Access</span>
+          <span className="text-xs text-slate-400 font-medium">{t.legacyUi.enterpriseAccess}</span>
         </div>
         <button onClick={onCloseMobile} className="lg:hidden text-slate-400 hover:text-white">
           <X className="w-5 h-5" />

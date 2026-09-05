@@ -1,3 +1,4 @@
+import { translateRawUi } from '../../../i18n/rawUi';
 import React, { useState, useEffect } from 'react';
 import { Product, Category, Ingredient, ProductOption } from '../../../types';
 import { useAuth } from '../../context/AuthContext';
@@ -112,7 +113,7 @@ export const ProductManagementView: React.FC = () => {
     return (
       <div className="p-12 text-center bg-slate-900 border border-slate-800 rounded-3xl max-w-xl mx-auto my-12">
         <ShieldAlert className="w-12 h-12 text-rose-400 mx-auto mb-4" />
-        <h3 className="text-lg font-bold text-white mb-2">Access Restricted</h3>
+        <h3 className="text-lg font-bold text-white mb-2">{t.legacyUi.accessRestricted}</h3>
         <p className="text-xs text-slate-400">Your role ({role}) does not have permissions to view restaurant product management.</p>
       </div>
     );
@@ -130,7 +131,7 @@ export const ProductManagementView: React.FC = () => {
   // Metrics calculation
   const totalProducts = products.length;
   const activeProductsCount = products.filter((p) => p.availabilityStatus === 'enabled' || !p.availabilityStatus).length;
-  const lowStockCount = products.filter((p) => p.stock <= (p.minStockAlert || 10)).length;
+  const lowStockCount = products.filter((p) => typeof p.minStockAlert === 'number' && p.stock <= p.minStockAlert).length;
   const featuredCount = products.filter((p) => p.isFeatured).length;
 
   // Handlers
@@ -200,7 +201,7 @@ export const ProductManagementView: React.FC = () => {
         <div>
           <div className="flex items-center gap-2 text-emerald-400 text-xs font-bold uppercase tracking-wider mb-1">
             <Sparkles className="w-4 h-4" />
-            <span>Phase 4 • Restaurant Menu & Catalog Engine</span>
+            <span>{t.legacyUi.phase4Catalog}</span>
           </div>
           <h1 className="text-xl font-extrabold text-white">{titleText}</h1>
           <p className="text-xs text-slate-400 mt-1">
@@ -218,7 +219,13 @@ export const ProductManagementView: React.FC = () => {
           </button>
 
           <button
-            onClick={() => setIsOptionsModalOpen(true)}
+            onClick={() => {
+              if (!selectedDetailProduct) {
+                alert(language === 'ar' ? 'اختر منتجًا أولاً لإدارة خياراته.' : language === 'so' ? 'Dooro alaab marka hore si aad u maamusho xulashooyinkeeda.' : 'Select a product first to manage its options.');
+                return;
+              }
+              setIsOptionsModalOpen(true);
+            }}
             className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-2xl border border-slate-700 flex items-center gap-2 transition"
           >
             <Sliders className="w-4 h-4 text-emerald-400" />
@@ -329,7 +336,7 @@ export const ProductManagementView: React.FC = () => {
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Search by Dish Name (English, Arabic, Somali), SKU, Barcode, or ingredients..."
+            placeholder={translateRawUi('Search by Dish Name (English, Arabic, Somali), SKU, Barcode, or ingredients...')}
             className="w-full pl-10 pr-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
           />
         </div>
@@ -341,10 +348,10 @@ export const ProductManagementView: React.FC = () => {
             onChange={(e) => setAvailabilityFilter(e.target.value)}
             className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-300 focus:outline-none focus:border-emerald-500"
           >
-            <option value="all">All Statuses</option>
-            <option value="enabled">Enabled Only</option>
-            <option value="disabled">Disabled Only</option>
-            <option value="out_of_stock">Out of Stock</option>
+            <option value="all">{t.legacyUi.allStatuses}</option>
+            <option value="enabled">{t.legacyUi.enabledOnly}</option>
+            <option value="disabled">{t.legacyUi.disabledOnly}</option>
+            <option value="out_of_stock">{t.legacyUi.outOfStock}</option>
           </select>
 
           <button
@@ -356,7 +363,7 @@ export const ProductManagementView: React.FC = () => {
             }`}
           >
             <Flame className="w-3.5 h-3.5" />
-            <span>Featured</span>
+            <span>{translateRawUi('Featured')}</span>
           </button>
 
           {/* View Mode Toggle */}
@@ -380,13 +387,13 @@ export const ProductManagementView: React.FC = () => {
       {/* Main Content Area */}
       {loading ? (
         <div className="p-16 text-center text-slate-500 text-xs">
-          Loading restaurant menu database...
+          {translateRawUi('Loading restaurant menu database...')}
         </div>
       ) : filteredProducts.length === 0 ? (
         <div className="p-16 text-center bg-slate-900 border border-slate-800 rounded-3xl space-y-3">
           <Tag className="w-10 h-10 text-slate-600 mx-auto" />
-          <h3 className="text-sm font-bold text-white">No products match your filter criteria</h3>
-          <p className="text-xs text-slate-400">Try adjusting your search keywords or category filters.</p>
+          <h3 className="text-sm font-bold text-white">{t.legacyUi.noProductsMatch}</h3>
+          <p className="text-xs text-slate-400">{t.legacyUi.tryAdjustFilters}</p>
         </div>
       ) : viewMode === 'grid' ? (
         /* GRID VIEW */
@@ -419,7 +426,7 @@ export const ProductManagementView: React.FC = () => {
                   {product.isFeatured && (
                     <span className="absolute top-3 right-3 px-2.5 py-1 rounded-xl text-[10px] font-bold bg-amber-500/80 text-slate-950 backdrop-blur-md flex items-center gap-1">
                       <Flame className="w-3 h-3" />
-                      <span>Featured</span>
+                      <span>{translateRawUi('Featured')}</span>
                     </span>
                   )}
 
@@ -464,16 +471,16 @@ export const ProductManagementView: React.FC = () => {
                   {/* Meta Pills */}
                   <div className="pt-3 border-t border-slate-800/80 grid grid-cols-3 gap-2 text-[10px] text-slate-400 font-mono">
                     <div>
-                      <span className="block text-slate-500 text-[9px]">SKU</span>
+                      <span className="block text-slate-500 text-[9px]">{translateRawUi('SKU')}</span>
                       <span className="font-bold text-slate-300 truncate block">{product.sku}</span>
                     </div>
                     <div>
-                      <span className="block text-slate-500 text-[9px]">PREP</span>
-                      <span className="font-bold text-slate-300 block">{product.prepTimeMinutes || 15} min</span>
+                      <span className="block text-slate-500 text-[9px]">{translateRawUi('PREP')}</span>
+                      <span className="font-bold text-slate-300 block">{product.prepTimeMinutes ?? '—'} min</span>
                     </div>
                     <div>
-                      <span className="block text-slate-500 text-[9px]">STOCK</span>
-                      <span className={`font-bold block ${product.stock <= (product.minStockAlert || 10) ? 'text-amber-400' : 'text-slate-300'}`}>
+                      <span className="block text-slate-500 text-[9px]">{translateRawUi('STOCK')}</span>
+                      <span className={`font-bold block ${product.stock <= (product.minStockAlert ?? 0) ? 'text-amber-400' : 'text-slate-300'}`}>
                         {product.stock} {product.unit || 'Portion'}
                       </span>
                     </div>
@@ -488,7 +495,7 @@ export const ProductManagementView: React.FC = () => {
                           ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
                           : 'bg-slate-800 text-slate-400 border-slate-700'
                       }`}
-                      title="Toggle Active Status"
+                      title={translateRawUi('Toggle Active Status')}
                     >
                       {status === 'enabled' ? <ToggleRight className="w-4 h-4 text-emerald-400" /> : <ToggleLeft className="w-4 h-4" />}
                     </button>
@@ -500,7 +507,7 @@ export const ProductManagementView: React.FC = () => {
                           setIsDetailsModalOpen(true);
                         }}
                         className="p-2 text-slate-400 hover:text-white bg-slate-950 border border-slate-800 rounded-xl transition"
-                        title="View Full Details"
+                        title={translateRawUi('View Full Details')}
                       >
                         <Eye className="w-4 h-4" />
                       </button>
@@ -510,7 +517,7 @@ export const ProductManagementView: React.FC = () => {
                           <button
                             onClick={() => handleOpenEditProduct(product)}
                             className="p-2 text-slate-400 hover:text-emerald-400 bg-slate-950 border border-slate-800 rounded-xl transition"
-                            title="Edit Product"
+                            title={translateRawUi('Edit Product')}
                           >
                             <Edit2 className="w-4 h-4" />
                           </button>
@@ -518,7 +525,7 @@ export const ProductManagementView: React.FC = () => {
                           <button
                             onClick={() => handleDeleteProduct(product.id, product.nameEn || product.name)}
                             className="p-2 text-rose-400 hover:bg-rose-500/10 bg-slate-950 border border-slate-800 rounded-xl transition"
-                            title="Delete Product"
+                            title={translateRawUi('Delete Product')}
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
@@ -539,14 +546,14 @@ export const ProductManagementView: React.FC = () => {
             <table className="w-full text-left text-xs text-slate-300">
               <thead className="bg-slate-950 border-b border-slate-800 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                 <tr>
-                  <th className="p-4">Dish</th>
-                  <th className="p-4">Category</th>
-                  <th className="p-4">SKU / Barcode</th>
-                  <th className="p-4">Price</th>
-                  <th className="p-4">Stock</th>
-                  <th className="p-4">Prep Time</th>
-                  <th className="p-4">Status</th>
-                  <th className="p-4 text-right">Actions</th>
+                  <th className="p-4">{translateRawUi('Dish')}</th>
+                  <th className="p-4">{translateRawUi('Category')}</th>
+                  <th className="p-4">{t.legacyUi.skuBarcode}</th>
+                  <th className="p-4">{t.legacyUi.priceLabel}</th>
+                  <th className="p-4">{translateRawUi('Stock')}</th>
+                  <th className="p-4">{t.legacyUi.prepTime}</th>
+                  <th className="p-4">{translateRawUi('Status')}</th>
+                  <th className="p-4 text-right">{translateRawUi('Actions')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60">
@@ -593,13 +600,13 @@ export const ProductManagementView: React.FC = () => {
                       </td>
 
                       <td className="p-4 font-bold">
-                        <span className={p.stock <= (p.minStockAlert || 10) ? 'text-amber-400' : 'text-slate-200'}>
-                          {p.stock} {p.unit || 'Portion'}
+                        <span className={p.stock <= (p.minStockAlert ?? 0) ? 'text-amber-400' : 'text-slate-200'}>
+                          {p.stock} {p.unit || '—'}
                         </span>
                       </td>
 
                       <td className="p-4 text-slate-400">
-                        {p.prepTimeMinutes || 15} Mins
+                        {p.prepTimeMinutes ?? '—'} Mins
                       </td>
 
                       <td className="p-4">
@@ -674,8 +681,18 @@ export const ProductManagementView: React.FC = () => {
       <ProductOptionsModal
         isOpen={isOptionsModalOpen}
         onClose={() => setIsOptionsModalOpen(false)}
-        options={[]}
-        onSaveOptions={async () => {}}
+        options={selectedDetailProduct?.options || []}
+        onSaveOptions={async (updatedOptions) => {
+          if (!selectedDetailProduct) throw new Error('No product selected.');
+          const normalizedOptions = updatedOptions.map(option => ({ ...option, productId: selectedDetailProduct.id }));
+          await productRepository.saveProductOptions(selectedDetailProduct.id, normalizedOptions);
+          setProducts(prev => prev.map(p => p.id === selectedDetailProduct.id ? { ...p, options: normalizedOptions } : p));
+          setSelectedDetailProduct(prev => prev ? { ...prev, options: normalizedOptions } : prev);
+          await logActivityFirestore({
+            action: 'UPDATE_PRODUCT_OPTIONS',
+            details: `Updated product options for ${selectedDetailProduct.name}`
+          });
+        }}
       />
 
       <ProductDetailsModal

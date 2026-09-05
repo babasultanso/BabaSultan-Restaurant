@@ -1,3 +1,4 @@
+import { translateRawUi } from '../../../i18n';
 import React from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { KPICard } from './KPICard';
@@ -59,12 +60,18 @@ export const AccountantView: React.FC<AccountantViewProps> = ({
   const totalSupplierOverdue = suppliers.reduce((sum, s) => sum + (s.overdueAmount || 0), 0);
 
   // 5. Cash & Bank Balance
-  const cashBalance = accounts.find(a => a.type === 'cash')?.balance ?? 0;
-  const bankBalance = accounts.find(a => a.type === 'bank')?.balance ?? 0;
+  const cashBalance = accounts.find(a => String(a.type || '').toLowerCase() === 'cash' || String((a as any).accountType || '').toLowerCase() === 'cash' || String((a as any).code || '').startsWith('101'))?.balance ?? 0;
+  const bankBalance = accounts.find(a => String(a.type || '').toLowerCase() === 'bank' || String((a as any).accountType || '').toLowerCase() === 'bank' || String((a as any).code || '').startsWith('102'))?.balance ?? 0;
   const totalLiquidity = cashBalance + bankBalance;
 
   // Recorded Tax / VAT
   const recordedVAT = orders.reduce((sum, o) => sum + (o.tax || 0), 0);
+
+  // Receivables are sourced from the authoritative order lifecycle rather than a display-only constant.
+  const pendingReceivables = orders
+    .filter((o) => String(o.paymentMethod || '').toLowerCase() === 'credit')
+    .filter((o) => !['cancelled', 'refunded'].includes(String(o.status || '').toLowerCase()))
+    .reduce((sum, o) => sum + Math.max(0, Number(o.totalAmount || 0) - Number((o as any).paidAmount || 0)), 0);
 
   return (
     <div className="space-y-6">
@@ -116,7 +123,7 @@ export const AccountantView: React.FC<AccountantViewProps> = ({
         />
 
         <KPICard
-          title="Net Profit & Loss"
+          title={translateRawUi('Net Profit & Loss')}
           value={`$${netProfit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
           sublabel={`Net Margin: ${profitMargin.toFixed(1)}%`}
           icon={TrendingUp}
@@ -126,7 +133,7 @@ export const AccountantView: React.FC<AccountantViewProps> = ({
         />
 
         <KPICard
-          title="Cash & Liquidity Balance"
+          title={translateRawUi('Cash & Liquidity Balance')}
           value={`$${totalLiquidity.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
           sublabel={`Cash Safe: $${cashBalance.toFixed(0)} | Bank: $${bankBalance.toFixed(0)}`}
           icon={Wallet}
@@ -134,7 +141,7 @@ export const AccountantView: React.FC<AccountantViewProps> = ({
         />
 
         <KPICard
-          title="Accounts Payable (Suppliers)"
+          title={translateRawUi('Accounts Payable (Suppliers)')}
           value={`$${totalSupplierPending.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
           sublabel={`Overdue: $${totalSupplierOverdue.toFixed(0)}`}
           icon={Building2}
@@ -144,15 +151,15 @@ export const AccountantView: React.FC<AccountantViewProps> = ({
         />
 
         <KPICard
-          title="Pending Receivables"
-          value="$350.00"
-          sublabel="Uncollected customer orders"
+          title={translateRawUi('Pending Receivables')}
+          value={`$${pendingReceivables.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+          sublabel="Uncollected credit-order balance (excluding cancelled/refunded orders)"
           icon={Receipt}
           iconColor="indigo"
         />
 
         <KPICard
-          title="Recorded Tax / VAT"
+          title={translateRawUi('Recorded Tax / VAT')}
           value={`$${recordedVAT.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
           sublabel="Sales Tax Liability Recorded"
           icon={AlertCircle}
@@ -175,7 +182,7 @@ export const AccountantView: React.FC<AccountantViewProps> = ({
           <div className="flex items-center justify-between border-b border-slate-800 pb-3">
             <h3 className="text-sm font-bold text-white flex items-center gap-2">
               <Building2 className="w-5 h-5 text-amber-400" />
-              Supplier Accounts Payable & Overdue Invoices
+              {translateRawUi('Supplier Accounts Payable & Overdue Invoices')}
             </h3>
           </div>
 
@@ -204,7 +211,7 @@ export const AccountantView: React.FC<AccountantViewProps> = ({
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
           <h3 className="text-sm font-bold text-white flex items-center gap-2 border-b border-slate-800 pb-3">
             <Wallet className="w-5 h-5 text-blue-400" />
-            Liquid Capital & Financial Account Balances
+            {translateRawUi('Liquid Capital & Financial Account Balances')}
           </h3>
 
           <div className="space-y-3">

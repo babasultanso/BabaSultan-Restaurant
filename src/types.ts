@@ -1,3 +1,9 @@
+import type {
+  OrderType, OrderStatus, PaymentStatus, PaymentMethod, KitchenPrepStatus, DeliveryStatus,
+  DriverStatus, InventoryItemType, InventoryMovementType, AttendanceStatus, PurchaseOrderStatus,
+  RefundStatus, ReceivableStatus, CashRegisterStatus
+} from './domain/contracts';
+
 export type Language = 'en' | 'ar' | 'so' | 'auto';
 
 export interface SelectedOptionChoice {
@@ -23,13 +29,22 @@ export interface OrderItem {
   notes?: string;
 }
 
-export type OrderType = 'dine_in' | 'takeaway' | 'delivery' | 'online' | 'reservation';
-
-export type OrderStatus = 'new' | 'confirmed' | 'preparing' | 'ready' | 'delivered' | 'completed' | 'cancelled' | 'held' | 'received' | 'in_preparation' | 'ready_for_pickup' | 'out_for_delivery' | 'pending';
-
-export type PaymentStatus = 'pending' | 'paid' | 'failed' | 'refunded';
-
-export type PaymentMethod = 'cash' | 'card' | 'mobile_payment' | 'online' | 'mobile_money' | 'split';
+export type {
+  OrderType,
+  OrderStatus,
+  PaymentStatus,
+  PaymentMethod,
+  KitchenPrepStatus,
+  DeliveryStatus,
+  DriverStatus,
+  InventoryItemType,
+  InventoryMovementType,
+  AttendanceStatus,
+  PurchaseOrderStatus,
+  RefundStatus,
+  ReceivableStatus,
+  CashRegisterStatus
+} from './domain/contracts';
 
 export interface Order {
   id: string;
@@ -123,7 +138,6 @@ export type {
   BankAccountDetails,
   EmergencyContact,
   Employee,
-  AttendanceStatus,
   AttendanceRecord,
   ShiftType,
   Shift,
@@ -183,7 +197,6 @@ export interface HoldOrder {
   createdAt: string;
 }
 
-export type DriverStatus = 'active' | 'inactive' | 'on_break' | 'off_duty' | 'available' | 'in_transit' | 'offline';
 export type DriverAvailability = 'available' | 'on_delivery' | 'in_transit' | 'offline';
 export type VehicleType = 'motorcycle' | 'car' | 'bicycle' | 'scooter' | 'van';
 
@@ -471,12 +484,18 @@ export interface Supplier {
 
 export interface InventoryMovement {
   id: string;
-  type: 'in' | 'out' | 'adjustment';
-  itemType: 'product' | 'ingredient';
+  type: 'purchase_receive' | 'sale' | 'refund' | 'cancel' | 'waste' | 'adjustment' | 'transfer' | 'return' | 'spoilage' | 'stock_in' | 'stock_out' | 'in' | 'out' | 'expired' | 'count' | 'order_deduction' | 'order_restoration';
+  itemType?: 'product' | 'ingredient' | 'inventory';
   itemId: string;
   itemName: string;
+  itemCode?: string;
+  branchId?: string;
   quantity: number;
+  unit?: string;
+  previousQuantity?: number;
+  newQuantity?: number;
   reason: string;
+  cost?: number;
   createdBy: string;
   createdAt: string;
 }
@@ -724,19 +743,6 @@ export interface BranchReportData {
 
 // Phase 14 Delivery Management & Logistics Interfaces
 
-export type DeliveryStatus = 
-  | 'unassigned'
-  | 'pending'
-  | 'assigned'
-  | 'accepted'
-  | 'picked_up'
-  | 'on_the_way'
-  | 'arrived'
-  | 'delivered'
-  | 'failed'
-  | 'returned'
-  | 'cancelled';
-
 export interface DeliveryOrder {
   id: string;
   deliveryNumber: string;
@@ -762,8 +768,8 @@ export interface DeliveryOrder {
   deliveryFee: number;
   tipAmount?: number;
   totalAmount: number;
-  paymentMethod: 'cash' | 'evc_plus' | 'card' | 'zaad';
-  paymentStatus: 'pending' | 'paid';
+  paymentMethod: PaymentMethod;
+  paymentStatus: PaymentStatus;
   itemsCount: number;
   itemsSummary?: string;
   assignedAt?: string;

@@ -19,6 +19,7 @@ describe('POST-CLEANUP SECURITY RE-AUDIT MATRIX', () => {
       const createRes = await request(app)
         .post('/api/accounting/accounts')
         .set('Authorization', 'Bearer test_token_owner')
+        .set('Idempotency-Key', `reaudit-global-${Date.now()}`)
         .send({
           code: '1010-GLOBAL',
           name: 'Global Central Vault',

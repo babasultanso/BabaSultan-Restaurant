@@ -1,3 +1,4 @@
+import { translateRawUi } from '../../../i18n';
 import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { USER_ROLES, UserRole, LANGUAGES, SupportedLanguage } from '../../../constants';
@@ -83,12 +84,12 @@ export const LoginPage: React.FC<{ onLoginSuccess?: () => void; initialError?: s
         <div className="lg:col-span-5 space-y-6">
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center font-black text-xl shadow-lg shadow-emerald-950/50">
-              ERP
+              {translateRawUi('ERP')}
             </div>
             <div>
               <h1 className="text-xl font-extrabold text-white tracking-wide">{t.appName}</h1>
               <span className="text-xs text-emerald-400 font-semibold uppercase tracking-widest bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20">
-                Phase 2 — Auth Portal
+                {translateRawUi('Phase 2 — Auth Portal')}
               </span>
             </div>
           </div>
@@ -101,20 +102,20 @@ export const LoginPage: React.FC<{ onLoginSuccess?: () => void; initialError?: s
           <div className="space-y-3 bg-slate-900/60 border border-slate-800/80 p-4 rounded-2xl">
             <div className="flex items-center gap-2 text-xs font-semibold text-emerald-400">
               <Shield className="w-4 h-4" />
-              <span>Multi-Role Access & Enterprise Security</span>
+              <span>{t.legacyUi.multiRoleEnterpriseSecurity}</span>
             </div>
             <ul className="space-y-2 text-xs text-slate-300">
               <li className="flex items-center gap-2">
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                <span>Attribute-Based Access Control (8 Core Roles)</span>
+                <span>{t.legacyUi.abacEightRoles}</span>
               </li>
               <li className="flex items-center gap-2">
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                <span>Real-Time Firestore User Collections & Security Rules</span>
+                <span>{t.legacyUi.realtimeFirestoreUserCollections}</span>
               </li>
               <li className="flex items-center gap-2">
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                <span>Full Arabic (RTL), Somali & English Support</span>
+                <span>{t.legacyUi.fullTrilingualSupport}</span>
               </li>
             </ul>
           </div>
@@ -162,7 +163,7 @@ export const LoginPage: React.FC<{ onLoginSuccess?: () => void; initialError?: s
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="user@restaurant-erp.internal"
+                  placeholder={translateRawUi('email@example.com')}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500/50"
                   required
                 />
@@ -191,7 +192,7 @@ export const LoginPage: React.FC<{ onLoginSuccess?: () => void; initialError?: s
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
+                  placeholder={translateRawUi('••••••••')}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500/50"
                   required
                 />
@@ -229,7 +230,7 @@ export const LoginPage: React.FC<{ onLoginSuccess?: () => void; initialError?: s
           <div className="relative flex items-center my-4">
             <div className="flex-grow border-t border-slate-800"></div>
             <span className="shrink-0 mx-3 text-[10px] uppercase font-bold text-slate-500 tracking-wider">
-              Or Sign In With
+              {translateRawUi('Or Sign In With')}
             </span>
             <div className="flex-grow border-t border-slate-800"></div>
           </div>
@@ -303,7 +304,7 @@ export const LoginPage: React.FC<{ onLoginSuccess?: () => void; initialError?: s
                   type="email"
                   value={resetEmail}
                   onChange={(e) => setResetEmail(e.target.value)}
-                  placeholder="user@restaurant-erp.internal"
+                  placeholder={translateRawUi('email@example.com')}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500/50"
                   required
                 />

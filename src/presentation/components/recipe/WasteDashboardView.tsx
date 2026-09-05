@@ -1,7 +1,9 @@
+import { translateRawUi } from '../../../i18n';
+import { translations } from '../../../i18n/translations';
 import React, { useState } from 'react';
 import { Ingredient, WasteRecord, WasteReason } from '../../../domain/entities/recipe';
 import { RecipeController } from '../../../controllers/RecipeController';
-import { recipeDict, RecipeLang } from './translations';
+import { recipeDict, RecipeLang } from '../../../i18n';
 import { Trash2, AlertTriangle, Plus, DollarSign, PieChart, ShieldAlert, X } from 'lucide-react';
 
 interface WasteDashboardViewProps {
@@ -19,11 +21,11 @@ export const WasteDashboardView: React.FC<WasteDashboardViewProps> = ({
   lang,
   currentUser = 'Kitchen Staff'
 }) => {
-  const t = recipeDict[lang] || recipeDict.en;
+  const t = { ...(recipeDict[lang] || recipeDict.en), legacyUi: translations[lang].legacyUi };
 
   const [showModal, setShowModal] = useState(false);
   const [selectedIngredientId, setSelectedIngredientId] = useState(ingredients[0]?.id || '');
-  const [quantity, setQuantity] = useState<number>(100);
+  const [quantity, setQuantity] = useState<number>(0);
   const [reason, setReason] = useState<WasteReason>('expired');
   const [notes, setNotes] = useState('');
 
@@ -33,7 +35,7 @@ export const WasteDashboardView: React.FC<WasteDashboardViewProps> = ({
     e.preventDefault();
     if (!selectedIng || quantity <= 0) return;
 
-    const costPerUnit = selectedIng.costPerUsageUnit || 0.01;
+    const costPerUnit = selectedIng.costPerUsageUnit || 0;
     const totalCost = Number((quantity * costPerUnit).toFixed(2));
 
     await controller.recordWaste({
@@ -49,7 +51,7 @@ export const WasteDashboardView: React.FC<WasteDashboardViewProps> = ({
     });
 
     setShowModal(false);
-    setQuantity(100);
+    setQuantity(0);
     setNotes('');
   };
 
@@ -65,7 +67,7 @@ export const WasteDashboardView: React.FC<WasteDashboardViewProps> = ({
             {t.waste.title}
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            Log ingredient waste due to expiration, spoilage, or prep loss, and automatically deduct from inventory stock.
+            {translateRawUi('Log ingredient waste due to expiration, spoilage, or prep loss, and automatically deduct from inventory stock.')}
           </p>
         </div>
 
@@ -86,32 +88,32 @@ export const WasteDashboardView: React.FC<WasteDashboardViewProps> = ({
         </div>
 
         <div className="p-5 bg-slate-900 border border-slate-800 rounded-3xl space-y-1">
-          <p className="text-xs text-slate-400 font-bold">Total Incidents Recorded</p>
+          <p className="text-xs text-slate-400 font-bold">{t.legacyUi.totalIncidentsRecorded}</p>
           <p className="text-2xl font-black text-white font-mono">{wasteRecords.length}</p>
         </div>
 
         <div className="p-5 bg-slate-900 border border-slate-800 rounded-3xl space-y-1">
-          <p className="text-xs text-slate-400 font-bold">Primary Loss Reason</p>
+          <p className="text-xs text-slate-400 font-bold">{t.legacyUi.primaryLossReason}</p>
           <p className="text-base font-bold text-amber-400 uppercase tracking-wider mt-1">
-            Expired &amp; Prep Loss
+            {translateRawUi('Expired &amp; Prep Loss')}
           </p>
         </div>
       </div>
 
       {/* Waste Records Table */}
       <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 space-y-4 shadow-xl">
-        <h3 className="text-sm font-bold text-white">Recent Ingredient Waste Logs</h3>
+        <h3 className="text-sm font-bold text-white">{t.legacyUi.recentIngredientWaste}</h3>
 
         <div className="overflow-x-auto">
           <table className="w-full text-xs text-left">
             <thead className="text-[10px] uppercase font-bold text-slate-400 bg-slate-950">
               <tr>
-                <th className="p-3 rounded-l-xl">Date &amp; Time</th>
-                <th className="p-3">Ingredient</th>
-                <th className="p-3">Quantity</th>
-                <th className="p-3">Reason</th>
-                <th className="p-3">Recorded By</th>
-                <th className="p-3 text-right rounded-r-xl">Total Cost ($)</th>
+                <th className="p-3 rounded-l-xl">{t.legacyUi.dateTime}</th>
+                <th className="p-3">{translateRawUi('Ingredient')}</th>
+                <th className="p-3">{t.legacyUi.quantityLabel}</th>
+                <th className="p-3">{t.legacyUi.reasonLabel}</th>
+                <th className="p-3">{t.legacyUi.recordedBy}</th>
+                <th className="p-3 text-right rounded-r-xl">{t.legacyUi.totalCostUsd}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800">
@@ -139,7 +141,7 @@ export const WasteDashboardView: React.FC<WasteDashboardViewProps> = ({
               {wasteRecords.length === 0 && (
                 <tr>
                   <td colSpan={6} className="p-8 text-center text-slate-400">
-                    No waste logs recorded yet.
+                    {translateRawUi('No waste logs recorded yet.')}
                   </td>
                 </tr>
               )}
@@ -167,7 +169,7 @@ export const WasteDashboardView: React.FC<WasteDashboardViewProps> = ({
 
             <form onSubmit={handleRecordWaste} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-slate-300 mb-1">Select Ingredient</label>
+                <label className="block text-xs font-bold text-slate-300 mb-1">{t.legacyUi.selectIngredient}</label>
                 <select
                   value={selectedIngredientId}
                   onChange={(e) => setSelectedIngredientId(e.target.value)}
@@ -219,15 +221,15 @@ export const WasteDashboardView: React.FC<WasteDashboardViewProps> = ({
                   type="text"
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Details regarding waste incident..."
+                  placeholder={translateRawUi('Details regarding waste incident...')}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
                 />
               </div>
 
               <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl flex items-center justify-between text-xs">
-                <span className="text-slate-400">Total Loss Value:</span>
+                <span className="text-slate-400">{t.legacyUi.totalLossValue}</span>
                 <span className="font-mono text-rose-400 font-bold">
-                  ${((quantity || 0) * (selectedIng?.costPerUsageUnit || 0.01)).toFixed(2)}
+                  ${((quantity || 0) * (selectedIng?.costPerUsageUnit || 0)).toFixed(2)}
                 </span>
               </div>
 
@@ -243,7 +245,7 @@ export const WasteDashboardView: React.FC<WasteDashboardViewProps> = ({
                   type="submit"
                   className="px-5 py-2 rounded-xl bg-rose-500 hover:bg-rose-400 text-slate-950 font-black text-xs cursor-pointer shadow-lg shadow-rose-500/20"
                 >
-                  Log &amp; Deduct Stock
+                  {translateRawUi('Log &amp; Deduct Stock')}
                 </button>
               </div>
             </form>

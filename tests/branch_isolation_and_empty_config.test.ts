@@ -1,4 +1,14 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+
+// These repository tests are unit-level and must not depend on a live Firestore/network.
+// Keep the real query-building functions, but make reads deterministic and empty.
+vi.mock('firebase/firestore', async () => {
+  const actual = await vi.importActual<typeof import('firebase/firestore')>('firebase/firestore');
+  return {
+    ...actual,
+    getDocs: vi.fn(async () => ({ empty: true, docs: [] })),
+  };
+});
 import request from 'supertest';
 import { app } from '../server.ts';
 import { checkBranchAuthorization } from '../server/auth.js';
@@ -81,6 +91,7 @@ describe('BRANCH ISOLATION & EMPTY CONFIGURATION AUDIT TESTS', () => {
       const res = await request(app)
         .post('/api/pos/complete')
         .set('Authorization', 'Bearer test_token_cashier_nobranch')
+      .set('Idempotency-Key', `test-pos-branch_isolation_and_empty_config.test-1`)
         .send({
           orderData: {
             branchId: 'branch_a',

@@ -18,15 +18,18 @@ export class OrdersRepositoryImpl implements IOrdersRepository {
 
   async createOrder(payload: CreateOrderPayload, branchId?: string): Promise<Order> {
     const token = await getAuthToken();
+    const idempotencyKey = globalThis.crypto?.randomUUID?.() || `pos:${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const res = await fetch(getApiUrl('/api/pos/complete'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'Idempotency-Key': idempotencyKey,
         ...(token ? { 'Authorization': `Bearer ${token}` } : {})
       },
       body: JSON.stringify({
         ...payload,
-        branchId: branchId || (payload as any).branchId
+        branchId: branchId || (payload as any).branchId,
+        idempotencyKey
       })
     });
 

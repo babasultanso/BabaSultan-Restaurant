@@ -45,6 +45,12 @@ export class UnitConversionEngine {
     customConversions: UnitConversion[] = [],
     ingredientId?: string
   ): number {
+    if (!Number.isFinite(value)) {
+      throw new Error('Conversion quantity must be a finite number.');
+    }
+    if (value < 0) {
+      throw new Error('Conversion quantity cannot be negative.');
+    }
     if (value === 0) return 0;
     const cleanFrom = (fromUnit || '').trim().toLowerCase();
     const cleanTo = (toUnit || '').trim().toLowerCase();
@@ -72,9 +78,13 @@ export class UnitConversionEngine {
       return value / reverseMatch.factor;
     }
 
-    // Standard conversion lookup
-    const fromInfo = BASE_CONVERSIONS[cleanFrom] || BASE_CONVERSIONS[fromUnit] || { baseUnit: cleanFrom, factor: 1 };
-    const toInfo = BASE_CONVERSIONS[cleanTo] || BASE_CONVERSIONS[toUnit] || { baseUnit: cleanTo, factor: 1 };
+    // Standard conversion lookup. Unknown units must fail closed; a 1:1 fallback
+    // can silently corrupt recipe quantities and inventory valuation.
+    const fromInfo = BASE_CONVERSIONS[cleanFrom] || BASE_CONVERSIONS[fromUnit];
+    const toInfo = BASE_CONVERSIONS[cleanTo] || BASE_CONVERSIONS[toUnit];
+    if (!fromInfo || !toInfo) {
+      throw new Error(`No valid unit conversion from '${fromUnit}' to '${toUnit}'. Unknown unit.`);
+    }
 
     // Same category (e.g. g <-> kg, ml <-> L, pcs <-> box)
     if (fromInfo.baseUnit === toInfo.baseUnit) {
@@ -82,8 +92,7 @@ export class UnitConversionEngine {
       return baseValue / toInfo.factor;
     }
 
-    // If units differ in category, fallback to 1:1 if unknown
-    return value;
+    throw new Error(`No valid unit conversion from '${fromUnit}' to '${toUnit}'.`);
   }
 
   /**

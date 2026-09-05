@@ -8,10 +8,41 @@ describe('COMPREHENSIVE AUDIT & VERIFICATION SUITE (ALL 21 REQUIREMENTS)', () =>
 
   beforeEach(async () => {
     const db = getAdminDb();
+    for (const col of ['accounting_periods','cash_registers','bank_transactions','expenses','purchase_orders','purchases','deliveries','kitchen_orders','orders','customer_wallets','wallet_transactions','mutation_idempotency','journal_entries','journal_lines','ledger','inventory','receivables','suppliers','delivery_zones','products']) {
+      const snap = await db.collection(col).get();
+      for (const d of snap.docs) await d.ref.delete();
+    }
     await db.collection('branches').doc('main_branch_01').set({
-      id: 'main_branch_01',
-      taxRate: 0.05,
-      defaultDeliveryFee: 2.00
+      id: 'main_branch_01', taxRate: 0.05, defaultDeliveryFee: 2.00, deliveryFeeEnabled: true, deliveryEnabled: true
+    });
+    await db.collection('branches').doc('branch_cash_close_test').set({
+      id: 'branch_cash_close_test', name: 'Cash Close Test Branch', taxRate: 0, defaultDeliveryFee: 0
+    });
+    await db.collection('accounts').doc('test_gl_bank_operating').set({
+      id: 'test_gl_bank_operating', code: '1021', name: 'Operating Account', type: 'Asset', balance: 1000, branchId: 'main_branch_01'
+    });
+    await db.collection('accounts').doc('acc_cash').set({
+      id: 'acc_cash', code: '1010', name: 'Cash on Hand (Register)', type: 'Asset', balance: 0, branchId: 'all'
+    });
+    await db.collection('accounts').doc('acc_equity').set({
+      id: 'acc_equity', code: '3010', name: "Owner's Capital / Opening Balance Equity", type: 'Equity', balance: 0, branchId: 'all'
+    });
+    await db.collection('accounts').doc('acc_cash_short').set({
+      id: 'acc_cash_short', code: '6290', name: 'Cash Shortage / Over & Short', type: 'Expense', balance: 0, branchId: 'all'
+    });
+    await db.collection('accounts').doc('acc_cash_over').set({
+      id: 'acc_cash_over', code: '4290', name: 'Cash Over / Other Income', type: 'Revenue', balance: 0, branchId: 'all'
+    });
+    await db.collection('bank_accounts').doc('test_bank_operating').set({
+      id: 'test_bank_operating', bankName: 'Test Bank', accountName: 'Operating Account', accountNumber: 'TEST-001', status: 'Active', branchId: 'main_branch_01', glAccountId: 'test_gl_bank_operating', currentBalance: 1000
+    });
+    const today = new Date().toISOString().slice(0, 10);
+    await db.collection('accounting_periods').doc('open-period-cash-close-test').set({
+      id: 'open-period-cash-close-test', branchId: 'branch_cash_close_test', status: 'Open', startDate: today, endDate: today
+    });
+    await db.collection('cash_registers').doc('reg_main_comprehensive_default').set({
+      id: 'reg_main_comprehensive_default', branchId: 'main_branch_01', status: 'Open',
+      openingBalance: 1000, currentBalance: 1000, openedBy: 'test', openedAt: new Date().toISOString()
     });
   });
 
@@ -80,18 +111,22 @@ describe('COMPREHENSIVE AUDIT & VERIFICATION SUITE (ALL 21 REQUIREMENTS)', () =>
     it('prevents closing an already closed cash register', async () => {
       const openRes = await request(app)
         .post('/api/accounting/cash-registers/open')
-        .set('Authorization', 'Bearer test_token_manager')
+        .set('Authorization', 'Bearer test_token_owner')
+        .set('Idempotency-Key', 'test-cash-open-final')
         .send({
-          branchId: 'main_branch_01',
+          branchId: 'branch_cash_close_test',
           openingBalance: 150
         });
       expect([200, 409]).toContain(openRes.status);
+      // Regression guard: a configured non-zero opening float must not fail with HTTP 500.
+      expect(openRes.status).not.toBe(500);
       const registerId = openRes.body.id || openRes.body.activeRegisterId;
 
       // First close
       const closeRes1 = await request(app)
         .post('/api/accounting/cash-registers/close')
-        .set('Authorization', 'Bearer test_token_manager')
+        .set('Authorization', 'Bearer test_token_owner')
+        .set('Idempotency-Key', 'test-cash-close-final-1')
         .send({
           id: registerId,
           actualClosingBalance: 150
@@ -101,7 +136,8 @@ describe('COMPREHENSIVE AUDIT & VERIFICATION SUITE (ALL 21 REQUIREMENTS)', () =>
       // Second close attempt on same register must fail with 400
       const closeRes2 = await request(app)
         .post('/api/accounting/cash-registers/close')
-        .set('Authorization', 'Bearer test_token_manager')
+        .set('Authorization', 'Bearer test_token_owner')
+        .set('Idempotency-Key', 'test-cash-close-final-2')
         .send({
           id: registerId,
           actualClosingBalance: 150
@@ -126,6 +162,7 @@ describe('COMPREHENSIVE AUDIT & VERIFICATION SUITE (ALL 21 REQUIREMENTS)', () =>
       const posRes = await request(app)
         .post('/api/pos/complete')
         .set('Authorization', 'Bearer test_token_manager')
+      .set('Idempotency-Key', `test-pos-comprehensive_audit.test-1`)
         .send({
           orderData: {
             branchId: 'main_branch_01',
@@ -178,6 +215,14 @@ describe('COMPREHENSIVE AUDIT & VERIFICATION SUITE (ALL 21 REQUIREMENTS)', () =>
     });
 
     it('executes AI REGISTER_PURCHASE and routes to purchases in ledger', async () => {
+      const db = getAdminDb();
+      await db.collection('ingredients').doc('ai_cardamom_main').set({
+        id: 'ai_cardamom_main', name: 'Fresh Cardamom Seeds', stock: 0, currentStockUsageUnit: 0,
+        unit: 'kg', branchId: 'main_branch_01', costPerUnit: 8
+      });
+      await db.collection('suppliers').doc('supplier_ai_comprehensive').set({
+        id: 'supplier_ai_comprehensive', name: 'Mogadishu Spice Suppliers', branchId: 'main_branch_01', outstandingBalance: 0
+      });
       const aiRes = await request(app)
         .post('/api/ai/execute-action')
         .set('Authorization', 'Bearer test_token_manager')
@@ -190,8 +235,10 @@ describe('COMPREHENSIVE AUDIT & VERIFICATION SUITE (ALL 21 REQUIREMENTS)', () =>
             unit: 'kg',
             unitPrice: 8,
             totalCost: 120,
+            supplierId: 'supplier_ai_comprehensive',
             supplierName: 'Mogadishu Spice Suppliers',
-            status: 'completed'
+            status: 'completed',
+            paymentMethod: 'credit'
           }
         });
       expect(aiRes.status).toBe(200);
@@ -235,13 +282,15 @@ describe('COMPREHENSIVE AUDIT & VERIFICATION SUITE (ALL 21 REQUIREMENTS)', () =>
       const res = await request(app)
         .post('/api/bank-transactions')
         .set('Authorization', 'Bearer test_token_manager')
+        .set('Idempotency-Key', `bank-fee-${Date.now()}`)
         .send({
           bankTransactionData: {
-            accountName: 'Premier Bank Business Account',
+            accountName: 'Operating Account',
             type: 'fee',
             amount: 15,
             description: 'SWIFT wire transfer service fee',
-            referenceNumber: 'WIRE-FEE-2026'
+            referenceNumber: 'WIRE-FEE-2026',
+            bankAccountId: 'test_bank_operating'
           }
         });
       expect(res.status).toBe(200);
@@ -265,6 +314,7 @@ describe('COMPREHENSIVE AUDIT & VERIFICATION SUITE (ALL 21 REQUIREMENTS)', () =>
       const orderRes = await request(app)
         .post('/api/pos/complete')
         .set('Authorization', 'Bearer test_token_manager')
+      .set('Idempotency-Key', `test-pos-comprehensive_audit.test-2`)
         .send({
           orderData: {
             branchId: 'main_branch_01',
@@ -295,6 +345,7 @@ describe('COMPREHENSIVE AUDIT & VERIFICATION SUITE (ALL 21 REQUIREMENTS)', () =>
       const dupRes = await request(app)
         .post('/api/deliveries')
         .set('Authorization', 'Bearer test_token_manager')
+        .set('Idempotency-Key', `duplicate-delivery-${Date.now()}`)
         .send({
           deliveryData: {
             orderId,

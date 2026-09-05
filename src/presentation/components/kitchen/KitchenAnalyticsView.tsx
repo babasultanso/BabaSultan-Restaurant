@@ -1,7 +1,9 @@
+import { translations } from '../../../i18n/translations';
+import { translateRawUi } from '../../../i18n/rawUi';
 import React, { useState, useEffect } from 'react';
 import { KitchenTicket, KitchenStation, KitchenWasteLog } from '../../../domain/entities/kitchen';
 import { kitchenService } from '../../../domain/services/kitchenService';
-import { kdsDict, KitchenLang } from './translations';
+import { kdsDict, KitchenLang } from '../../../i18n';
 import {
   Clock,
   AlertCircle,
@@ -31,6 +33,7 @@ export const KitchenAnalyticsView: React.FC<KitchenAnalyticsViewProps> = ({
   lang
 }) => {
   const t = kdsDict[lang] || kdsDict.en;
+  const legacyUi = translations[lang].legacyUi;
   const isRtl = lang === 'ar';
 
   const metrics = kitchenService.calculatePerformanceMetrics(tickets, stations, wasteLogs);
@@ -48,14 +51,14 @@ export const KitchenAnalyticsView: React.FC<KitchenAnalyticsViewProps> = ({
           </div>
           <div>
             <h3 className="text-xl font-black text-white">{t.kitchenAnalytics} & Performance Dashboard</h3>
-            <p className="text-xs text-slate-400">Preparation speed, station workload, chef throughput & waste auditing</p>
+            <p className="text-xs text-slate-400">{translateRawUi('Preparation speed, station workload, chef throughput & waste auditing')}</p>
           </div>
         </div>
 
         <div className="flex items-center gap-3 bg-slate-950 px-4 py-2.5 rounded-2xl border border-slate-800 text-xs">
           <Activity className="w-4 h-4 text-emerald-400 animate-pulse" />
-          <span className="text-slate-400">Kitchen Operational Status:</span>
-          <span className="font-extrabold text-emerald-400">OPTIMAL</span>
+          <span className="text-slate-400">{legacyUi.kitchenOperationalStatus}</span>
+          <span className="font-extrabold text-emerald-400">{translateRawUi('OPTIMAL')}</span>
         </div>
       </div>
 
@@ -65,8 +68,8 @@ export const KitchenAnalyticsView: React.FC<KitchenAnalyticsViewProps> = ({
         <div className="bg-slate-900 border border-slate-800 p-5 rounded-3xl shadow-xl flex items-center justify-between">
           <div>
             <p className="text-xs font-bold text-slate-400">{t.avgPrepTime}</p>
-            <h4 className="text-2xl font-black text-white mt-1">{metrics.avgPrepTimeMinutes} <span className="text-xs text-amber-400">mins</span></h4>
-            <p className="text-[10px] text-emerald-400 font-semibold mt-1">Target: &lt; 15 mins</p>
+            <h4 className="text-2xl font-black text-white mt-1">{metrics.avgPrepTimeMinutes} <span className="text-xs text-amber-400">{translateRawUi('mins')}</span></h4>
+            <p className="text-[10px] text-emerald-400 font-semibold mt-1">{translateRawUi('Target: &lt; 15 mins')}</p>
           </div>
           <div className="p-3 bg-amber-500/10 text-amber-400 rounded-2xl border border-amber-500/20">
             <Clock className="w-6 h-6" />
@@ -76,7 +79,7 @@ export const KitchenAnalyticsView: React.FC<KitchenAnalyticsViewProps> = ({
         <div className="bg-slate-900 border border-slate-800 p-5 rounded-3xl shadow-xl flex items-center justify-between">
           <div>
             <p className="text-xs font-bold text-slate-400">{t.activeOrders}</p>
-            <h4 className="text-2xl font-black text-white mt-1">{metrics.activeOrdersCount} <span className="text-xs text-cyan-400">tickets</span></h4>
+            <h4 className="text-2xl font-black text-white mt-1">{metrics.activeOrdersCount} <span className="text-xs text-cyan-400">{translateRawUi('tickets')}</span></h4>
             <p className="text-[10px] text-slate-400 font-semibold mt-1">Completed today: {metrics.completedOrdersCount}</p>
           </div>
           <div className="p-3 bg-cyan-500/10 text-cyan-400 rounded-2xl border border-cyan-500/20">
@@ -99,7 +102,7 @@ export const KitchenAnalyticsView: React.FC<KitchenAnalyticsViewProps> = ({
 
         <div className="bg-slate-900 border border-slate-800 p-5 rounded-3xl shadow-xl flex items-center justify-between">
           <div>
-            <p className="text-xs font-bold text-slate-400">Total Kitchen Waste</p>
+            <p className="text-xs font-bold text-slate-400">{translateRawUi('Total Kitchen Waste')}</p>
             <h4 className="text-2xl font-black text-white mt-1">${(totalWasteCost || 0).toFixed(2)}</h4>
             <p className="text-[10px] text-slate-400 font-semibold mt-1">{wasteLogs.length} waste incidents recorded</p>
           </div>
@@ -114,9 +117,9 @@ export const KitchenAnalyticsView: React.FC<KitchenAnalyticsViewProps> = ({
       <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
         <div className="flex items-center justify-between border-b border-slate-800 pb-3">
           <h4 className="text-base font-extrabold text-white flex items-center gap-2">
-            <ChefHat className="w-5 h-5 text-amber-400" /> Kitchen Station Load & Efficiency
+            <ChefHat className="w-5 h-5 text-amber-400" /> {translateRawUi('Kitchen Station Load & Efficiency')}
           </h4>
-          <span className="text-xs text-slate-400">Real-time workstation distribution</span>
+          <span className="text-xs text-slate-400">{translateRawUi('Real-time workstation distribution')}</span>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -136,8 +139,8 @@ export const KitchenAnalyticsView: React.FC<KitchenAnalyticsViewProps> = ({
               </div>
 
               <div className="flex items-center justify-between text-xs text-slate-400">
-                <span>Active Tickets: <strong className="text-white">{st.activeCount}</strong></span>
-                <span>Avg Speed: <strong className="text-amber-400">{st.avgPrepTime} mins</strong></span>
+                <span>{translateRawUi('Active Tickets:')} <strong className="text-white">{st.activeCount}</strong></span>
+                <span>{translateRawUi('Avg Speed:')} <strong className="text-amber-400">{st.avgPrepTime} {translateRawUi('mins')}</strong></span>
               </div>
 
               {/* Progress bar visual */}
@@ -160,9 +163,9 @@ export const KitchenAnalyticsView: React.FC<KitchenAnalyticsViewProps> = ({
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
           <div className="flex items-center justify-between border-b border-slate-800 pb-3">
             <h4 className="text-base font-extrabold text-white flex items-center gap-2">
-              <Award className="w-5 h-5 text-emerald-400" /> Line Chef Performance
+              <Award className="w-5 h-5 text-emerald-400" /> {translateRawUi('Line Chef Performance')}
             </h4>
-            <span className="text-xs text-slate-400">Daily throughput</span>
+            <span className="text-xs text-slate-400">{legacyUi.dailyThroughput}</span>
           </div>
 
           <div className="space-y-3">
@@ -175,11 +178,11 @@ export const KitchenAnalyticsView: React.FC<KitchenAnalyticsViewProps> = ({
 
                 <div className="flex items-center gap-4 text-right">
                   <div>
-                    <p className="text-slate-400 text-[10px]">Prepared</p>
+                    <p className="text-slate-400 text-[10px]">{translateRawUi('Prepared')}</p>
                     <p className="font-black text-emerald-400 text-sm">{chef.itemsCompleted} dishes</p>
                   </div>
                   <div>
-                    <p className="text-slate-400 text-[10px]">Avg Speed</p>
+                    <p className="text-slate-400 text-[10px]">{legacyUi.avgSpeed}</p>
                     <p className="font-black text-amber-400 text-sm">{chef.avgSpeedMins}m</p>
                   </div>
                 </div>
@@ -192,14 +195,14 @@ export const KitchenAnalyticsView: React.FC<KitchenAnalyticsViewProps> = ({
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
           <div className="flex items-center justify-between border-b border-slate-800 pb-3">
             <h4 className="text-base font-extrabold text-white flex items-center gap-2">
-              <Trash2 className="w-5 h-5 text-rose-400" /> Recent Kitchen Waste Audit
+              <Trash2 className="w-5 h-5 text-rose-400" /> {translateRawUi('Recent Kitchen Waste Audit')}
             </h4>
-            <span className="text-xs text-slate-400">Ingredient / Dish Loss</span>
+            <span className="text-xs text-slate-400">{legacyUi.ingredientDishLoss}</span>
           </div>
 
           {wasteLogs.length === 0 ? (
             <div className="p-8 text-center text-slate-500 text-xs">
-              No waste incidents logged today. Excellent kitchen discipline!
+              {translateRawUi('No waste incidents logged today. Excellent kitchen discipline!')}
             </div>
           ) : (
             <div className="space-y-2 max-h-64 overflow-y-auto pr-1">

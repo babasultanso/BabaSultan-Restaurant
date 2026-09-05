@@ -1,3 +1,4 @@
+import { translateRawUi } from '../../../i18n/rawUi';
 import React, { useState, useEffect } from 'react';
 import {
   Employee,
@@ -9,7 +10,8 @@ import {
   EmployeeDocument,
   HRNotification,
   HRMAnalyticsData,
-  EmployeeRole
+  EmployeeRole,
+  PayFrequency
 } from '../../../domain/entities/hrm';
 import { HRMRepositoryImpl } from '../../../data/repositories/HRMRepositoryImpl';
 import { EmployeeProfileModal } from './EmployeeProfileModal';
@@ -45,6 +47,7 @@ import {
 
 export const HRMManagementView: React.FC = () => {
   const { user, userRecord, role, t } = useAuth();
+  const pt = t.hrm.payrollManagement;
   const repository = new HRMRepositoryImpl();
 
   // Navigation State
@@ -71,7 +74,14 @@ export const HRMManagementView: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('all');
   const [roleFilter, setRoleFilter] = useState('all');
-  const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().substring(0, 7));
+  const todayDate = getMogadishuDateString();
+  const todayDateObj = new Date(`${todayDate}T00:00:00Z`);
+  const mondayDateObj = new Date(todayDateObj.getTime() - ((todayDateObj.getUTCDay() + 6) % 7) * 86400000);
+  const mondayDate = mondayDateObj.toISOString().substring(0, 10);
+  const [selectedMonth, setSelectedMonth] = useState(todayDate.substring(0, 7));
+  const [payrollFrequency, setPayrollFrequency] = useState<PayFrequency>('monthly');
+  const [payrollDailyDate, setPayrollDailyDate] = useState(todayDate);
+  const [payrollWeeklyStart, setPayrollWeeklyStart] = useState(mondayDate);
 
   // Clock In/Out state for active user
   const [myAttendanceToday, setMyAttendanceToday] = useState<AttendanceRecord | null>(null);
@@ -95,12 +105,12 @@ export const HRMManagementView: React.FC = () => {
   // Performance Form Modal
   const [showPerformanceModal, setShowPerformanceModal] = useState(false);
   const [perfEmpId, setPerfEmpId] = useState('');
-  const [perfAttendanceRate, setPerfAttendanceRate] = useState(95);
-  const [perfSales, setPerfSales] = useState(1500);
-  const [perfRating, setPerfRating] = useState(4.8);
-  const [perfProductivity, setPerfProductivity] = useState(90);
-  const [perfOrders, setPerfOrders] = useState(120);
-  const [perfServiceTime, setPerfServiceTime] = useState(8);
+  const [perfAttendanceRate, setPerfAttendanceRate] = useState(0);
+  const [perfSales, setPerfSales] = useState(0);
+  const [perfRating, setPerfRating] = useState(0);
+  const [perfProductivity, setPerfProductivity] = useState(0);
+  const [perfOrders, setPerfOrders] = useState(0);
+  const [perfServiceTime, setPerfServiceTime] = useState(0);
 
   useEffect(() => {
     loadHRMData();
@@ -185,8 +195,12 @@ export const HRMManagementView: React.FC = () => {
   // Generate Payroll Handler
   const handleGeneratePayroll = async () => {
     try {
-      await repository.generateMonthlyPayroll(selectedMonth);
-      alert(`Monthly Payroll generated for ${selectedMonth}!`);
+      const period = payrollFrequency === 'monthly' ? selectedMonth : payrollFrequency === 'weekly' ? payrollWeeklyStart : payrollDailyDate;
+      if (payrollFrequency === 'weekly' && new Date(`${period}T00:00:00Z`).getUTCDay() !== 1) {
+        throw new Error(pt.invalidWeekly);
+      }
+      const generated = await repository.generatePayroll(payrollFrequency, period);
+      alert(`${payrollFrequency} payroll generated: ${generated.length} record(s).`);
       loadHRMData();
     } catch (err: any) {
       alert('Error generating payroll: ' + err.message);
@@ -320,7 +334,7 @@ export const HRMManagementView: React.FC = () => {
     printWindow.document.write(`
       <html>
         <head>
-          <title>Salary Slip - ${pay.employeeName} (${pay.month})</title>
+          <title>Salary Slip - ${pay.employeeName} (${pay.periodStart || pay.month})</title>
           <style>
             body { font-family: sans-serif; padding: 40px; color: #000; }
             .header { text-align: center; border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 20px; }
@@ -332,30 +346,30 @@ export const HRMManagementView: React.FC = () => {
         </head>
         <body>
           <div class="header">
-            <h2>COMMERCIAL RESTAURANT ENTERPRISE</h2>
-            <h3>OFFICIAL SALARY SLIP</h3>
-            <p>Month: ${pay.month} | Payroll Ref: ${pay.payrollNumber}</p>
+            <h2>{t.legacyUi.commercialRestaurantEnterprise}</h2>
+            <h3>{translateRawUi('OFFICIAL SALARY SLIP')}</h3>
+            <p>${pay.payFrequency ? pay.payFrequency.toUpperCase() : 'MONTHLY'}: ${pay.periodStart || pay.month} | Payroll Ref: ${pay.payrollNumber}</p>
           </div>
           <div class="section">
-            <p><strong>Employee Name:</strong> ${pay.employeeName}</p>
-            <p><strong>Job Title:</strong> ${pay.jobTitle || 'N/A'}</p>
-            <p><strong>Department:</strong> ${pay.department || 'N/A'}</p>
-            <p><strong>Payment Status:</strong> ${(pay.paymentStatus || 'PAID').toUpperCase()}</p>
+            <p><strong>{t.legacyUi.employeeNameColon}</strong> ${pay.employeeName}</p>
+            <p><strong>{t.legacyUi.jobTitleColon}</strong> ${pay.jobTitle || 'N/A'}</p>
+            <p><strong>{translateRawUi('Department:')}</strong> ${pay.department || 'N/A'}</p>
+            <p><strong>{translateRawUi('Payment Status:')}</strong> ${(pay.paymentStatus || 'PAID').toUpperCase()}</p>
           </div>
           <table class="table">
             <thead>
-              <tr><th>Component</th><th>Amount ($)</th></tr>
+              <tr><th>{translateRawUi('Component')}</th><th>{t.legacyUi.amountUsd}</th></tr>
             </thead>
             <tbody>
-              <tr><td>Basic Monthly Salary</td><td>$${pay.basicSalary.toLocaleString()}</td></tr>
-              <tr><td>Overtime Pay</td><td>+$${pay.overtimePay.toLocaleString()}</td></tr>
-              <tr><td>Bonuses</td><td>+$${pay.bonuses.toLocaleString()}</td></tr>
-              <tr><td>Deductions / Advances</td><td>-$${pay.deductions + pay.advances}</td></tr>
-              <tr class="total"><td>Net Salary Payout</td><td>$${pay.netSalary.toLocaleString()}</td></tr>
+              <tr><td>{t.legacyUi.basicSalaryCycle}</td><td>$${pay.basicSalary.toLocaleString()}</td></tr>
+              <tr><td>{translateRawUi('Overtime Pay')}</td><td>+$${pay.overtimePay.toLocaleString()}</td></tr>
+              <tr><td>{translateRawUi('Bonuses')}</td><td>+$${pay.bonuses.toLocaleString()}</td></tr>
+              <tr><td>{t.legacyUi.deductionsAdvances}</td><td>-$${pay.deductions + pay.advances}</td></tr>
+              <tr class="total"><td>{translateRawUi('Net Salary Payout')}</td><td>$${pay.netSalary.toLocaleString()}</td></tr>
             </tbody>
           </table>
           <br/><br/>
-          <p>Authorized Signature: _______________________</p>
+          <p>{t.legacyUi.authorizedSignature}</p>
         </body>
       </html>
     `);
@@ -384,13 +398,13 @@ export const HRMManagementView: React.FC = () => {
         <div>
           <div className="flex items-center gap-2">
             <span className="bg-emerald-500/10 text-emerald-400 font-extrabold px-3 py-1 rounded-full text-xs border border-emerald-500/20">
-              PHASE 9 HRM SYSTEM
+              {translateRawUi('PHASE 9 HRM SYSTEM')}
             </span>
-            <span className="text-xs text-slate-400">• Real-Time Firestore Synced</span>
+            <span className="text-xs text-slate-400">{translateRawUi('• Real-Time Firestore Synced')}</span>
           </div>
           <h1 className="text-xl font-extrabold text-white mt-1">{t.hrm?.title || 'Human Resources & Employee Management'}</h1>
           <p className="text-xs text-slate-400">
-            {t.hrm?.subtitle || 'Attendance, Custom Shifts, Monthly Payroll, Leave Workflows & 360° Employee Profiles'}
+            {t.hrm?.subtitle || 'Attendance, Custom Shifts, Daily/Weekly/Monthly Payroll, Leave Workflows & 360° Employee Profiles'}
           </p>
         </div>
 
@@ -449,33 +463,33 @@ export const HRMManagementView: React.FC = () => {
           {/* Key Metrics Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
             <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-2 shadow-lg">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Total Staff</span>
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">{translateRawUi('Total Staff')}</span>
               <p className="text-2xl font-black text-white">{analytics?.totalEmployees || employees.length}</p>
               <span className="text-[10px] text-emerald-400 font-semibold">{analytics?.activeEmployees || 0} Active</span>
             </div>
 
             <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-2 shadow-lg">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Attendance Rate</span>
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">{t.legacyUi.attendanceRate}</span>
               <p className="text-2xl font-black text-emerald-400">{analytics?.todayAttendanceRate ?? 0}%</p>
-              <span className="text-[10px] text-slate-400 font-semibold">Today's Clocked In</span>
+              <span className="text-[10px] text-slate-400 font-semibold">{translateRawUi('Today\'s Clocked In')}</span>
             </div>
 
             <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-2 shadow-lg">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Pending Leave Req.</span>
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">{translateRawUi('Pending Leave Req.')}</span>
               <p className="text-2xl font-black text-amber-400">{analytics?.pendingLeaveRequests || 0}</p>
-              <span className="text-[10px] text-slate-400 font-semibold">Requires Approval</span>
+              <span className="text-[10px] text-slate-400 font-semibold">{translateRawUi('Requires Approval')}</span>
             </div>
 
             <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-2 shadow-lg">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Active Shifts</span>
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">{t.legacyUi.activeShifts}</span>
               <p className="text-2xl font-black text-blue-400">{shifts.filter(s => s.status === 'active').length}</p>
-              <span className="text-[10px] text-slate-400 font-semibold">Roster Active</span>
+              <span className="text-[10px] text-slate-400 font-semibold">{translateRawUi('Roster Active')}</span>
             </div>
 
             <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-2 shadow-lg">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Monthly Payroll</span>
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">{translateRawUi('Monthly Payroll Equivalent')}</span>
               <p className="text-2xl font-black text-emerald-400">${(analytics?.monthlyPayrollTotal || 0).toLocaleString()}</p>
-              <span className="text-[10px] text-slate-400 font-semibold">Est. Month Net Payout</span>
+              <span className="text-[10px] text-slate-400 font-semibold">{t.legacyUi.estimatedMonthNetPayout}</span>
             </div>
           </div>
 
@@ -487,8 +501,8 @@ export const HRMManagementView: React.FC = () => {
                   <Clock className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-white">Employee Live Clocking Station</h3>
-                  <p className="text-xs text-slate-400">Clock in, record breaks and overtime directly into Firestore</p>
+                  <h3 className="text-sm font-bold text-white">{t.legacyUi.employeeLiveClocking}</h3>
+                  <p className="text-xs text-slate-400">{t.legacyUi.clockInBreaksFirestore}</p>
                 </div>
               </div>
 
@@ -503,12 +517,12 @@ export const HRMManagementView: React.FC = () => {
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
               <div>
-                <label className="text-xs font-semibold text-slate-400 block mb-1">Optional Notes / Remarks</label>
+                <label className="text-xs font-semibold text-slate-400 block mb-1">{translateRawUi('Optional Notes / Remarks')}</label>
                 <input
                   type="text"
                   value={clockNotes}
                   onChange={(e) => setClockNotes(e.target.value)}
-                  placeholder="e.g. On-site morning prep..."
+                  placeholder={translateRawUi('e.g. On-site morning prep...')}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white"
                 />
               </div>
@@ -520,7 +534,7 @@ export const HRMManagementView: React.FC = () => {
                     className="flex-1 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black py-3 rounded-xl text-xs flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-emerald-500/20"
                   >
                     <Play className="w-4 h-4 fill-slate-950" />
-                    <span>CLOCK IN NOW</span>
+                    <span>{t.legacyUi.clockInNow}</span>
                   </button>
                 ) : (
                   <button
@@ -528,7 +542,7 @@ export const HRMManagementView: React.FC = () => {
                     className="flex-1 bg-rose-500 hover:bg-rose-400 text-slate-950 font-black py-3 rounded-xl text-xs flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-rose-500/20"
                   >
                     <Square className="w-4 h-4 fill-slate-950" />
-                    <span>CLOCK OUT NOW</span>
+                    <span>{t.legacyUi.clockOutNow}</span>
                   </button>
                 )}
 
@@ -537,7 +551,7 @@ export const HRMManagementView: React.FC = () => {
                   className="bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold py-3 px-4 rounded-xl text-xs flex items-center gap-2 transition cursor-pointer"
                 >
                   <Calendar className="w-4 h-4" />
-                  <span>Request Leave</span>
+                  <span>{translateRawUi('Request Leave')}</span>
                 </button>
               </div>
             </div>
@@ -549,7 +563,7 @@ export const HRMManagementView: React.FC = () => {
             <div className="p-6 rounded-3xl bg-slate-900 border border-slate-800 space-y-4 shadow-xl">
               <h3 className="text-sm font-bold text-white flex items-center gap-2">
                 <Building className="w-4 h-4 text-emerald-400" />
-                Department Headcount Distribution
+                {translateRawUi('Department Headcount Distribution')}
               </h3>
 
               <div className="space-y-3 text-xs">
@@ -568,7 +582,7 @@ export const HRMManagementView: React.FC = () => {
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-bold text-white flex items-center gap-2">
                   <Calendar className="w-4 h-4 text-emerald-400" />
-                  Leave Approval Workflow Queue
+                  {translateRawUi('Leave Approval Workflow Queue')}
                 </h3>
                 <span className="text-[10px] text-amber-400 font-bold bg-amber-500/10 px-2.5 py-0.5 rounded-full border border-amber-500/20">
                   {leaveRequests.filter(l => l.workflowStatus !== 'Completed' && l.workflowStatus !== 'Rejected').length} Pending
@@ -577,7 +591,7 @@ export const HRMManagementView: React.FC = () => {
 
               <div className="space-y-3 text-xs max-h-64 overflow-y-auto">
                 {leaveRequests.filter(l => l.workflowStatus !== 'Completed').length === 0 ? (
-                  <p className="text-slate-400 text-center py-6">No pending leave requests requiring action.</p>
+                  <p className="text-slate-400 text-center py-6">{translateRawUi('No pending leave requests requiring action.')}</p>
                 ) : (
                   leaveRequests
                     .filter(l => l.workflowStatus !== 'Completed')
@@ -597,7 +611,7 @@ export const HRMManagementView: React.FC = () => {
                               onClick={() => handleApproveLeaveManager(l.id)}
                               className="px-2.5 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-[10px]"
                             >
-                              Manager Approve
+                              {translateRawUi('Manager Approve')}
                             </button>
                           )}
                           {l.workflowStatus === 'Manager Approval' && (
@@ -605,14 +619,14 @@ export const HRMManagementView: React.FC = () => {
                               onClick={() => handleApproveLeaveHR(l.id)}
                               className="px-2.5 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-[10px]"
                             >
-                              Final HR Approve
+                              {translateRawUi('Final HR Approve')}
                             </button>
                           )}
                           <button
                             onClick={() => handleRejectLeave(l.id)}
                             className="px-2.5 py-1 rounded-lg bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white font-bold text-[10px]"
                           >
-                            Reject
+                            {translateRawUi('Reject')}
                           </button>
                         </div>
                       </div>
@@ -635,7 +649,7 @@ export const HRMManagementView: React.FC = () => {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search staff by name, ID, title..."
+                placeholder={translateRawUi('Search staff by name, ID, title...')}
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-white"
               />
             </div>
@@ -645,7 +659,7 @@ export const HRMManagementView: React.FC = () => {
               onChange={(e) => setDepartmentFilter(e.target.value)}
               className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white"
             >
-              <option value="all">All Departments</option>
+              <option value="all">{t.legacyUi.allDepartments}</option>
               {Array.from(new Set(employees.map(e => e.department))).map(d => (
                 <option key={d} value={d}>{d}</option>
               ))}
@@ -656,7 +670,7 @@ export const HRMManagementView: React.FC = () => {
               onChange={(e) => setRoleFilter(e.target.value)}
               className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white"
             >
-              <option value="all">All Roles</option>
+              <option value="all">{t.legacyUi.allRoles}</option>
               {Array.from(new Set(employees.map(e => e.role))).map(r => (
                 <option key={r} value={r}>{r}</option>
               ))}
@@ -694,19 +708,19 @@ export const HRMManagementView: React.FC = () => {
 
                 <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-300 bg-slate-950/60 p-3 rounded-2xl border border-slate-800">
                   <div>
-                    <span className="text-slate-500 block">Department</span>
+                    <span className="text-slate-500 block">{translateRawUi('Department')}</span>
                     <span className="font-semibold text-white">{emp.department}</span>
                   </div>
                   <div>
-                    <span className="text-slate-500 block">Base Salary</span>
+                    <span className="text-slate-500 block">{translateRawUi('Salary / Cycle')}</span>
                     <span className="font-bold text-emerald-400">${emp.salary.toLocaleString()}</span>
                   </div>
                   <div>
-                    <span className="text-slate-500 block">Phone</span>
+                    <span className="text-slate-500 block">{t.legacyUi.phoneLabel}</span>
                     <span className="font-mono text-slate-200">{emp.phone}</span>
                   </div>
                   <div>
-                    <span className="text-slate-500 block">Hire Date</span>
+                    <span className="text-slate-500 block">{t.legacyUi.hireDate}</span>
                     <span className="text-slate-200">{emp.hireDate}</span>
                   </div>
                 </div>
@@ -716,7 +730,7 @@ export const HRMManagementView: React.FC = () => {
                     onClick={() => setSelectedEmployeeForProfile(emp)}
                     className="text-emerald-400 hover:text-emerald-300 font-bold text-xs flex items-center gap-1 cursor-pointer"
                   >
-                    <span>View 360° Profile</span>
+                    <span>{translateRawUi('View 360° Profile')}</span>
                     <ChevronRight className="w-3.5 h-3.5" />
                   </button>
 
@@ -741,8 +755,8 @@ export const HRMManagementView: React.FC = () => {
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="text-sm font-bold text-white">Attendance Logs & Overtime Tracker</h3>
-              <p className="text-xs text-slate-400">Clock in/out records, breaks, and working duration</p>
+              <h3 className="text-sm font-bold text-white">{t.legacyUi.attendanceOvertimeTracker}</h3>
+              <p className="text-xs text-slate-400">{t.legacyUi.clockRecordsBreaksDuration}</p>
             </div>
           </div>
 
@@ -750,13 +764,13 @@ export const HRMManagementView: React.FC = () => {
             <table className="w-full text-left text-xs text-slate-300">
               <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] font-bold tracking-wider">
                 <tr>
-                  <th className="p-4">Employee</th>
-                  <th className="p-4">Date</th>
-                  <th className="p-4">Clock In</th>
-                  <th className="p-4">Clock Out</th>
-                  <th className="p-4">Hours</th>
-                  <th className="p-4">Overtime</th>
-                  <th className="p-4">Status</th>
+                  <th className="p-4">{pt.employee}</th>
+                  <th className="p-4">{t.legacyUi.dateLabel}</th>
+                  <th className="p-4">{t.legacyUi.clockIn}</th>
+                  <th className="p-4">{t.legacyUi.clockOut}</th>
+                  <th className="p-4">{translateRawUi('Hours')}</th>
+                  <th className="p-4">{translateRawUi('Overtime')}</th>
+                  <th className="p-4">{pt.status}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60">
@@ -766,7 +780,7 @@ export const HRMManagementView: React.FC = () => {
                     <td className="p-4 text-slate-300">{att.date}</td>
                     <td className="p-4 font-mono text-emerald-400">
                       {att.clockIn ? new Date(att.clockIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-'}
-                      {att.isLate && <span className="ml-1.5 text-[9px] bg-rose-500/20 text-rose-300 px-1.5 py-0.5 rounded font-bold">LATE</span>}
+                      {att.isLate && <span className="ml-1.5 text-[9px] bg-rose-500/20 text-rose-300 px-1.5 py-0.5 rounded font-bold">{translateRawUi('LATE')}</span>}
                     </td>
                     <td className="p-4 font-mono text-slate-300">
                       {att.clockOut ? new Date(att.clockOut).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Active'}
@@ -791,15 +805,15 @@ export const HRMManagementView: React.FC = () => {
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="text-sm font-bold text-white">Roster & Shift Roster Management</h3>
-              <p className="text-xs text-slate-400">Morning, Evening, Night & Custom shift allocations</p>
+              <h3 className="text-sm font-bold text-white">{translateRawUi('Roster & Shift Roster Management')}</h3>
+              <p className="text-xs text-slate-400">{translateRawUi('Morning, Evening, Night & Custom shift allocations')}</p>
             </div>
             <button
               onClick={() => setShowShiftModal(true)}
               className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-lg shadow-emerald-500/20"
             >
               <Plus className="w-4 h-4" />
-              <span>Create Custom Shift</span>
+              <span>{t.legacyUi.createCustomShift}</span>
             </button>
           </div>
 
@@ -814,8 +828,8 @@ export const HRMManagementView: React.FC = () => {
                 </div>
 
                 <div className="text-xs space-y-1 text-slate-300">
-                  <p><strong>Timing:</strong> {s.startTime} - {s.endTime} ({s.workingHours} hrs)</p>
-                  <p><strong>Department:</strong> {s.department || 'Operations'}</p>
+                  <p><strong>{translateRawUi('Timing:')}</strong> {s.startTime} - {s.endTime} ({s.workingHours} hrs)</p>
+                  <p><strong>{translateRawUi('Department:')}</strong> {s.department || 'Operations'}</p>
                 </div>
 
                 <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-xs">
@@ -824,7 +838,7 @@ export const HRMManagementView: React.FC = () => {
                     onClick={() => alert(`Assigned staff IDs for ${s.name}: ${s.assignedEmployeeIds.join(', ') || 'None'}`)}
                     className="text-emerald-400 hover:underline font-bold"
                   >
-                    Manage Roster
+                    {translateRawUi('Manage Roster')}
                   </button>
                 </div>
               </div>
@@ -836,10 +850,51 @@ export const HRMManagementView: React.FC = () => {
       {/* TAB 5: PAYROLL & SALARY SLIPS */}
       {activeTab === 'payroll' && (
         <div className="space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-900 border border-slate-800 p-4 rounded-2xl">
-            <div>
-              <h3 className="text-sm font-bold text-white">Monthly Payroll & Salary Slips ({selectedMonth})</h3>
-              <p className="text-xs text-slate-400">Basic salary, overtime, bonuses, deductions & net salary calculation</p>
+          <div className="flex flex-col gap-3 bg-slate-900 border border-slate-800 p-4 rounded-2xl">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-bold text-white">{pt.title}</h3>
+                <p className="text-xs text-slate-400">{pt.subtitle}</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <select
+                value={payrollFrequency}
+                onChange={(e) => setPayrollFrequency(e.target.value as PayFrequency)}
+                className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white"
+              >
+                <option value="daily">{pt.daily}</option>
+                <option value="weekly">{pt.weekly}</option>
+                <option value="monthly">{pt.monthly}</option>
+              </select>
+
+              {payrollFrequency === 'monthly' ? (
+                <input
+                  type="month"
+                  value={selectedMonth}
+                  onChange={(e) => setSelectedMonth(e.target.value)}
+                  className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white"
+                />
+              ) : payrollFrequency === 'weekly' ? (
+                <input
+                  type="date"
+                  value={payrollWeeklyStart}
+                  onChange={(e) => setPayrollWeeklyStart(e.target.value)}
+                  className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white"
+                />
+              ) : (
+                <input
+                  type="date"
+                  value={payrollDailyDate}
+                  onChange={(e) => setPayrollDailyDate(e.target.value)}
+                  className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white"
+                />
+              )}
+
+              <div className="flex items-center text-[10px] text-slate-400 px-2">
+                {payrollFrequency === 'weekly' ? pt.weeklyMondayHint : payrollFrequency === 'daily' ? pt.dailyHint : pt.monthlyHint.replace('{{period}}', selectedMonth)}
+              </div>
             </div>
 
             <div className="flex items-center gap-2">
@@ -848,7 +903,7 @@ export const HRMManagementView: React.FC = () => {
                 className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold px-4 py-2 rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-lg shadow-emerald-500/20"
               >
                 <Plus className="w-4 h-4" />
-                <span>Calculate & Generate Payroll</span>
+                <span>{pt.generate}</span>
               </button>
 
               <button
@@ -856,7 +911,7 @@ export const HRMManagementView: React.FC = () => {
                 className="bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold px-3.5 py-2 rounded-xl text-xs flex items-center gap-1.5 cursor-pointer"
               >
                 <Download className="w-4 h-4" />
-                <span>Export Excel/CSV</span>
+                <span>{pt.export}</span>
               </button>
             </div>
           </div>
@@ -865,13 +920,13 @@ export const HRMManagementView: React.FC = () => {
             <table className="w-full text-left text-xs text-slate-300">
               <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] font-bold tracking-wider">
                 <tr>
-                  <th className="p-4">Ref Number</th>
-                  <th className="p-4">Employee</th>
-                  <th className="p-4">Basic Salary</th>
-                  <th className="p-4">Overtime Pay</th>
-                  <th className="p-4">Net Salary Payout</th>
-                  <th className="p-4">Status</th>
-                  <th className="p-4 text-right">Actions</th>
+                  <th className="p-4">{pt.referenceNumber}</th>
+                  <th className="p-4">{pt.employee}</th>
+                  <th className="p-4">{pt.salaryPerCycle}</th>
+                  <th className="p-4">{pt.overtimePay}</th>
+                  <th className="p-4">{pt.netPayout}</th>
+                  <th className="p-4">{pt.status}</th>
+                  <th className="p-4 text-right">{pt.actions}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60">
@@ -901,7 +956,7 @@ export const HRMManagementView: React.FC = () => {
                           }}
                           className="px-2.5 py-1 rounded-lg bg-emerald-500 text-slate-950 font-bold text-[10px]"
                         >
-                          Mark Paid
+                          {translateRawUi('Mark Paid')}
                         </button>
                       )}
                       <button
@@ -909,7 +964,7 @@ export const HRMManagementView: React.FC = () => {
                         className="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-200 font-bold text-[10px] inline-flex items-center gap-1"
                       >
                         <Printer className="w-3 h-3" />
-                        <span>Slip</span>
+                        <span>{pt.slip}</span>
                       </button>
                     </td>
                   </tr>
@@ -925,15 +980,15 @@ export const HRMManagementView: React.FC = () => {
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="text-sm font-bold text-white">Leave Requests & Multi-Step Approvals</h3>
-              <p className="text-xs text-slate-400">Request -&gt; Manager Approval -&gt; HR Approval -&gt; Completed</p>
+              <h3 className="text-sm font-bold text-white">{t.legacyUi.leaveMultiStepApprovals}</h3>
+              <p className="text-xs text-slate-400">{translateRawUi('Request -&gt; Manager Approval -&gt; HR Approval -&gt; Completed')}</p>
             </div>
             <button
               onClick={() => setShowLeaveModal(true)}
               className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-lg shadow-emerald-500/20"
             >
               <Plus className="w-4 h-4" />
-              <span>Submit Leave Request</span>
+              <span>{t.legacyUi.submitLeaveRequest}</span>
             </button>
           </div>
 
@@ -954,8 +1009,8 @@ export const HRMManagementView: React.FC = () => {
                 </div>
 
                 <div className="text-xs space-y-1 text-slate-300">
-                  <p><strong>Duration:</strong> {l.startDate} to {l.endDate} ({l.daysCount} days)</p>
-                  <p><strong>Reason:</strong> "{l.reason}"</p>
+                  <p><strong>{translateRawUi('Duration:')}</strong> {l.startDate} to {l.endDate} ({l.daysCount} days)</p>
+                  <p><strong>{translateRawUi('Reason:')}</strong> "{l.reason}"</p>
                 </div>
 
                 <div className="pt-2 border-t border-slate-800 flex items-center justify-between text-xs">
@@ -967,7 +1022,7 @@ export const HRMManagementView: React.FC = () => {
                         onClick={() => handleApproveLeaveManager(l.id)}
                         className="px-3 py-1 rounded-xl bg-emerald-500 text-slate-950 font-bold text-[10px]"
                       >
-                        Manager Approve
+                        {translateRawUi('Manager Approve')}
                       </button>
                     )}
                     {l.workflowStatus === 'Manager Approval' && (
@@ -975,7 +1030,7 @@ export const HRMManagementView: React.FC = () => {
                         onClick={() => handleApproveLeaveHR(l.id)}
                         className="px-3 py-1 rounded-xl bg-emerald-500 text-slate-950 font-bold text-[10px]"
                       >
-                        Final HR Approve
+                        {translateRawUi('Final HR Approve')}
                       </button>
                     )}
                     {l.workflowStatus !== 'Completed' && l.workflowStatus !== 'Rejected' && (
@@ -983,7 +1038,7 @@ export const HRMManagementView: React.FC = () => {
                         onClick={() => handleRejectLeave(l.id)}
                         className="px-2.5 py-1 rounded-xl bg-rose-500/20 text-rose-300 text-[10px] font-bold"
                       >
-                        Reject
+                        {translateRawUi('Reject')}
                       </button>
                     )}
                   </div>
@@ -999,8 +1054,8 @@ export const HRMManagementView: React.FC = () => {
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="text-sm font-bold text-white">Employee Performance Reviews</h3>
-              <p className="text-xs text-slate-400">Attendance, sales, customer ratings, productivity & service time</p>
+              <h3 className="text-sm font-bold text-white">{t.legacyUi.employeePerformanceReviews}</h3>
+              <p className="text-xs text-slate-400">{t.legacyUi.attendanceSalesRatings}</p>
             </div>
 
             <button
@@ -1008,7 +1063,7 @@ export const HRMManagementView: React.FC = () => {
               className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-lg shadow-emerald-500/20"
             >
               <Award className="w-4 h-4" />
-              <span>Log Performance Review</span>
+              <span>{t.legacyUi.logPerformanceReview}</span>
             </button>
           </div>
 
@@ -1022,19 +1077,19 @@ export const HRMManagementView: React.FC = () => {
 
                 <div className="grid grid-cols-2 gap-2 text-xs text-slate-300">
                   <div className="p-2 rounded-xl bg-slate-950 border border-slate-800">
-                    <span className="text-slate-500 block text-[10px]">Attendance Rate</span>
+                    <span className="text-slate-500 block text-[10px]">{t.legacyUi.attendanceRate}</span>
                     <span className="font-extrabold text-emerald-400">{p.attendanceRate}%</span>
                   </div>
                   <div className="p-2 rounded-xl bg-slate-950 border border-slate-800">
-                    <span className="text-slate-500 block text-[10px]">Productivity</span>
+                    <span className="text-slate-500 block text-[10px]">{translateRawUi('Productivity')}</span>
                     <span className="font-extrabold text-blue-400">{p.productivity}%</span>
                   </div>
                   <div className="p-2 rounded-xl bg-slate-950 border border-slate-800">
-                    <span className="text-slate-500 block text-[10px]">Sales Contribution</span>
+                    <span className="text-slate-500 block text-[10px]">{translateRawUi('Sales Contribution')}</span>
                     <span className="font-extrabold text-emerald-400">${p.salesPerformance.toLocaleString()}</span>
                   </div>
                   <div className="p-2 rounded-xl bg-slate-950 border border-slate-800">
-                    <span className="text-slate-500 block text-[10px]">Avg Service Time</span>
+                    <span className="text-slate-500 block text-[10px]">{t.legacyUi.avgServiceTime}</span>
                     <span className="font-extrabold text-white">{p.averageServiceTimeMinutes} mins</span>
                   </div>
                 </div>
@@ -1071,23 +1126,23 @@ export const HRMManagementView: React.FC = () => {
       {showShiftModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
           <form onSubmit={handleCreateShift} className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-md w-full space-y-4 shadow-2xl text-xs">
-            <h3 className="text-base font-bold text-white">Create Custom Shift</h3>
+            <h3 className="text-base font-bold text-white">{t.legacyUi.createCustomShift}</h3>
 
             <div>
-              <label className="text-slate-300 font-semibold block mb-1">Shift Name</label>
+              <label className="text-slate-300 font-semibold block mb-1">{translateRawUi('Shift Name')}</label>
               <input
                 type="text"
                 required
                 value={newShiftName}
                 onChange={(e) => setNewShiftName(e.target.value)}
-                placeholder="e.g. Weekend Rush Shift"
+                placeholder={translateRawUi('e.g. Weekend Rush Shift')}
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white"
               />
             </div>
 
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="text-slate-300 font-semibold block mb-1">Start Time</label>
+                <label className="text-slate-300 font-semibold block mb-1">{t.legacyUi.startTime}</label>
                 <input
                   type="time"
                   value={newShiftStart}
@@ -1096,7 +1151,7 @@ export const HRMManagementView: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="text-slate-300 font-semibold block mb-1">End Time</label>
+                <label className="text-slate-300 font-semibold block mb-1">{t.legacyUi.endTime}</label>
                 <input
                   type="time"
                   value={newShiftEnd}
@@ -1107,7 +1162,7 @@ export const HRMManagementView: React.FC = () => {
             </div>
 
             <div>
-              <label className="text-slate-300 font-semibold block mb-1">Department</label>
+              <label className="text-slate-300 font-semibold block mb-1">{translateRawUi('Department')}</label>
               <input
                 type="text"
                 value={newShiftDepartment}
@@ -1122,13 +1177,13 @@ export const HRMManagementView: React.FC = () => {
                 onClick={() => setShowShiftModal(false)}
                 className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold"
               >
-                Cancel
+                {translateRawUi('Cancel')}
               </button>
               <button
                 type="submit"
                 className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold"
               >
-                Save Shift
+                {translateRawUi('Save Shift')}
               </button>
             </div>
           </form>
@@ -1139,25 +1194,25 @@ export const HRMManagementView: React.FC = () => {
       {showLeaveModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
           <form onSubmit={handleSubmitLeave} className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-md w-full space-y-4 shadow-2xl text-xs">
-            <h3 className="text-base font-bold text-white">Submit Leave Request</h3>
+            <h3 className="text-base font-bold text-white">{t.legacyUi.submitLeaveRequest}</h3>
 
             <div>
-              <label className="text-slate-300 font-semibold block mb-1">Leave Type</label>
+              <label className="text-slate-300 font-semibold block mb-1">{t.legacyUi.leaveType}</label>
               <select
                 value={leaveType}
                 onChange={(e) => setLeaveType(e.target.value as any)}
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white"
               >
-                <option value="Annual Leave">Annual Leave</option>
-                <option value="Sick Leave">Sick Leave</option>
-                <option value="Emergency Leave">Emergency Leave</option>
-                <option value="Unpaid Leave">Unpaid Leave</option>
+                <option value="Annual Leave">{t.legacyUi.annualLeave}</option>
+                <option value="Sick Leave">{translateRawUi('Sick Leave')}</option>
+                <option value="Emergency Leave">{t.legacyUi.emergencyLeave}</option>
+                <option value="Unpaid Leave">{translateRawUi('Unpaid Leave')}</option>
               </select>
             </div>
 
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="text-slate-300 font-semibold block mb-1">Start Date</label>
+                <label className="text-slate-300 font-semibold block mb-1">{t.legacyUi.startDate}</label>
                 <input
                   type="date"
                   value={leaveStartDate}
@@ -1166,7 +1221,7 @@ export const HRMManagementView: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="text-slate-300 font-semibold block mb-1">End Date</label>
+                <label className="text-slate-300 font-semibold block mb-1">{t.legacyUi.endDate}</label>
                 <input
                   type="date"
                   value={leaveEndDate}
@@ -1177,13 +1232,13 @@ export const HRMManagementView: React.FC = () => {
             </div>
 
             <div>
-              <label className="text-slate-300 font-semibold block mb-1">Reason / Justification</label>
+              <label className="text-slate-300 font-semibold block mb-1">{translateRawUi('Reason / Justification')}</label>
               <textarea
                 required
                 rows={3}
                 value={leaveReason}
                 onChange={(e) => setLeaveReason(e.target.value)}
-                placeholder="Provide justification for leave request..."
+                placeholder={translateRawUi('Provide justification for leave request...')}
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white"
               />
             </div>
@@ -1194,13 +1249,13 @@ export const HRMManagementView: React.FC = () => {
                 onClick={() => setShowLeaveModal(false)}
                 className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold"
               >
-                Cancel
+                {translateRawUi('Cancel')}
               </button>
               <button
                 type="submit"
                 className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold"
               >
-                Submit Request
+                {translateRawUi('Submit Request')}
               </button>
             </div>
           </form>
@@ -1211,17 +1266,17 @@ export const HRMManagementView: React.FC = () => {
       {showPerformanceModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
           <form onSubmit={handleSavePerformance} className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-md w-full space-y-4 shadow-2xl text-xs">
-            <h3 className="text-base font-bold text-white">Log Performance Evaluation</h3>
+            <h3 className="text-base font-bold text-white">{t.legacyUi.logPerformanceEvaluation}</h3>
 
             <div>
-              <label className="text-slate-300 font-semibold block mb-1">Select Employee</label>
+              <label className="text-slate-300 font-semibold block mb-1">{translateRawUi('Select Employee')}</label>
               <select
                 required
                 value={perfEmpId}
                 onChange={(e) => setPerfEmpId(e.target.value)}
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white"
               >
-                <option value="">-- Choose Employee --</option>
+                <option value="">{t.legacyUi.chooseEmployee}</option>
                 {employees.map((e) => (
                   <option key={e.id} value={e.id}>{e.fullName} ({e.jobTitle})</option>
                 ))}
@@ -1230,7 +1285,7 @@ export const HRMManagementView: React.FC = () => {
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-slate-300 font-semibold block mb-1">Attendance Rate (%)</label>
+                <label className="text-slate-300 font-semibold block mb-1">{t.legacyUi.attendanceRatePercent}</label>
                 <input
                   type="number"
                   min="0"
@@ -1242,7 +1297,7 @@ export const HRMManagementView: React.FC = () => {
               </div>
 
               <div>
-                <label className="text-slate-300 font-semibold block mb-1">Customer Rating (1-5)</label>
+                <label className="text-slate-300 font-semibold block mb-1">{t.legacyUi.customerRatingFive}</label>
                 <input
                   type="number"
                   step="0.1"
@@ -1255,7 +1310,7 @@ export const HRMManagementView: React.FC = () => {
               </div>
 
               <div>
-                <label className="text-slate-300 font-semibold block mb-1">Sales Generated ($)</label>
+                <label className="text-slate-300 font-semibold block mb-1">{translateRawUi('Sales Generated ($)')}</label>
                 <input
                   type="number"
                   value={perfSales}
@@ -1265,7 +1320,7 @@ export const HRMManagementView: React.FC = () => {
               </div>
 
               <div>
-                <label className="text-slate-300 font-semibold block mb-1">Productivity Score (%)</label>
+                <label className="text-slate-300 font-semibold block mb-1">{translateRawUi('Productivity Score (%)')}</label>
                 <input
                   type="number"
                   min="0"
@@ -1283,13 +1338,13 @@ export const HRMManagementView: React.FC = () => {
                 onClick={() => setShowPerformanceModal(false)}
                 className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold"
               >
-                Cancel
+                {translateRawUi('Cancel')}
               </button>
               <button
                 type="submit"
                 className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold"
               >
-                Save Evaluation
+                {translateRawUi('Save Evaluation')}
               </button>
             </div>
           </form>
