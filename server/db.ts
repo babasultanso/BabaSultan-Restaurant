@@ -1,4 +1,4 @@
-import { initializeApp, getApps } from 'firebase-admin/app';
+import { cert, initializeApp, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 import { getMessaging } from 'firebase-admin/messaging';
@@ -250,26 +250,55 @@ export class InMemoryFirestoreMock {
 
 const inMemoryTestDb = new InMemoryFirestoreMock();
 
+/**
+ * Initialize Firebase Admin exactly once.
+ *
+ * Render is not a Google-managed runtime, so Application Default Credentials
+ * (ADC) are not implicitly available. Production therefore must use the
+ * service-account values supplied through FIREBASE_* environment variables.
+ * The private key is normalized because hosting dashboards commonly store
+ * escaped newline sequences (\\n) instead of literal newlines.
+ */
+function ensureAdminApp() {
+  if (getApps().length > 0) return getApps()[0];
+
+  const projectId = getFirebaseProjectId();
+  const isProduction = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
+  const clientEmail = String(process.env.FIREBASE_CLIENT_EMAIL || '').trim();
+  const privateKey = String(process.env.FIREBASE_PRIVATE_KEY || '').replace(/\\n/g, '\n').trim();
+
+  if (isProduction && (!clientEmail || !privateKey)) {
+    throw new Error(
+      'Firebase Admin production credentials are incomplete: FIREBASE_CLIENT_EMAIL and FIREBASE_PRIVATE_KEY are required.'
+    );
+  }
+
+  if (clientEmail && privateKey) {
+    return initializeApp({
+      credential: cert({
+        projectId,
+        clientEmail,
+        privateKey
+      }),
+      projectId
+    });
+  }
+
+  // Development may still use local Google ADC when no explicit service
+  // account credentials are configured. Production never falls through here.
+  return initializeApp({ projectId });
+}
+
 export function getAdminDb(): any {
   if (process.env.VITEST === 'true' || process.env.NODE_ENV === 'test') {
     return inMemoryTestDb;
   }
-  if (getApps().length === 0) {
-    const projectId = getFirebaseProjectId();
-    initializeApp({
-      projectId
-    });
-  }
+  ensureAdminApp();
   return getFirestore();
 }
 
 export function getAdminAuth() {
-  if (getApps().length === 0) {
-    const projectId = getFirebaseProjectId();
-    initializeApp({
-      projectId
-    });
-  }
+  ensureAdminApp();
   return getAuth();
 }
 
@@ -281,11 +310,6 @@ export function getAdminMessaging(): any {
       }
     };
   }
-  if (getApps().length === 0) {
-    const projectId = getFirebaseProjectId();
-    initializeApp({
-      projectId
-    });
-  }
+  ensureAdminApp();
   return getMessaging();
 }
