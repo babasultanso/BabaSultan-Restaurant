@@ -33,6 +33,7 @@ export async function createBranch(branchData: Omit<Branch, 'id' | 'createdAt'>)
   const newBranch: Branch = {
     ...branchData,
     id: newRef.id,
+    branchId: newRef.id,
     createdAt: new Date().toISOString()
   };
   await setDoc(newRef, newBranch);

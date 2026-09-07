@@ -80,8 +80,10 @@ export class AdminRepositoryImpl implements IAdminRepository {
   async createBranch(branch: Omit<Branch, 'id'>): Promise<Branch> {
     const data = { ...branch, createdAt: new Date().toISOString() };
     try {
-      const ref = await addDoc(collection(db, COLLECTIONS.BRANCHES), data);
-      return { id: ref.id, ...data };
+      const ref = doc(collection(db, COLLECTIONS.BRANCHES));
+      const branchData = { ...data, branchId: ref.id };
+      await setDoc(ref, branchData);
+      return { id: ref.id, ...branchData } as Branch;
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, COLLECTIONS.BRANCHES);
       throw err;

@@ -11109,7 +11109,22 @@ export async function handleInitialSetup(req: express.Request, res: express.Resp
   const restaurant = body.restaurant || {};
   const tax = body.tax || {};
   const payments = body.payments || {};
-  const targetBranchId = normalizeCanonicalBranchId(String(branch.code || '').trim() || user.branchId);
+  const requestedBranchId = String((branch as any).id || '').trim();
+  const requestedBranchCode = String(branch.code || '').trim();
+  let targetBranchId = normalizeCanonicalBranchId(requestedBranchId || requestedBranchCode || user.branchId);
+  if (requestedBranchCode && requestedBranchCode !== 'all' && requestedBranchCode !== requestedBranchId) {
+    try {
+      const exactIdSnap = await setupDb.collection('branches').doc(requestedBranchCode).get();
+      if (exactIdSnap.exists) {
+        targetBranchId = exactIdSnap.id;
+      } else {
+        const codeSnap = await setupDb.collection('branches').where('code', '==', requestedBranchCode).limit(1).get();
+        if (!codeSnap.empty) targetBranchId = codeSnap.docs[0].id;
+      }
+    } catch (branchLookupError) {
+      console.warn('Initial setup branch lookup notice:', branchLookupError);
+    }
+  }
   if (!targetBranchId || targetBranchId === 'all') return res.status(400).json({ error: 'A concrete branch code is required for initial setup.' });
 
   const branchCheck = checkBranchAuthorization(user, targetBranchId);

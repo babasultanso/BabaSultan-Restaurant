@@ -17,8 +17,8 @@ import {
   reauthenticateWithCredential,
   signInAnonymously
 } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { auth, db, COLLECTIONS, logActivityFirestore, upsertUserRecordFirestore } from '../../lib/firebase';
+import { collection, doc, getDoc, getDocs, setDoc } from 'firebase/firestore';
+import { auth, db, COLLECTIONS, logActivityFirestore, upsertUserRecordFirestore, setActiveUserProfileContext } from '../../lib/firebase';
 import { UserRole, ROLE_PERMISSIONS, RolePermission, SupportedLanguage, LANGUAGES } from '../../constants';
 import { translations, TranslationDictionary } from '../../i18n/translations';
 import { UserRecord, ActivityLog } from '../../types';
@@ -124,7 +124,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     const isOwnerOrAdmin = data.role === 'Owner' || data.role === 'Admin';
-    const resolvedBranchId = data.branchId || (typeof data.branch === 'string' && (data.branch.startsWith('branch_') || data.branch.startsWith('main_branch_')) ? data.branch : (isOwnerOrAdmin ? 'all' : ''));
+    let resolvedBranchId = data.branchId || (typeof data.branch === 'string' && (data.branch.startsWith('branch_') || data.branch.startsWith('main_branch_')) ? data.branch : (isOwnerOrAdmin ? 'all' : ''));
+
+    // Fresh installations may have an Owner profile carrying a legacy branchId while the
+    // current database contains a single newly-created branch with a generated document ID.
+    // Resolve that stale context deterministically instead of making every repository fail.
+    if (isOwnerOrAdmin && resolvedBranchId && resolvedBranchId !== 'all') {
+      try {
+        const branchRef = doc(db, COLLECTIONS.BRANCHES, resolvedBranchId);
+        const branchSnap = await getDoc(branchRef);
+        if (!branchSnap.exists()) {
+          const branchesSnap = await getDocs(collection(db, COLLECTIONS.BRANCHES));
+          const activeBranches = branchesSnap.docs.filter((b) => String(b.data()?.status || 'active').toLowerCase() === 'active');
+          const normalizedCurrent = String(resolvedBranchId).trim().toLowerCase();
+          const normalizedLegacyName = String(data.branch || '').trim().toLowerCase();
+          const matchedByIdentity = activeBranches.find((b) => {
+            const bd: any = b.data() || {};
+            return [b.id, bd.id, bd.branchId, bd.code, bd.name].some((value) => String(value || '').trim().toLowerCase() === normalizedCurrent)
+              || (normalizedLegacyName && [bd.branch, bd.branchName, bd.name].some((value) => String(value || '').trim().toLowerCase() === normalizedLegacyName));
+          });
+          if (matchedByIdentity) {
+            resolvedBranchId = matchedByIdentity.id;
+          } else if (activeBranches.length === 1) {
+            resolvedBranchId = activeBranches[0].id;
+          }
+        }
+      } catch (branchResolveError) {
+        logger.warn(`Unable to resolve legacy branch context: ${branchResolveError instanceof Error ? branchResolveError.message : String(branchResolveError)}`, 'AuthContext');
+      }
+    }
 
     if (!isOwnerOrAdmin && !resolvedBranchId) {
       await signOut(auth);
@@ -151,6 +179,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     setUserRecord(updatedRecord);
     setRole(updatedRecord.role);
+    setActiveUserProfileContext(updatedRecord);
     return updatedRecord;
   };
 
@@ -176,6 +205,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       } else {
         setUserRecord(null);
+        setActiveUserProfileContext(null);
         setSessionStartTime(null);
       }
       setLoading(false);
@@ -299,6 +329,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await signOut(auth);
       setUser(null);
       setUserRecord(null);
+      setActiveUserProfileContext(null);
       setSessionStartTime(null);
       logger.info('User logged out', 'AuthContext');
     } catch (err) {
@@ -353,7 +384,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await updateProfile(user, { displayName, photoURL });
     const userDocRef = doc(db, COLLECTIONS.USERS, user.uid);
     await setDoc(userDocRef, { displayName, photoURL }, { merge: true });
-    setUserRecord(prev => prev ? { ...prev, displayName, photoURL } : null);
+    setUserRecord(prev => {
+      const next = prev ? { ...prev, displayName, photoURL } : null;
+      if (next) setActiveUserProfileContext(next);
+      return next;
+    });
     await logActivityFirestore({
       userId: user.uid,
       userEmail: user.email || '',

@@ -480,17 +480,36 @@ export async function updateUserStatusFirestore(uid: string, status: 'active' | 
 // Phase 4: Product & Restaurant Menu Management
 // ==========================================
 
+let activeUserProfileContext: Partial<UserRecord> | null = null;
+
+export function setActiveUserProfileContext(userProfile: Partial<UserRecord> | null): void {
+  activeUserProfileContext = userProfile ? { ...userProfile } : null;
+  if (typeof window === 'undefined') return;
+  try {
+    if (userProfile) {
+      localStorage.setItem('user_profile', JSON.stringify(userProfile));
+    } else {
+      localStorage.removeItem('user_profile');
+    }
+  } catch {
+    // Local storage can be unavailable in privacy-restricted browser contexts.
+  }
+}
+
 export function getEffectiveBranchId(preferredBranchId?: string): string {
-  if (preferredBranchId && preferredBranchId.trim() !== '') {
+  if (preferredBranchId && preferredBranchId.trim() !== '' && preferredBranchId.trim() !== 'all') {
     return preferredBranchId.trim();
   }
+  const runtimeBranchId = String(activeUserProfileContext?.branchId || activeUserProfileContext?.branch || '').trim();
+  if (runtimeBranchId && runtimeBranchId !== 'all') return runtimeBranchId;
+
   if (typeof window !== 'undefined') {
     try {
       const stored = localStorage.getItem('user_profile');
       if (stored) {
         const u = JSON.parse(stored);
-        if (u.branchId && u.branchId.trim() !== '') return u.branchId.trim();
-        if (u.branch && u.branch.trim() !== '') return u.branch.trim();
+        const storedBranchId = String(u?.branchId || u?.branch || '').trim();
+        if (storedBranchId && storedBranchId !== 'all') return storedBranchId;
       }
     } catch {}
   }
