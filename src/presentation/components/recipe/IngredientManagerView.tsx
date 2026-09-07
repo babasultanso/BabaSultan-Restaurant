@@ -53,10 +53,10 @@ export const IngredientManagerView: React.FC<IngredientManagerViewProps> = ({
     setEditingIng(null);
     setCode(`ING-${Math.floor(100 + Math.random() * 900)}`);
     setName('');
-    setCategory('General');
-    setPurchaseUnit('unit');
-    setUsageUnit('unit');
-    setConversionFactor(1);
+    setCategory('Produce');
+    setPurchaseUnit('kg');
+    setUsageUnit('g');
+    setConversionFactor(1000);
     setCurrentStockUsageUnit(0);
     setMinStockUsageUnit(0);
     setPurchaseCost(0);

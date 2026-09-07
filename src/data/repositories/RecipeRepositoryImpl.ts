@@ -199,6 +199,7 @@ export class RecipeRepositoryImpl implements IRecipeRepository {
   ): Promise<Ingredient> {
     const ref = doc(collection(db, INGREDIENTS_COLL));
     const now = new Date().toISOString();
+    const branchId = getEffectiveBranchId();
 
     const costPerUsageUnit = ingredientData.conversionFactor > 0
       ? ingredientData.purchaseCost / ingredientData.conversionFactor
@@ -221,6 +222,7 @@ export class RecipeRepositoryImpl implements IRecipeRepository {
     // the trusted inventory adjustment endpoint so stock + movement stay authoritative.
     const newIng: Ingredient = {
       ...ingredientData,
+      branchId,
       currentStockUsageUnit: 0,
       id: ref.id,
       costPerUsageUnit,
@@ -245,9 +247,10 @@ export class RecipeRepositoryImpl implements IRecipeRepository {
           movementData: {
             type: 'adjustment',
             itemType: 'ingredient',
-            itemId: ref.id,
-            mode: 'set',
-            quantity: requestedOpeningStock,
+          itemId: ref.id,
+          branchId,
+          mode: 'set',
+          quantity: requestedOpeningStock,
             reason: 'Initial Ingredient Stocking',
             idempotencyKey
           }
@@ -255,6 +258,11 @@ export class RecipeRepositoryImpl implements IRecipeRepository {
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
+        try {
+          await deleteDoc(ref);
+        } catch (rollbackError) {
+          console.error('Failed to rollback ingredient after inventory initialization failure:', rollbackError);
+        }
         throw new Error(err.error || `Failed to initialize ingredient stock: HTTP ${res.status}`);
       }
       newIng.currentStockUsageUnit = requestedOpeningStock;
