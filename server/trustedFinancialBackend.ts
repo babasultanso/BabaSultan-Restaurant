@@ -4020,7 +4020,20 @@ export async function handleInventoryAdjustment(req: express.Request, res: expre
 
       transaction.set(movementRef, cleanUndefined({ ...fullMovement, idempotencyKey }));
 
-      if (!isTransfer && itemData.stock !== undefined) {
+      if (!isTransfer && rawItemType === 'ingredient') {
+        // Ingredients are canonical in usage units. Keep the ingredient master
+        // record synchronized with the same balance used by recipes/POS/waste.
+        const ingredientStatus = getIngredientStockStatus(
+          newStock,
+          Number(itemData.minStockUsageUnit || 0)
+        );
+        transaction.update(itemRef, {
+          stock: newStock,
+          currentStockUsageUnit: newStock,
+          status: ingredientStatus,
+          updatedAt: timestamp
+        });
+      } else if (!isTransfer && itemData.stock !== undefined) {
         transaction.update(itemRef, { stock: newStock, updatedAt: timestamp });
       } else if (!isTransfer) {
         let status = 'in_stock';
