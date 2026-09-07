@@ -2639,9 +2639,18 @@ const CANONICAL_SYSTEM_GL_ACCOUNTS: Record<string, { code: string; name: string;
 async function prepareAccountBalanceState(transaction: any, db: any, accountIds: string[]) {
   const unique = Array.from(new Set(accountIds.map(String).filter(Boolean)));
   const state = new Map<string, { ref: any; data: any; balance: number }>();
+  const reads: Array<{ accountId: string; ref: any; snap: any }> = [];
+
+  // Firestore transactions require every read to happen before the first write.
+  // Read the complete account set first, then create any missing canonical accounts.
   for (const accountId of unique) {
     const ref = db.collection('accounts').doc(accountId);
     const snap = await transaction.get(ref);
+    reads.push({ accountId, ref, snap });
+  }
+
+  const now = new Date().toISOString();
+  for (const { accountId, ref, snap } of reads) {
     let data: any;
     if (!snap.exists) {
       const canonical = CANONICAL_SYSTEM_GL_ACCOUNTS[accountId];
@@ -2650,8 +2659,8 @@ async function prepareAccountBalanceState(transaction: any, db: any, accountIds:
         id: accountId,
         ...canonical,
         balance: 0,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
+        createdAt: now,
+        updatedAt: now
       };
       transaction.create(ref, data);
     } else {
