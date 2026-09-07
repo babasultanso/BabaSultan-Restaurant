@@ -2611,14 +2611,52 @@ export async function handleCustomerRefund(req: express.Request, res: express.Re
  * Read and apply GL account balance deltas inside the same Firestore transaction.
  * Callers must invoke prepareAccountBalanceState() before the first transaction write.
  */
+const CANONICAL_SYSTEM_GL_ACCOUNTS: Record<string, { code: string; name: string; type: string; branchId: string }> = {
+  acc_cash: { code: '1010', name: 'Cash on Hand (Register)', type: 'Asset', branchId: 'all' },
+  acc_bank: { code: '1020', name: 'Primary Bank', type: 'Asset', branchId: 'all' },
+  acc_inventory: { code: '1030', name: 'Food & Beverage Inventory Asset', type: 'Asset', branchId: 'all' },
+  acc_ar: { code: '1200', name: 'Accounts Receivable', type: 'Asset', branchId: 'all' },
+  acc_ap: { code: '2010', name: 'Accounts Payable', type: 'Liability', branchId: 'all' },
+  acc_driver_payable: { code: '2020', name: 'Driver Payable', type: 'Liability', branchId: 'all' },
+  acc_wallet_liability: { code: '2030', name: 'Customer Wallet Liability', type: 'Liability', branchId: 'all' },
+  acc_tax: { code: '2100', name: 'Tax Payable', type: 'Liability', branchId: 'all' },
+  acc_equity: { code: '3000', name: 'Owner Equity', type: 'Equity', branchId: 'all' },
+  acc_revenue: { code: '4010', name: 'Sales Revenue', type: 'Revenue', branchId: 'all' },
+  acc_delivery_revenue: { code: '4020', name: 'Delivery Revenue', type: 'Revenue', branchId: 'all' },
+  acc_cogs: { code: '5010', name: 'Cost of Goods Sold', type: 'COGS', branchId: 'all' },
+  acc_expense: { code: '6100', name: 'General Expense', type: 'Expense', branchId: 'all' },
+  acc_driver_expense: { code: '6110', name: 'Driver Earnings Expense', type: 'Expense', branchId: 'all' },
+  acc_payroll_expense: { code: '6120', name: 'Salaries & Wages Expense', type: 'Expense', branchId: 'all' },
+  acc_bank_fees: { code: '6200', name: 'Bank Charges & Merchant Fees', type: 'Expense', branchId: 'all' },
+  acc_cash_short: { code: '6290', name: 'Cash Shortage / Over & Short', type: 'Expense', branchId: 'all' },
+  acc_cash_over: { code: '4290', name: 'Cash Over / Other Income', type: 'Revenue', branchId: 'all' },
+  acc_waste: { code: '6300', name: 'Inventory Waste Expense', type: 'Expense', branchId: 'all' },
+  acc_inventory_adjustment: { code: '6310', name: 'Inventory Adjustment Expense', type: 'Expense', branchId: 'all' },
+  acc_due_from_branch: { code: '1310', name: 'Due From Branches', type: 'Asset', branchId: 'all' },
+  acc_due_to_branch: { code: '2110', name: 'Due To Branches', type: 'Liability', branchId: 'all' },
+};
+
 async function prepareAccountBalanceState(transaction: any, db: any, accountIds: string[]) {
   const unique = Array.from(new Set(accountIds.map(String).filter(Boolean)));
   const state = new Map<string, { ref: any; data: any; balance: number }>();
   for (const accountId of unique) {
     const ref = db.collection('accounts').doc(accountId);
     const snap = await transaction.get(ref);
-    if (!snap.exists) throw new Error(`GL account '${accountId}' does not exist.`);
-    const data = snap.data() || {};
+    let data: any;
+    if (!snap.exists) {
+      const canonical = CANONICAL_SYSTEM_GL_ACCOUNTS[accountId];
+      if (!canonical) throw new Error(`GL account '${accountId}' does not exist.`);
+      data = {
+        id: accountId,
+        ...canonical,
+        balance: 0,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      transaction.create(ref, data);
+    } else {
+      data = snap.data() || {};
+    }
     state.set(accountId, { ref, data, balance: Number(data.balance || 0) });
   }
   return state;
