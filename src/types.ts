@@ -423,9 +423,17 @@ export interface Ingredient {
   unit: string;
   minStockAlert: number;
   costPerUnit: number;
+  purchaseUnit?: string;
+  usageUnit?: string;
+  conversionFactor?: number;
+  currentStockUsageUnit?: number;
+  minStockUsageUnit?: number;
+  purchaseCost?: number;
+  costPerUsageUnit?: number;
+  status?: 'in_stock' | 'low_stock' | 'out_of_stock' | 'expired';
   branchId?: string;
   branch?: string;
-  supplierId: string;
+  supplierId?: string;
   supplierName: string;
 }
 
@@ -641,6 +649,8 @@ export type BranchHierarchyType = 'head_office' | 'flagship' | 'standard' | 'exp
 
 export interface Branch {
   id: string;
+  /** Firestore branch document id mirrored in the canonical branchId field. */
+  branchId?: string;
   name: string;
   code: string;
   logo?: string;

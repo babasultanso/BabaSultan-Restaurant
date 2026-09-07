@@ -9,6 +9,7 @@ import {
   InventoryMovement
 } from '../../../domain/entities/inventory';
 import { InventoryLang, inventoryDict } from '../../../i18n';
+import { inventoryService } from '../../../domain/services/inventoryService';
 import {
   Package,
   AlertTriangle,
@@ -56,7 +57,7 @@ export const InventoryDashboard: React.FC<InventoryDashboardProps> = ({
 
   // Calculate Metrics
   const totalItemsCount = items.length;
-  const totalValuation = items.reduce((acc, i) => acc + i.currentQuantity * (i.purchaseCost || 0), 0);
+  const totalValuation = inventoryService.calculateValuation(items).totalPurchaseValuation;
   const lowStockItems = items.filter((i) => i.currentQuantity > 0 && i.currentQuantity <= i.minimumQuantity);
   const outOfStockItems = items.filter((i) => i.currentQuantity <= 0);
   const expiredItems = items.filter((i) => {

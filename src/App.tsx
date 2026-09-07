@@ -136,7 +136,22 @@ function ERPAppContent() {
       : query(collection(db, COLLECTIONS.INGREDIENTS));
 
     const unsubIngredients = onSnapshot(ingredientsQuery, (snapshot) => {
-      setIngredients(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Ingredient)));
+      const docs = snapshot.docs.map(doc => {
+        const raw = doc.data() as any;
+        const usageStock = Number(raw.currentStockUsageUnit ?? raw.stock ?? raw.currentQuantity ?? 0);
+        const usageMin = Number(raw.minStockUsageUnit ?? raw.minAlertStock ?? 0);
+        const usageCost = Number(raw.costPerUsageUnit ?? raw.costPerUnit ?? 0);
+        return {
+          id: doc.id,
+          ...raw,
+          stock: Number.isFinite(usageStock) ? Math.max(0, usageStock) : 0,
+          unit: raw.usageUnit || raw.unit || 'unit',
+          minStockAlert: Number.isFinite(usageMin) ? Math.max(0, usageMin) : 0,
+          costPerUnit: Number.isFinite(usageCost) ? Math.max(0, usageCost) : 0,
+          branchId: raw.branchId || raw.branch || undefined
+        } as Ingredient;
+      });
+      setIngredients(docs);
     }, (err) => {
       console.warn('Ingredients listener notice:', err?.message || err);
     });

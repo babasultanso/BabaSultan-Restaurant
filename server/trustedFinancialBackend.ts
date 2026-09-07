@@ -48,6 +48,50 @@ export function roundMoney(amount: number): number {
   return Math.round((Number(amount) || 0) * 100) / 100;
 }
 
+function normalizeUnitName(unit: unknown): string {
+  return String(unit ?? '').trim().toLowerCase();
+}
+
+function getIngredientStockStatus(stock: number, minStockUsageUnit: number): 'in_stock' | 'low_stock' | 'out_of_stock' {
+  if (stock <= 0) return 'out_of_stock';
+  if (stock <= Math.max(0, minStockUsageUnit)) return 'low_stock';
+  return 'in_stock';
+}
+
+/** Convert a purchase quantity into the ingredient's canonical usage unit.
+ * The ingredient conversionFactor is the server-side source of truth for its
+ * own purchaseUnit -> usageUnit relationship. Same-unit ingredients require a
+ * 1:1 conversion factor; mismatched units require a positive finite factor.
+ */
+export function convertIngredientPurchaseQuantityToUsageUnit(
+  quantity: number,
+  ingredient: Record<string, any>
+): number {
+  if (!Number.isFinite(quantity) || quantity < 0) {
+    throw Object.assign(new Error('Received quantity must be a finite non-negative number.'), { statusCode: 400 });
+  }
+
+  const purchaseUnit = normalizeUnitName(ingredient.purchaseUnit);
+  const usageUnit = normalizeUnitName(ingredient.usageUnit);
+  const factor = Number(ingredient.conversionFactor);
+
+  if (!purchaseUnit || !usageUnit) {
+    throw Object.assign(new Error(`Ingredient "${ingredient.name || ingredient.id || 'unknown'}" is missing purchaseUnit or usageUnit.`), { statusCode: 400 });
+  }
+  if (!Number.isFinite(factor) || factor <= 0) {
+    throw Object.assign(new Error(`Ingredient "${ingredient.name || ingredient.id || 'unknown'}" has an invalid conversionFactor.`), { statusCode: 400 });
+  }
+
+  if (purchaseUnit === usageUnit) {
+    if (Math.abs(factor - 1) > 1e-9) {
+      throw Object.assign(new Error(`Ingredient "${ingredient.name || ingredient.id || 'unknown'}" has inconsistent units: purchaseUnit and usageUnit are both "${ingredient.usageUnit}", but conversionFactor is ${factor}.`), { statusCode: 400 });
+    }
+    return quantity;
+  }
+
+  return quantity * factor;
+}
+
 export function getMogadishuDateString(dateInput?: Date | string | number): string {
   const d = dateInput ? new Date(dateInput) : new Date();
   const validDate = isNaN(d.getTime()) ? new Date() : d;
@@ -1040,10 +1084,19 @@ export async function handlePosCheckout(req: express.Request, res: express.Respo
         if (newStock < 0) {
           throw new Error(`Critical invariant violation: resulting stock for ingredient "${info.ingredientName}" cannot be negative (${newStock.toFixed(2)}). Checkout aborted.`);
         }
-        transaction.update(db.collection('ingredients').doc(ingId), { stock: newStock, currentStockUsageUnit: newStock, updatedAt: timestamp });
+        transaction.update(db.collection('ingredients').doc(ingId), { stock: newStock, currentStockUsageUnit: newStock, status: getIngredientStockStatus(newStock, Number(ingredientMap.get(ingId)?.minStockUsageUnit || 0)), updatedAt: timestamp });
         transaction.set(db.collection('inventory').doc(ingId), {
           id: ingId,
+          itemType: 'ingredient',
+          itemName: info.ingredientName,
+          itemCode: ingredientMap.get(ingId)?.code || '',
           currentQuantity: newStock,
+          unit: ingredientMap.get(ingId)?.usageUnit || 'unit',
+          purchaseUnit: ingredientMap.get(ingId)?.purchaseUnit,
+          usageUnit: ingredientMap.get(ingId)?.usageUnit,
+          conversionFactor: Number(ingredientMap.get(ingId)?.conversionFactor || 1),
+          purchaseCost: Number(ingredientMap.get(ingId)?.purchaseCost || 0),
+          costPerUsageUnit: Number(ingredientMap.get(ingId)?.costPerUsageUnit || 0),
           branchId: targetBranchId,
           updatedAt: timestamp
         }, { merge: true });
@@ -1548,7 +1601,7 @@ export async function handleOrderCancellation(req: express.Request, res: express
                       if (!ingredientBranch || !areBranchesMatching(ingredientBranch, targetBranchId)) {
                         throw Object.assign(new Error(`Unauthorized cross-branch refund inventory access for ingredient "${snapItem.ingredientId}".`), { statusCode: 403 });
                       }
-                      const currentIngStock = typeof ingData.stock === 'number' ? ingData.stock : (typeof ingData.currentStockUsageUnit === 'number' ? ingData.currentStockUsageUnit : 0);
+                      const currentIngStock = typeof ingData.currentStockUsageUnit === 'number' ? ingData.currentStockUsageUnit : (typeof ingData.stock === 'number' ? ingData.stock : 0);
                       const lineQuantity = Number(item.quantity);
                       const snapshotPerItem = Number(snapItem.quantityPerItem);
                       const snapshotTotal = Number(snapItem.totalQuantity);
@@ -1577,7 +1630,7 @@ export async function handleOrderCancellation(req: express.Request, res: express
                       if (!ingredientBranch || !areBranchesMatching(ingredientBranch, targetBranchId)) {
                         throw Object.assign(new Error(`Unauthorized cross-branch refund inventory access for ingredient "${rItem.ingredientId}".`), { statusCode: 403 });
                       }
-                      const currentIngStock = typeof ingData.stock === 'number' ? ingData.stock : (typeof ingData.currentStockUsageUnit === 'number' ? ingData.currentStockUsageUnit : 0);
+                      const currentIngStock = typeof ingData.currentStockUsageUnit === 'number' ? ingData.currentStockUsageUnit : (typeof ingData.stock === 'number' ? ingData.stock : 0);
                       const reqQty = Number(rItem.quantity || 0) * restoredQty;
                       recipeRestorations.push({
                         ingRef,
@@ -1723,8 +1776,17 @@ export async function handleOrderCancellation(req: express.Request, res: express
         for (const rr of pr.recipeRestorations) {
           transaction.update(rr.ingRef, { 
             stock: rr.newIngStock,
-            currentStockUsageUnit: rr.newIngStock
+            currentStockUsageUnit: rr.newIngStock,
+            status: getIngredientStockStatus(rr.newIngStock, Number(rr.ingData?.minStockUsageUnit || 0)),
+            updatedAt: timestamp
           });
+          transaction.set(db.collection('inventory').doc(rr.ingRef.id), cleanUndefined({
+            id: rr.ingRef.id, itemType: 'ingredient', itemName: rr.ingData?.name || 'Ingredient', itemCode: rr.ingData?.code || '',
+            currentQuantity: rr.newIngStock, unit: rr.ingData?.usageUnit || 'unit', purchaseUnit: rr.ingData?.purchaseUnit,
+            usageUnit: rr.ingData?.usageUnit, conversionFactor: Number(rr.ingData?.conversionFactor || 1),
+            purchaseCost: Number(rr.ingData?.purchaseCost || 0), costPerUsageUnit: Number(rr.ingData?.costPerUsageUnit || 0),
+            branchId: targetBranchId, status: getIngredientStockStatus(rr.newIngStock, Number(rr.ingData?.minStockUsageUnit || 0)), updatedAt: timestamp
+          }), { merge: true });
 
           const ingMovRef = db.collection('inventory_movements').doc();
           transaction.set(ingMovRef, cleanUndefined({
@@ -2297,7 +2359,7 @@ export async function handleCustomerRefund(req: express.Request, res: express.Re
       const ingredientRestoreWrites: any[] = [];
       for (const [ingredientId, qty] of ingredientRestoreQty.entries()) {
         const info = ingredientRestoreInfo.get(ingredientId)!;
-        const currentStock = typeof info.data.stock === 'number' ? info.data.stock : (typeof info.data.currentStockUsageUnit === 'number' ? info.data.currentStockUsageUnit : 0);
+        const currentStock = typeof info.data.currentStockUsageUnit === 'number' ? info.data.currentStockUsageUnit : (typeof info.data.stock === 'number' ? info.data.stock : 0);
         if (!Number.isFinite(currentStock) || currentStock < 0) throw new Error(`Ingredient "${info.data.name || ingredientId}" has invalid stock.`);
         ingredientRestoreWrites.push({ ingredientId, ref: info.ref, name: info.data.name || ingredientId, qty, newStock: currentStock + qty });
       }
@@ -2492,9 +2554,19 @@ export async function handleCustomerRefund(req: express.Request, res: express.Re
       }
 
       for (const iw of ingredientRestoreWrites) {
-        transaction.update(iw.ref, { stock: iw.newStock, currentStockUsageUnit: iw.newStock, updatedAt: timestamp });
+        const refundIngData = ingredientRestoreInfo.get(iw.ingredientId)?.data || {};
+        transaction.update(iw.ref, {
+          stock: iw.newStock,
+          currentStockUsageUnit: iw.newStock,
+          status: getIngredientStockStatus(iw.newStock, Number(refundIngData.minStockUsageUnit || 0)),
+          updatedAt: timestamp
+        });
         transaction.set(db.collection('inventory').doc(iw.ingredientId), {
-          id: iw.ingredientId, currentQuantity: iw.newStock, branchId: targetBranchId, updatedAt: timestamp
+          id: iw.ingredientId, itemType: 'ingredient', itemName: iw.name, itemCode: refundIngData.code || '',
+          currentQuantity: iw.newStock, unit: refundIngData.usageUnit || 'unit', purchaseUnit: refundIngData.purchaseUnit,
+          usageUnit: refundIngData.usageUnit, conversionFactor: Number(refundIngData.conversionFactor || 1),
+          purchaseCost: Number(refundIngData.purchaseCost || 0), costPerUsageUnit: Number(refundIngData.costPerUsageUnit || 0),
+          branchId: targetBranchId, status: getIngredientStockStatus(iw.newStock, Number(refundIngData.minStockUsageUnit || 0)), updatedAt: timestamp
         }, { merge: true });
         const ingMovRef = db.collection('inventory_movements').doc();
         transaction.set(ingMovRef, cleanUndefined({
@@ -3327,6 +3399,13 @@ export async function handlePurchaseRegistration(req: express.Request, res: expr
       if (!matched) {
         throw new Error(`No canonical ingredient in branch "${targetBranchId}" matches purchase item "${String(purchaseData.itemName || '').trim()}". Purchase rejected to prevent an unbacked inventory asset entry.`);
       }
+      const matchedIngredient = matched.data() || {};
+      const usageQuantity = convertIngredientPurchaseQuantityToUsageUnit(quantity, matchedIngredient);
+      const usageUnit = String(matchedIngredient.usageUnit || '').trim();
+      const purchaseUnit = String(matchedIngredient.purchaseUnit || '').trim();
+      if (!usageUnit || !purchaseUnit) {
+        throw new Error(`Ingredient "${matchedIngredient.name || matched.id}" is missing canonical purchase/usage units.`);
+      }
 
       const normalizedPurchaseStatus = String(purchaseData.status || 'completed').trim().toLowerCase();
       const normalizedPurchaseMethod = normalizePaymentMethod(purchaseData.paymentMethod || (normalizedPurchaseStatus === 'completed' ? 'cash' : 'credit'), purchaseData.paymentMethod || 'cash');
@@ -3362,7 +3441,10 @@ export async function handlePurchaseRegistration(req: express.Request, res: expr
         itemType: 'ingredient',
         itemId: matched ? matched.id : '',
         itemName: purchaseData.itemName || 'Purchase Item',
-        quantity,
+        quantity: usageQuantity,
+        unit: usageUnit,
+        purchaseQuantity: quantity,
+        purchaseUnit,
         unitCost: unitPrice,
         branchId: targetBranchId,
         reason: `Registered purchase from ${authoritativeSupplierName}`,
@@ -3372,10 +3454,15 @@ export async function handlePurchaseRegistration(req: express.Request, res: expr
 
       // 2. Ingredient stock update if matching within authorized target branch
       if (matched) {
-        const currentStock = Number(matched.data().stock || 0);
+        const currentStock = Number(matchedIngredient.currentStockUsageUnit ?? matchedIngredient.stock ?? 0);
+        const newStock = currentStock + usageQuantity;
+        if (!Number.isFinite(currentStock) || currentStock < 0 || !Number.isFinite(newStock)) {
+          throw new Error(`Ingredient "${matchedIngredient.name || matched.id}" has invalid stock state.`);
+        }
         transaction.update(matched.ref, {
-          stock: currentStock + quantity,
-          currentStockUsageUnit: currentStock + quantity,
+          stock: newStock,
+          currentStockUsageUnit: newStock,
+          status: getIngredientStockStatus(newStock, Number(matchedIngredient.minStockUsageUnit || 0)),
           lastPurchasePrice: unitPrice,
           updatedAt: timestamp
         });
@@ -3885,7 +3972,7 @@ export async function handleInventoryAdjustment(req: express.Request, res: expre
         }
       }
 
-      const currentStock = Number(itemData.stock ?? itemData.currentQuantity ?? 0);
+      const currentStock = rawItemType === 'ingredient' ? Number(itemData.currentStockUsageUnit ?? itemData.stock ?? 0) : Number(itemData.stock ?? itemData.currentQuantity ?? 0);
       const isOut = normalizedMovementType === 'out' || normalizedMovementType === 'waste';
       let newStock: number;
       let effectiveDelta: number;
@@ -3906,7 +3993,9 @@ export async function handleInventoryAdjustment(req: express.Request, res: expre
       if (newStock < 0) {
         throw new Error(`Inventory adjustment would create negative stock (${newStock}).`);
       }
-      const unitCost = Number(itemData.costPrice || itemData.purchaseCost || itemData.cost || 0);
+      const unitCost = rawItemType === 'ingredient' || itemType === 'ingredients'
+        ? Number(itemData.costPerUsageUnit || itemData.costPrice || itemData.cost || 0)
+        : Number(itemData.costPrice || itemData.purchaseCost || itemData.cost || 0);
       const totalAdjustmentCost = Math.round(Math.abs(effectiveDelta) * unitCost * 100) / 100;
       await assertAccountingDateOpenInTransaction(transaction, db, dateStr, targetBranchId);
       const __accountState = totalAdjustmentCost > 0
@@ -3943,12 +4032,21 @@ export async function handleInventoryAdjustment(req: express.Request, res: expre
       // Synchronize linked inventory / ingredient item if present
       if (itemType === 'inventory') {
         const linkedIngRef = linkedProjectionRef || db.collection('ingredients').doc(movementData.itemId);
-        transaction.set(linkedIngRef, { stock: newStock, currentStockUsageUnit: newStock, branchId: targetBranchId, updatedAt: timestamp }, { merge: true });
+        transaction.set(linkedIngRef, { stock: newStock, currentStockUsageUnit: newStock, status: getIngredientStockStatus(newStock, Number(itemData.minStockUsageUnit || itemData.minimumQuantity || 0)), branchId: targetBranchId, updatedAt: timestamp }, { merge: true });
       } else if (itemType === 'ingredients') {
         const linkedInventoryRef = linkedProjectionRef || db.collection('inventory').doc(movementData.itemId);
         transaction.set(linkedInventoryRef, {
           id: movementData.itemId,
+          itemType: 'ingredient',
+          itemName: itemData.name || 'Ingredient',
+          itemCode: itemData.code || '',
           currentQuantity: newStock,
+          unit: itemData.usageUnit || 'unit',
+          purchaseUnit: itemData.purchaseUnit || undefined,
+          usageUnit: itemData.usageUnit || undefined,
+          conversionFactor: Number(itemData.conversionFactor || 1),
+          purchaseCost: Number(itemData.purchaseCost || 0),
+          costPerUsageUnit: Number(itemData.costPerUsageUnit || 0),
           branchId: targetBranchId,
           updatedAt: timestamp
         }, { merge: true });
@@ -6089,17 +6187,35 @@ async function validateRecipeItemsInTransaction(transaction: any, db: any, items
     throw Object.assign(new Error('Recipe branch must be a concrete branch.'), { statusCode: 400 });
   }
   const rawItems = Array.isArray(items) ? items : [];
-  for (const item of rawItems) {
-    const ingredientId = String(item?.ingredientId || item?.id || '').trim();
-    if (!ingredientId) throw Object.assign(new Error('Every recipe item must reference a concrete ingredientId.'), { statusCode: 400 });
+  const itemIngredientIds = rawItems.map((item: any) => String(item?.ingredientId || item?.id || '').trim());
+  if (itemIngredientIds.some((id) => !id)) {
+    throw Object.assign(new Error('Every recipe item must reference a concrete ingredientId.'), { statusCode: 400 });
   }
-  const uniqueIds = [...new Set(rawItems.map((item: any) => String(item?.ingredientId || item?.id || '').trim()))];
+
+  const uniqueIds = [...new Set(itemIngredientIds)];
+  const ingredientDataMap = new Map<string, any>();
   for (const ingredientId of uniqueIds) {
     const snap = await transaction.get(db.collection('ingredients').doc(ingredientId));
     if (!snap.exists) throw Object.assign(new Error(`Ingredient "${ingredientId}" not found for recipe.`), { statusCode: 400 });
-    const ingredientBranch = normalizeCanonicalBranchId(snap.data()?.branchId || '');
+    const ingredientData = snap.data() || {};
+    const ingredientBranch = normalizeCanonicalBranchId(ingredientData.branchId || '');
     if (!ingredientBranch || !areBranchesMatching(ingredientBranch, normalizedBranch)) {
       throw Object.assign(new Error(`Recipe ingredient "${ingredientId}" does not belong to recipe branch "${normalizedBranch}".`), { statusCode: 403 });
+    }
+    ingredientDataMap.set(ingredientId, ingredientData);
+  }
+
+  for (const item of rawItems) {
+    const ingredientId = String(item?.ingredientId || item?.id || '').trim();
+    const ingredientData = ingredientDataMap.get(ingredientId) || {};
+    const recipeQuantity = Number(item?.quantity);
+    if (!Number.isFinite(recipeQuantity) || recipeQuantity <= 0) {
+      throw Object.assign(new Error(`Recipe ingredient "${ingredientId}" must have a finite positive quantity.`), { statusCode: 400 });
+    }
+    const recipeUnit = normalizeUnitName(item?.unit);
+    const usageUnit = normalizeUnitName(ingredientData.usageUnit);
+    if (!usageUnit || recipeUnit !== usageUnit) {
+      throw Object.assign(new Error(`Recipe ingredient "${ingredientData.name || ingredientId}" must use its canonical usage unit "${ingredientData.usageUnit || 'unknown'}"; received "${item?.unit || 'unknown'}".`), { statusCode: 400 });
     }
   }
 }
@@ -6201,6 +6317,19 @@ export async function handleReceiveGoods(req: express.Request, res: express.Resp
 
       const items = Array.isArray(po.items) ? po.items : [];
       const recs = Array.isArray(receivedItems) ? receivedItems : [];
+      const poItemIds = new Set(items.map((pi: any) => String(pi.itemId || pi.id || '').trim()).filter(Boolean));
+      const seenReceivedItemIds = new Set<string>();
+      for (const rec of recs) {
+        const recItemId = String(rec?.itemId || '').trim();
+        if (!recItemId) throw new Error('Received item is missing itemId.');
+        if (!poItemIds.has(recItemId)) {
+          throw new Error(`Received item "${recItemId}" is not present in Purchase Order #${po.poNumber || poId}.`);
+        }
+        if (seenReceivedItemIds.has(recItemId)) {
+          throw new Error(`Duplicate receiving line rejected for item "${recItemId}". Each item may appear only once per receiving transaction.`);
+        }
+        seenReceivedItemIds.add(recItemId);
+      }
 
       let sessionReceivedCost = 0;
 
@@ -6307,24 +6436,49 @@ export async function handleReceiveGoods(req: express.Request, res: express.Resp
 
       // Update inventory and ingredients stock canonically inside transaction
       for (const [itemId, invEntry] of invSnapsMap.entries()) {
-        const qty = invEntry.qty;
-        const currentQty = invEntry.invData 
-          ? (invEntry.invData.currentQuantity || 0) 
-          : (invEntry.ingData ? (invEntry.ingData.stock || 0) : 0);
-        const newQty = currentQty + qty;
+        const purchaseQty = invEntry.qty;
+        const isIngredient = Boolean(invEntry.ingData);
+        const usageQty = isIngredient
+          ? convertIngredientPurchaseQuantityToUsageUnit(purchaseQty, invEntry.ingData)
+          : purchaseQty;
+        // Ingredient stock is canonical in usage units. The generic inventory document
+        // is a projection and must not override a valid ingredient usage-unit balance.
+        const currentQty = isIngredient
+          ? Number(invEntry.ingData.currentStockUsageUnit ?? invEntry.ingData.stock ?? 0)
+          : Number(invEntry.invData?.currentQuantity || 0);
+        if (!Number.isFinite(currentQty) || currentQty < 0) {
+          throw Object.assign(new Error(`Invalid current stock for "${invEntry.ingData?.name || invEntry.invData?.itemName || itemId}".`), { statusCode: 409 });
+        }
+        const newQty = currentQty + usageQty;
 
         let status = 'in_stock';
-        const minQty = (invEntry.invData?.minimumQuantity || invEntry.ingData?.minimumStock || 0);
+        const minQty = isIngredient
+          ? Number(invEntry.ingData?.minStockUsageUnit || 0)
+          : Number(invEntry.invData?.minimumQuantity || 0);
         if (newQty <= 0) status = 'out_of_stock';
         else if (newQty <= minQty) status = 'low_stock';
 
         const itemName = invEntry.invData?.itemName || invEntry.ingData?.name || itemId;
         const itemCode = invEntry.invData?.itemCode || invEntry.ingData?.code || '';
-        const unit = invEntry.invData?.unit || invEntry.ingData?.unit || 'pcs';
+        const unit = isIngredient
+          ? String(invEntry.ingData?.usageUnit || '')
+          : String(invEntry.invData?.unit || 'pcs');
+        if (!unit) {
+          throw Object.assign(new Error(`Inventory usage unit missing for "${itemName}".`), { statusCode: 409 });
+        }
 
         if (invEntry.invData) {
           transaction.update(invEntry.invRef, {
             currentQuantity: newQty,
+            ...(isIngredient ? {
+              itemType: 'ingredient',
+              unit,
+              purchaseUnit: invEntry.ingData?.purchaseUnit,
+              usageUnit: invEntry.ingData?.usageUnit,
+              conversionFactor: Number(invEntry.ingData?.conversionFactor),
+              purchaseCost: Number(invEntry.ingData?.purchaseCost || 0),
+              costPerUsageUnit: Number(invEntry.ingData?.costPerUsageUnit || 0)
+            } : {}),
             batchNumber: invEntry.batchNumber || invEntry.invData.batchNumber || '',
             expirationDate: invEntry.expirationDate || invEntry.invData.expirationDate || '',
             status,
@@ -6337,6 +6491,14 @@ export async function handleReceiveGoods(req: express.Request, res: express.Resp
             itemCode,
             currentQuantity: newQty,
             unit,
+            ...(isIngredient ? {
+              itemType: 'ingredient',
+              purchaseUnit: invEntry.ingData?.purchaseUnit,
+              usageUnit: invEntry.ingData?.usageUnit,
+              conversionFactor: Number(invEntry.ingData?.conversionFactor),
+              purchaseCost: Number(invEntry.ingData?.purchaseCost || 0),
+              costPerUsageUnit: Number(invEntry.ingData?.costPerUsageUnit || 0)
+            } : {}),
             branchId: targetBranchId,
             batchNumber: invEntry.batchNumber || '',
             expirationDate: invEntry.expirationDate || '',
@@ -6351,6 +6513,7 @@ export async function handleReceiveGoods(req: express.Request, res: express.Resp
           transaction.update(invEntry.ingRef, {
             stock: newQty,
             currentStockUsageUnit: newQty,
+            status: getIngredientStockStatus(newQty, Number(invEntry.ingData?.minStockUsageUnit || 0)),
             updatedAt: now
           });
         } else {
@@ -6359,7 +6522,9 @@ export async function handleReceiveGoods(req: express.Request, res: express.Resp
             name: itemName,
             stock: newQty,
             currentStockUsageUnit: newQty,
+            status: getIngredientStockStatus(newQty, Number(invEntry.ingData?.minStockUsageUnit || 0)),
             unit,
+            usageUnit: unit,
             branchId: targetBranchId,
             updatedAt: now
           }, { merge: true });
@@ -6372,8 +6537,10 @@ export async function handleReceiveGoods(req: express.Request, res: express.Resp
           itemId,
           itemName,
           itemCode,
-          quantity: qty,
+          quantity: usageQty,
           unit,
+          purchaseQuantity: purchaseQty,
+          purchaseUnit: isIngredient ? invEntry.ingData?.purchaseUnit : unit,
           unitCost: Number(((items.find((orderedItem: any) => orderedItem.itemId === itemId || orderedItem.id === itemId) || {}) as any).unitCost ?? ((items.find((orderedItem: any) => orderedItem.itemId === itemId || orderedItem.id === itemId) || {}) as any).unitPrice ?? 0),
           previousQuantity: currentQty,
           newQuantity: newQty,
@@ -8826,14 +8993,16 @@ export async function handleLogKitchenWaste(req: express.Request, res: express.R
         if (linkedSnap.exists) linkedProjection = { ref: linkedRef, type: 'inventory', snap: linkedSnap };
       }
 
-      const currentStock = Number(itemVal.stock ?? itemVal.currentQuantity ?? 0);
+      const currentStock = targetItemType === 'ingredient' ? Number(itemVal.currentStockUsageUnit ?? itemVal.stock ?? 0) : Number(itemVal.stock ?? itemVal.currentQuantity ?? 0);
       if (currentStock < quantity) {
         throw new Error(`Insufficient stock for waste logging of "${itemVal.name || itemVal.itemName || targetItemId}": available ${currentStock}, requested waste ${quantity}.`);
       }
 
       const newStock = currentStock - quantity;
       // Cost is server-authoritative. Never trust a client-supplied cost for GL valuation.
-      const unitCost = Number(itemVal.costPrice ?? itemVal.purchaseCost ?? itemVal.cost ?? 0);
+      const unitCost = targetItemType === 'ingredients'
+        ? Number(itemVal.costPerUsageUnit ?? itemVal.costPrice ?? itemVal.cost ?? 0)
+        : Number(itemVal.costPrice ?? itemVal.purchaseCost ?? itemVal.cost ?? 0);
       const finalCost = Math.round(quantity * Math.max(0, Number.isFinite(unitCost) ? unitCost : 0) * 100) / 100;
       const itemOrIngName = itemVal.name || itemVal.itemName || payload.itemOrIngredientName || payload.itemName || 'Waste Item';
       const dateStr = getMogadishuDateString(timestamp);
@@ -8906,9 +9075,23 @@ export async function handleLogKitchenWaste(req: express.Request, res: express.R
           throw Object.assign(new Error(`Linked ${linkedProjection.type} projection "${targetItemId}" belongs to a different or undefined branch.`), { statusCode: 403 });
         }
         if (linkedProjection.type === 'ingredient') {
-          transaction.update(linkedProjection.ref, { stock: newStock, currentStockUsageUnit: newStock, updatedAt: timestamp });
+          transaction.update(linkedProjection.ref, { stock: newStock, currentStockUsageUnit: newStock, status: getIngredientStockStatus(newStock, Number(itemVal.minStockUsageUnit || itemVal.minimumQuantity || 0)), updatedAt: timestamp });
         } else {
-          transaction.update(linkedProjection.ref, { currentQuantity: newStock, updatedAt: timestamp });
+          transaction.update(linkedProjection.ref, {
+            currentQuantity: newStock,
+            ...(targetItemType === 'ingredients' ? {
+              itemType: 'ingredient',
+              itemName: itemOrIngName,
+              itemCode: itemVal.code || '',
+              unit: itemVal.usageUnit || unitText,
+              purchaseUnit: itemVal.purchaseUnit,
+              usageUnit: itemVal.usageUnit,
+              conversionFactor: Number(itemVal.conversionFactor || 1),
+              purchaseCost: Number(itemVal.purchaseCost || 0),
+              costPerUsageUnit: Number(itemVal.costPerUsageUnit || 0)
+            } : {}),
+            updatedAt: timestamp
+          });
         }
       }
 
@@ -10943,7 +11126,7 @@ export async function handleBranchTransferApproval(req: express.Request, res: ex
           const sourceData = sourceSnap.data() || {};
           const itemBranch = normalizeCanonicalBranchId(sourceData.branchId || '');
           if (!itemBranch || itemBranch !== source) throw Object.assign(new Error(`Transfer item ${itemId} is not owned by source branch ${source}.`), { statusCode: 400 });
-          const sourceStock = Number(sourceData.stock ?? sourceData.currentStockUsageUnit ?? 0);
+          const sourceStock = Number(sourceData.currentStockUsageUnit ?? sourceData.stock ?? 0);
           if (!Number.isFinite(sourceStock) || sourceStock < qty) throw Object.assign(new Error(`Insufficient stock for transfer item ${itemId}. Available ${sourceStock}, requested ${qty}.`), { statusCode: 409 });
 
           const destQuery = await transaction.get(db.collection(collectionName).where('branchId', '==', dest));
@@ -10974,15 +11157,39 @@ export async function handleBranchTransferApproval(req: express.Request, res: ex
           }
           if (!destDoc) throw Object.assign(new Error(`Destination branch ${dest} has no matching ${item.type} master item for ${itemId}.`), { statusCode: 409 });
           const destData = destDoc.data() || {};
-          const destStock = Number(destData.stock ?? destData.currentStockUsageUnit ?? 0);
+          const destStock = Number(destData.currentStockUsageUnit ?? destData.stock ?? 0);
           if (!Number.isFinite(destStock) || destStock < 0) throw Object.assign(new Error(`Destination stock for ${destDoc.id} is invalid.`), { statusCode: 409 });
+
+          let sourceProjectionRef: any = null;
+          let destProjectionRef: any = null;
+          if (collectionName === 'ingredients') {
+            sourceProjectionRef = db.collection('inventory').doc(sourceRef.id);
+            destProjectionRef = db.collection('inventory').doc(destDoc.id);
+            const sourceProjectionSnap = await transaction.get(sourceProjectionRef);
+            const destProjectionSnap = await transaction.get(destProjectionRef);
+            if (sourceProjectionSnap.exists) {
+              const b = normalizeCanonicalBranchId(sourceProjectionSnap.data()?.branchId || '');
+              if (!b || b !== source) throw Object.assign(new Error(`Source ingredient projection "${sourceRef.id}" does not belong to source branch.`), { statusCode: 400 });
+            }
+            if (destProjectionSnap.exists) {
+              const b = normalizeCanonicalBranchId(destProjectionSnap.data()?.branchId || '');
+              if (!b || b !== dest) throw Object.assign(new Error(`Destination ingredient projection "${destDoc.id}" does not belong to destination branch.`), { statusCode: 400 });
+            }
+            const sourceUnit = normalizeUnitName(sourceData.usageUnit || sourceData.unit);
+            const destUnit = normalizeUnitName(destData.usageUnit || destData.unit);
+            if (!sourceUnit || !destUnit || sourceUnit !== destUnit) throw Object.assign(new Error('Ingredient transfer requires matching usage units.'), { statusCode: 400 });
+          }
 
           const sourceKey = `${collectionName}:${sourceRef.path}`;
           const destKey = `${collectionName}:${destDoc.ref.path}`;
           if (seen.has(sourceKey) || seen.has(destKey)) throw Object.assign(new Error('A transfer cannot contain duplicate source/destination item mutations.'), { statusCode: 400 });
           seen.add(sourceKey); seen.add(destKey);
-          writePlan.push({ ref: sourceRef, data: cleanUndefined({ stock: sourceStock - qty, ...(collectionName === 'ingredients' ? { currentStockUsageUnit: sourceStock - qty } : {}), updatedAt: now }) });
-          writePlan.push({ ref: destDoc.ref, data: cleanUndefined({ stock: destStock + qty, ...(collectionName === 'ingredients' ? { currentStockUsageUnit: destStock + qty } : {}), updatedAt: now }) });
+          writePlan.push({ ref: sourceRef, data: cleanUndefined({ stock: sourceStock - qty, ...(collectionName === 'ingredients' ? { currentStockUsageUnit: sourceStock - qty, status: getIngredientStockStatus(sourceStock - qty, Number(sourceData.minStockUsageUnit || 0)) } : {}), updatedAt: now }) });
+          writePlan.push({ ref: destDoc.ref, data: cleanUndefined({ stock: destStock + qty, ...(collectionName === 'ingredients' ? { currentStockUsageUnit: destStock + qty, status: getIngredientStockStatus(destStock + qty, Number(destData.minStockUsageUnit || 0)) } : {}), updatedAt: now }) });
+          if (collectionName === 'ingredients') {
+            writePlan.push({ ref: sourceProjectionRef, data: cleanUndefined({ id: sourceProjectionRef.id, itemType: 'ingredient', itemName: sourceData.name || item.itemName || itemId, itemCode: sourceData.code || '', currentQuantity: sourceStock - qty, unit: sourceData.usageUnit || sourceData.unit, purchaseUnit: sourceData.purchaseUnit, usageUnit: sourceData.usageUnit || sourceData.unit, conversionFactor: Number(sourceData.conversionFactor || 1), purchaseCost: Number(sourceData.purchaseCost || 0), costPerUsageUnit: Number(sourceData.costPerUsageUnit || 0), branchId: source, status: getIngredientStockStatus(sourceStock - qty, Number(sourceData.minStockUsageUnit || 0)), updatedAt: now }) });
+            writePlan.push({ ref: destProjectionRef, data: cleanUndefined({ id: destProjectionRef.id, itemType: 'ingredient', itemName: destData.name || item.itemName || destDoc.id, itemCode: destData.code || '', currentQuantity: destStock + qty, unit: destData.usageUnit || destData.unit, purchaseUnit: destData.purchaseUnit, usageUnit: destData.usageUnit || destData.unit, conversionFactor: Number(destData.conversionFactor || 1), purchaseCost: Number(destData.purchaseCost || 0), costPerUsageUnit: Number(destData.costPerUsageUnit || 0), branchId: dest, status: getIngredientStockStatus(destStock + qty, Number(destData.minStockUsageUnit || 0)), updatedAt: now }) });
+          }
           movements.push({ type:'transfer_out', itemType:item.type, itemId, itemName:item.itemName || sourceData.name || itemId, quantity:qty, branchId:source, destinationBranchId:dest }, { type:'transfer_in', itemType:item.type, itemId:destDoc.id, itemName:item.itemName || destData.name || destDoc.id, quantity:qty, branchId:dest, sourceBranchId:source });
         }
       } else if (t.transferType === 'employee') {
@@ -11252,13 +11459,28 @@ export async function handleInitialSetup(req: express.Request, res: express.Resp
       const inventory = Array.isArray(body.inventory) ? body.inventory : [];
       for (const [idx, item] of inventory.entries()) {
         const ref = db.collection('ingredients').doc(`setup_${user.uid}_${idx + 1}`);
+        const usageUnit = String(item.usageUnit || item.unit || '').trim();
+        const purchaseUnit = String(item.purchaseUnit || item.unit || '').trim();
         const qty = Math.max(0, Number(item.currentQuantity) || 0);
+        const purchaseCost = Math.max(0, Number(item.purchaseCost ?? item.costPerUnit) || 0);
+        const conversionFactor = Number(item.conversionFactor ?? 1);
+        if (!item.name || !usageUnit || !purchaseUnit || !Number.isFinite(conversionFactor) || conversionFactor <= 0) {
+          throw Object.assign(new Error(`Initial setup ingredient ${idx + 1} has incomplete canonical unit data.`), { statusCode: 400 });
+        }
+        if (normalizeUnitName(purchaseUnit) === normalizeUnitName(usageUnit) && Math.abs(conversionFactor - 1) > 1e-9) {
+          throw Object.assign(new Error(`Initial setup ingredient "${item.name}" uses the same purchase and usage unit but conversionFactor is not 1.`), { statusCode: 400 });
+        }
+        const costPerUsageUnit = purchaseUnit && usageUnit && conversionFactor > 0 ? purchaseCost / conversionFactor : purchaseCost;
         tx.set(ref, cleanUndefined({
           id: ref.id, branchId: targetBranchId, branch: targetBranchId, name: item.name,
-          nameAr: item.nameAr || item.name, nameSo: item.nameSo || item.name, unit: item.unit,
-          minAlertStock: Math.max(0, Number(item.minAlertStock) || 0), costPerUnit: Math.max(0, Number(item.costPerUnit) || 0),
-          currentQuantity: qty, quantity: qty, stock: qty, currentStockUsageUnit: qty,
-          category: item.category || 'General', lastRestocked: now, createdAt: now
+          nameAr: item.nameAr || item.name, nameSo: item.nameSo || item.name, category: item.category || 'General',
+          purchaseUnit, usageUnit, conversionFactor,
+          minStockUsageUnit: Math.max(0, Number(item.minStockUsageUnit ?? item.minAlertStock) || 0),
+          purchaseCost, costPerUsageUnit,
+          stock: qty, currentStockUsageUnit: qty,
+          status: getIngredientStockStatus(qty, Math.max(0, Number(item.minStockUsageUnit ?? item.minAlertStock) || 0)),
+          supplierId: item.supplierId || undefined, supplierName: item.supplierName || '',
+          lastRestocked: now, createdAt: now, updatedAt: now
         }), { merge: true });
       }
       const products = Array.isArray(body.products) ? body.products : [];

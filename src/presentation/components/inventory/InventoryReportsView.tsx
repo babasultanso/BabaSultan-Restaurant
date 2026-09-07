@@ -68,8 +68,8 @@ export const InventoryReportsView: React.FC<InventoryReportsViewProps> = ({
         Category: i.category,
         Quantity: i.currentQuantity,
         Unit: i.unit,
-        'Purchase Cost ($)': i.purchaseCost,
-        'Total Valuation ($)': (i.currentQuantity * (i.purchaseCost || 0)).toFixed(2),
+        'Purchase Cost ($)': i.itemType === 'ingredient' ? (i.costPerUsageUnit || 0) : (i.purchaseCost || 0),
+        'Total Valuation ($)': (i.currentQuantity * (i.itemType === 'ingredient' ? (i.costPerUsageUnit || 0) : (i.purchaseCost || 0))).toFixed(2),
         Status: i.status
       }));
       inventoryService.exportToCsv('inventory_valuation_report', rows);
@@ -104,8 +104,8 @@ export const InventoryReportsView: React.FC<InventoryReportsViewProps> = ({
         i.itemName,
         i.category,
         `${i.currentQuantity} ${i.unit}`,
-        `$${(i.purchaseCost || 0).toFixed(2)}`,
-        `$${(i.currentQuantity * (i.purchaseCost || 0)).toFixed(2)}`,
+        `$${(i.itemType === 'ingredient' ? (i.costPerUsageUnit || 0) : (i.purchaseCost || 0)).toFixed(2)}`,
+        `$${(i.currentQuantity * (i.itemType === 'ingredient' ? (i.costPerUsageUnit || 0) : (i.purchaseCost || 0))).toFixed(2)}`,
         i.status
       ]);
       inventoryService.exportToPrintPdf('Inventory Valuation & Stock Summary Report', headers, rows);

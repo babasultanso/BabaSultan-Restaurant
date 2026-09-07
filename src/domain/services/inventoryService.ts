@@ -136,7 +136,12 @@ export class InventoryService {
 
     items.forEach((i) => {
       totalStockQuantity += i.currentQuantity;
-      const purchaseVal = i.currentQuantity * (i.purchaseCost || 0);
+      // Ingredient inventory projections store stock in the usage unit (e.g. ml/g),
+      // so valuation must use the per-usage-unit cost rather than purchase-unit cost.
+      const unitCost = i.itemType === 'ingredient' && Number.isFinite(Number(i.costPerUsageUnit))
+        ? Number(i.costPerUsageUnit)
+        : Number(i.purchaseCost || 0);
+      const purchaseVal = i.currentQuantity * unitCost;
       const sellingVal = i.currentQuantity * (i.sellingCost || 0);
 
       totalPurchaseValuation += purchaseVal;

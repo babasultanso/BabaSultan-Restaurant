@@ -42,6 +42,11 @@ export interface InventoryItem {
   branch?: string;
   supplierId?: string;
   supplierName?: string;
+  itemType?: 'inventory' | 'ingredient' | 'product';
+  purchaseUnit?: string;
+  usageUnit?: string;
+  conversionFactor?: number;
+  costPerUsageUnit?: number;
   expirationDate?: string; // YYYY-MM-DD
   batchNumber?: string;
   status: InventoryItemStatus;
