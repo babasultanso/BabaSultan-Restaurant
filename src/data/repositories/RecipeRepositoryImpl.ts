@@ -172,7 +172,13 @@ export class RecipeRepositoryImpl implements IRecipeRepository {
         : query(collection(db, INGREDIENTS_COLL), orderBy('name', 'asc'));
       const snap = await getDocs(q);
       const list: Ingredient[] = [];
-      snap.forEach((d) => list.push({ id: d.id, ...d.data() } as Ingredient));
+      snap.forEach((d) => {
+        const data = d.data() as Record<string, unknown>;
+        // Soft-deleted/archived ingredients remain in Firestore for historical
+        // integrity but must not appear in the active ingredient catalog.
+        if (data.isActive === false || data.isArchived === true || data.deletedAt) return;
+        list.push({ id: d.id, ...data } as Ingredient);
+      });
       return list;
     } catch {
       return [];
@@ -187,7 +193,12 @@ export class RecipeRepositoryImpl implements IRecipeRepository {
       q,
       (snap) => {
         const list: Ingredient[] = [];
-        snap.forEach((d) => list.push({ id: d.id, ...d.data() } as Ingredient));
+        snap.forEach((d) => {
+          const data = d.data() as Record<string, unknown>;
+          // Keep archived ingredients available for history, not in the active UI.
+          if (data.isActive === false || data.isArchived === true || data.deletedAt) return;
+          list.push({ id: d.id, ...data } as Ingredient);
+        });
         callback(list);
       },
       (err) => console.warn('Note subscribing ingredients:', err?.message || err)

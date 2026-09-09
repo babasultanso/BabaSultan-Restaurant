@@ -4060,3 +4060,13 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
   });
 });
 
+
+
+describe('P0 API routing', () => {
+  it('unknown /api paths return JSON 404 instead of the SPA shell', async () => {
+    const res = await request(app).get('/api/does-not-exist-__audit__');
+    expect(res.status).toBe(404);
+    expect(res.headers['content-type']).toMatch(/application\/json/);
+    expect(res.body.error).toBe('API endpoint not found.');
+  });
+});

@@ -284,6 +284,16 @@ app.get('/api/financial-summary', handleGetFinancialSummary);
 app.post('/api/ai-chat', handleAIChatRequest);
 app.post('/api/ai/execute-action', handleAIExecuteAction);
 
+// API 404 boundary: never let an unknown /api route fall through to the SPA
+// catch-all. Unknown API paths must return a machine-readable 404 instead of
+// index.html (which can otherwise mask routing/configuration errors).
+app.all('/api', (_req, res) => {
+  return res.status(404).json({ error: 'API endpoint not found.' });
+});
+app.all('/api/*', (_req, res) => {
+  return res.status(404).json({ error: 'API endpoint not found.' });
+});
+
 // Central error boundary: never leak stack traces or internal implementation details to clients.
 app.use((err: any, req: express.Request, res: express.Response, _next: express.NextFunction) => {
   const status = Number(err?.statusCode || err?.status || 500);
