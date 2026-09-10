@@ -342,12 +342,21 @@ export class InventoryRepositoryImpl implements IInventoryRepository {
   // Suppliers
   async fetchSuppliers(branchId?: string): Promise<Supplier[]> {
     try {
+      // Supplier documents in the canonical collection use `name`; older documents
+      // may use `companyName`. Do not orderBy a field that may be absent because
+      // Firestore omits documents missing that ordered field. Filter by branch only
+      // and sort the normalized result in memory.
       const q = branchId && branchId !== 'all'
-        ? query(collection(db, COLLECTIONS.SUPPLIERS), where('branchId', '==', branchId), orderBy('companyName', 'asc'))
-        : query(collection(db, COLLECTIONS.SUPPLIERS), orderBy('companyName', 'asc'));
+        ? query(collection(db, COLLECTIONS.SUPPLIERS), where('branchId', '==', branchId))
+        : collection(db, COLLECTIONS.SUPPLIERS);
       const snap = await getDocs(q);
       const list: Supplier[] = [];
-      snap.forEach((d) => list.push({ id: d.id, ...d.data() } as Supplier));
+      snap.forEach((d) => {
+        const data = d.data();
+        const name = String(data.companyName ?? data.name ?? '').trim();
+        list.push({ id: d.id, ...data, name, companyName: name } as Supplier);
+      });
+      list.sort((a, b) => String(a.companyName ?? a.name ?? '').localeCompare(String(b.companyName ?? b.name ?? '')));
       return list;
     } catch (err) {
       handleFirestoreError(err, OperationType.LIST, COLLECTIONS.SUPPLIERS);
@@ -357,13 +366,18 @@ export class InventoryRepositoryImpl implements IInventoryRepository {
 
   subscribeSuppliers(callback: (suppliers: Supplier[]) => void, branchId?: string): () => void {
     const q = branchId && branchId !== 'all'
-      ? query(collection(db, COLLECTIONS.SUPPLIERS), where('branchId', '==', branchId), orderBy('companyName', 'asc'))
-      : query(collection(db, COLLECTIONS.SUPPLIERS), orderBy('companyName', 'asc'));
+      ? query(collection(db, COLLECTIONS.SUPPLIERS), where('branchId', '==', branchId))
+      : collection(db, COLLECTIONS.SUPPLIERS);
     return onSnapshot(
       q,
       (snap) => {
         const list: Supplier[] = [];
-        snap.forEach((d) => list.push({ id: d.id, ...d.data() } as Supplier));
+        snap.forEach((d) => {
+          const data = d.data();
+          const name = String(data.companyName ?? data.name ?? '').trim();
+          list.push({ id: d.id, ...data, name, companyName: name } as Supplier);
+        });
+        list.sort((a, b) => String(a.companyName ?? a.name ?? '').localeCompare(String(b.companyName ?? b.name ?? '')));
         callback(list);
       },
       (err) => {
