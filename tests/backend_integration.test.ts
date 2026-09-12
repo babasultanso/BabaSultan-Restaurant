@@ -582,16 +582,18 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
     expect(unscoped.status).toBe(409);
 
     await db.collection('ingredients').doc('ing_cost_waste').set({
-      id: 'ing_cost_waste', name: 'Cost Test', stock: 20, costPrice: 2, branchId: 'main_branch_01'
+      id: 'ing_cost_waste', name: 'Cost Test', stock: 2000, currentStockUsageUnit: 2000,
+      purchaseUnit: 'kg', usageUnit: 'g', conversionFactor: 1000,
+      purchaseCost: 20, costPerUsageUnit: 0.02, costPrice: 999, branchId: 'main_branch_01'
     });
     const spoofed = await request(app)
       .post('/api/kitchen/waste')
       .set('Authorization', CASHIER_TOKEN)
       .set('Idempotency-Key', `test-kitchen-waste-cost-${Date.now()}`)
-      .send({ wasteData: { itemId: 'ing_cost_waste', itemType: 'ingredient', quantity: 2, unit: 'kg', cost: 9999 } });
+      .send({ wasteData: { itemId: 'ing_cost_waste', itemType: 'ingredient', quantity: 1000, unit: 'g', cost: 9999 } });
     expect(spoofed.status).toBe(200);
     const wasteSnap = await db.collection('kitchen_waste').doc(spoofed.body.id).get();
-    expect(wasteSnap.data().cost).toBe(4);
+    expect(wasteSnap.data().cost).toBe(20);
   });
 
   it('14d. POST /api/kitchen/waste - requires idempotency key', async () => {

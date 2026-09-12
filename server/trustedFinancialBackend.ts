@@ -9013,7 +9013,7 @@ export async function handleLogKitchenWaste(req: express.Request, res: express.R
 
       const newStock = currentStock - quantity;
       // Cost is server-authoritative. Never trust a client-supplied cost for GL valuation.
-      const unitCost = targetItemType === 'ingredients'
+      const unitCost = targetItemType === 'ingredient'
         ? Number(itemVal.costPerUsageUnit ?? itemVal.costPrice ?? itemVal.cost ?? 0)
         : Number(itemVal.costPrice ?? itemVal.purchaseCost ?? itemVal.cost ?? 0);
       const finalCost = Math.round(quantity * Math.max(0, Number.isFinite(unitCost) ? unitCost : 0) * 100) / 100;
