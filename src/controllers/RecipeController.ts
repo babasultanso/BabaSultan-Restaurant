@@ -139,7 +139,9 @@ export class RecipeController {
     const grossProfit = sellingPrice - costPerPortion;
     const grossProfitMargin = sellingPrice > 0 ? (grossProfit / sellingPrice) * 100 : 0;
     // 15% overhead deduction is an operational heuristic estimate, not audited GAAP/IFRS financial net profit
-    const estimatedNetProfit = grossProfit * 0.85;
+    const estimatedOverhead = grossProfit * 0.15;
+    const estimatedProfit = grossProfit - estimatedOverhead;
+    const estimatedNetProfit = estimatedProfit;
 
     return {
       totalCost: Number(totalCost.toFixed(2)),
@@ -147,6 +149,9 @@ export class RecipeController {
       foodCostPercentage: Number(foodCostPercentage.toFixed(2)),
       grossProfit: Number(grossProfit.toFixed(2)),
       grossProfitMargin: Number(grossProfitMargin.toFixed(2)),
+      estimatedOverhead: Number(estimatedOverhead.toFixed(2)),
+      estimatedProfit: Number(estimatedProfit.toFixed(2)),
+      estimatedContributionMargin: Number(estimatedProfit.toFixed(2)),
       netProfit: Number(estimatedNetProfit.toFixed(2)),
       estimatedNetProfit: Number(estimatedNetProfit.toFixed(2)),
       overheadRateEstimated: 0.15

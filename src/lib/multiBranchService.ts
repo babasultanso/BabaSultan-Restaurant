@@ -18,7 +18,7 @@ import {
   Customer 
 } from '../types';
 
-// Helper: Authoritative branch matching without unsafe substring inclusion
+// Helper: Authoritative branch matching without unsafe substring inclusion or cross-branch bleed
 export function matchesBranch(
   entityBranchId?: string | null,
   entityBranchName?: string | null,
@@ -32,24 +32,30 @@ export function matchesBranch(
   const eId = entityBranchId ? String(entityBranchId).trim() : '';
   const eName = entityBranchName ? String(entityBranchName).trim() : '';
 
-  // 1. Authoritative branch ID matching
+  // 1. When BOTH entity and target have a branchId, branchId is 100% AUTHORITATIVE.
+  // Never bleed across branches even if branch names or aliases are identical.
   if (eId && tId) {
     if (eId === tId) return true;
-    if (areBranchesMatching(eId, tId)) return true;
+    return areBranchesMatching(eId, tId);
   }
 
-  // 2. Exact match on entity branchId vs target branchName (or canonical alias)
-  if (eId && tName) {
-    if (areBranchesMatching(eId, tName)) return true;
+  // 2. Target has branchId, but entity only has entityBranchName (missing entity branchId fallback)
+  if (!eId && tId && eName) {
+    if (eName === tId || areBranchesMatching(eName, tId)) return true;
+    if (tName && (eName.toLowerCase() === tName.toLowerCase() || areBranchesMatching(eName, tName))) return true;
+    return false;
   }
 
-  // 3. Exact match on entity branchName vs target branchId / target branchName
-  if (eName) {
-    if (tId && areBranchesMatching(eName, tId)) return true;
-    if (tName) {
-      if (eName.toLowerCase() === tName.toLowerCase()) return true;
-      if (areBranchesMatching(eName, tName)) return true;
-    }
+  // 3. Entity has branchId, but target only provided targetBranchName
+  if (eId && !tId && tName) {
+    if (eId === tName || areBranchesMatching(eId, tName)) return true;
+    return false;
+  }
+
+  // 4. Neither has a branchId: match strictly on branchName equality or canonical alias
+  if (!eId && !tId && eName && tName) {
+    if (eName.toLowerCase() === tName.toLowerCase()) return true;
+    return areBranchesMatching(eName, tName);
   }
 
   return false;

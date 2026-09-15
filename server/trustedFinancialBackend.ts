@@ -8883,8 +8883,8 @@ export async function getFinancialSummaryData(
       else if (code.startsWith('50')) {
         glCogs += (debit - credit);
       }
-      // Operating Expenses (51xx-59xx)
-      else if (code.startsWith('5') && !code.startsWith('50')) {
+      // Operating Expenses (6xxx or 51xx-59xx)
+      else if (code.startsWith('6') || (code.startsWith('5') && !code.startsWith('50'))) {
         glExpenses += (debit - credit);
       }
     });
@@ -9001,7 +9001,7 @@ export async function getFinancialSummaryData(
 
     if (code === '1200' || code === 'acc_ar' || code.startsWith('12')) {
       glAR += (debit - credit);
-    } else if (code === '2100' || code === 'acc_ap' || code.startsWith('21')) {
+    } else if (code === '2010' || code === 'acc_ap' || code.startsWith('201') || code === '2100' || code.startsWith('21')) {
       glAP += (credit - debit);
     } else if (code === '1010' || code === 'acc_cash' || (code.startsWith('101') && !code.startsWith('102'))) {
       glCash += (debit - credit);

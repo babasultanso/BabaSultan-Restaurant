@@ -138,7 +138,7 @@ export function calculateCEOAnalytics(data: CEODataPackage) {
 
   // 1. REVENUE, PROFIT & EXPENSES
   const completedOrders = orders.filter(o => o.status === 'completed' || o.status === 'delivered' || o.prepStatus === 'delivered' || (o as any).deliveryStatus === 'delivered');
-  const todayCompletedOrders = completedOrders.filter(o => o.createdAt && o.createdAt.startsWith(todayStr));
+  const todayCompletedOrders = completedOrders.filter(o => o.createdAt && (getMogadishuDateString(o.createdAt) === todayStr || o.createdAt.startsWith(todayStr)));
 
   const totalRevenue = completedOrders.reduce((sum, o) => sum + (Number(o.totalAmount) || 0), 0);
   const totalCOGS = completedOrders.reduce((sum, o) => sum + (Number(o.cogs) || 0), 0);
@@ -149,7 +149,7 @@ export function calculateCEOAnalytics(data: CEODataPackage) {
 
   const todayRevenue = todayCompletedOrders.reduce((sum, o) => sum + (Number(o.totalAmount) || 0), 0);
   const todayCOGS = todayCompletedOrders.reduce((sum, o) => sum + (Number(o.cogs) || 0), 0);
-  const todayExpenses = expenses.filter(e => e.createdAt && e.createdAt.startsWith(todayStr)).reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+  const todayExpenses = expenses.filter(e => e.createdAt && (getMogadishuDateString(e.createdAt) === todayStr || e.createdAt.startsWith(todayStr))).reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
   const todayProfit = todayRevenue - todayCOGS - todayExpenses;
 
   const totalOrdersCount = completedOrders.length;

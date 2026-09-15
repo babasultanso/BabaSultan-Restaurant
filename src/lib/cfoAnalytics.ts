@@ -45,6 +45,7 @@ export interface CFOKPIs {
 
   // Customers & Sales
   totalCompletedOrders: number;
+  monthlyCompletedOrdersCount: number;
   averageOrderValue: number;
   totalRefunds: number;
   refundRatePercentage: number;
@@ -158,7 +159,7 @@ export function calculateCFOAnalytics(data: CFODataPackage) {
     const ordDate = new Date(ord.createdAt);
     const amount = Number(ord.totalAmount) || 0;
 
-    if (ord.createdAt.startsWith(todayStr)) {
+    if (getMogadishuDateString(ord.createdAt) === todayStr) {
       dailyRevenue += amount;
     }
     if (ordDate >= sevenDaysAgo) {
@@ -317,9 +318,15 @@ export function calculateCFOAnalytics(data: CFODataPackage) {
 
   const wastePercentageOfCOGS = foodCosts > 0 ? (spoilageWasteLoss / foodCosts) * 100 : 0;
 
-  // Customers & Sales
+  // Customers & Sales (Strictly 30-day period aligned for AOV)
+  const monthlyCompletedOrders = completedOrders.filter(ord => {
+    const ordDate = new Date(ord.createdAt);
+    return Number.isFinite(ordDate.getTime()) && ordDate >= thirtyDaysAgo;
+  });
+  const monthlyCompletedOrdersCount = monthlyCompletedOrders.length;
   const totalCompletedOrders = completedOrders.length;
-  const averageOrderValue = totalCompletedOrders > 0 ? monthlyRevenue / totalCompletedOrders : 0;
+  // AOV: Numerator (monthlyRevenue) and denominator (monthlyCompletedOrdersCount) both strictly refer to the same 30-day reporting period
+  const averageOrderValue = monthlyCompletedOrdersCount > 0 ? monthlyRevenue / monthlyCompletedOrdersCount : 0;
   const refundRatePercentage = monthlyRevenue > 0 ? (totalRefunds / monthlyRevenue) * 100 : 0;
 
   // Employees
@@ -360,6 +367,7 @@ export function calculateCFOAnalytics(data: CFODataPackage) {
     spoilageWasteLoss,
     wastePercentageOfCOGS,
     totalCompletedOrders,
+    monthlyCompletedOrdersCount,
     averageOrderValue,
     totalRefunds,
     refundRatePercentage,
