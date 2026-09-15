@@ -9,8 +9,6 @@ import {
   CreditCard, 
   Bell, 
   Database, 
-  Download, 
-  Upload, 
   ShieldCheck, 
   CheckCircle2, 
   FileText, 
@@ -99,12 +97,8 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({ language
     maxCashDrawerLimitUSD: 0
   });
 
-  // Backup & Recovery State
-  const [autoBackupEnabled, setAutoBackupEnabled] = useState(false);
-  const [backupSchedule, setBackupSchedule] = useState('Not configured');
-  const [lastBackupTime, setLastBackupTime] = useState<string | null>(null);
-  const [isExporting, setIsExporting] = useState(false);
-  const [isRestoring, setIsRestoring] = useState(false);
+  // Backup & Recovery State (Managed at GCP Infrastructure Level)
+  const [backupSchedule] = useState('GCP Firestore PITR (Infrastructure-Tier)');
 
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
@@ -170,64 +164,6 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({ language
     }
   };
 
-  // Full Database JSON Export
-  const handleExportFullDatabase = async () => {
-    setIsExporting(true);
-    try {
-      const dbDump: Record<string, any[]> = {};
-      const collectionKeys = Object.values(COLLECTIONS);
-
-      for (const colKey of collectionKeys) {
-        try {
-          const snap = await getDocs(collection(db, colKey));
-          const list: any[] = [];
-          snap.forEach((doc) => list.push({ id: doc.id, ...doc.data() }));
-          dbDump[colKey] = list;
-        } catch {
-          dbDump[colKey] = [];
-        }
-      }
-
-      const jsonStr = JSON.stringify(dbDump, null, 2);
-      const blob = new Blob([jsonStr], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `RESTAURANT_ERP_DATABASE_BACKUP_${new Date().toISOString().slice(0, 10)}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-
-      setLastBackupTime(new Date().toISOString());
-      showToast('Full database JSON snapshot exported successfully.');
-    } catch (err: any) {
-      alert(`Export failed: ${err.message}`);
-    } finally {
-      setIsExporting(false);
-    }
-  };
-
-  // Restore Backup Handler
-  const handleRestoreBackupFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setIsRestoring(true);
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const content = event.target?.result as string;
-        const parsed = JSON.parse(content);
-        if (typeof parsed !== 'object') throw new Error('Invalid JSON format.');
-        showToast(`Backup file validated. Successfully parsed ${Object.keys(parsed).length} collection snapshots.`);
-      } catch (err: any) {
-        alert(`Failed to parse backup file: ${err.message}`);
-      } finally {
-        setIsRestoring(false);
-      }
-    };
-    reader.readAsText(file);
-  };
-
   const copyToClipboard = (text: string, label: string) => {
     navigator.clipboard.writeText(text);
     setCopiedDoc(label);
@@ -282,14 +218,6 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({ language
               className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold px-5 py-3 rounded-2xl text-xs transition flex items-center gap-2 cursor-pointer shadow-lg shadow-emerald-500/20"
             >
               <Save className="w-4 h-4" /> {isSavingSettings ? 'Saving...' : 'Save System Settings'}
-            </button>
-
-            <button
-              onClick={handleExportFullDatabase}
-              disabled={isExporting}
-              className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-4 py-3 rounded-2xl text-xs transition flex items-center gap-2 cursor-pointer shadow-lg shadow-indigo-600/20"
-            >
-              <Download className="w-4 h-4" /> {isExporting ? 'Exporting DB...' : 'Export DB (.JSON)'}
             </button>
           </div>
         </div>
@@ -646,20 +574,20 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({ language
         <div className="space-y-6">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-6">
             <h3 className="text-base font-bold text-white flex items-center gap-2 border-b border-slate-800 pb-4">
-              <Database className="w-5 h-5 text-indigo-400" /> {translateRawUi('Backup & Snapshot Validation')}
+              <Database className="w-5 h-5 text-indigo-400" /> {translateRawUi('Enterprise Backup & Disaster Recovery Architecture')}
             </h3>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-xs">
               <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
                 <span className="text-slate-400 font-bold block uppercase text-[10px]">{t.legacyUi.serverBackupSchedule}</span>
-                <p className="text-emerald-400 font-extrabold text-sm">{backupSchedule}</p>
-                <p className="text-slate-500 text-[10px]">{translateRawUi('Server-side scheduled backups must be configured separately; this screen does not claim an automated backup has run.')}</p>
+                <p className="text-amber-400 font-extrabold text-sm">{backupSchedule}</p>
+                <p className="text-slate-500 text-[10px]">{translateRawUi('Firestore PITR: Managed at GCP infrastructure level. Must be enabled and verified in Google Cloud Console.')}</p>
               </div>
 
               <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
-                <span className="text-slate-400 font-bold block uppercase text-[10px]">{t.legacyUi.lastClientExport}</span>
-                <p className="text-white font-bold text-sm">{lastBackupTime ? new Date(lastBackupTime).toLocaleString() : 'No backup exported in this session'}</p>
-                <p className="text-slate-500 text-[10px]">{t.legacyUi.browserExportScope}</p>
+                <span className="text-slate-400 font-bold block uppercase text-[10px]">{translateRawUi('Disaster Recovery Tier')}</span>
+                <p className="text-indigo-400 font-bold text-sm">{translateRawUi('GCP Cloud Storage (GCS Export)')}</p>
+                <p className="text-slate-500 text-[10px]">{translateRawUi('GCS exports: Requires external Cloud Scheduler / export configuration. Not automated by application code.')}</p>
               </div>
 
               <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
@@ -669,25 +597,18 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({ language
               </div>
             </div>
 
-            <div className="pt-4 border-t border-slate-800 flex flex-wrap items-center gap-4">
-              <button
-                onClick={handleExportFullDatabase}
-                disabled={isExporting}
-                className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold px-5 py-3 rounded-2xl text-xs flex items-center gap-2 cursor-pointer shadow-lg shadow-emerald-500/20"
-              >
-                <Download className="w-4 h-4" /> {translateRawUi('Export Accessible Data JSON')}
-              </button>
-
-              <label className="bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold px-5 py-3 rounded-2xl text-xs flex items-center gap-2 cursor-pointer border border-slate-700">
-                <Upload className="w-4 h-4 text-indigo-400" />
-                <span>{isRestoring ? 'Validating File...' : 'Validate Backup File (.JSON)'}</span>
-                <input
-                  type="file"
-                  accept=".json"
-                  onChange={handleRestoreBackupFile}
-                  className="hidden"
-                />
-              </label>
+            <div className="p-5 rounded-2xl bg-slate-950 border border-indigo-900/40 space-y-3 text-xs">
+              <div className="flex items-center gap-2 text-indigo-400 font-bold">
+                <ShieldCheck className="w-4 h-4" />
+                <span>{translateRawUi('Production Security Notice: Client-Side Restore Disabled')}</span>
+              </div>
+              <p className="text-slate-300 leading-relaxed">
+                {translateRawUi('In compliance with financial audit and accounting integrity standards, browser-level database restoration and arbitrary JSON imports are permanently disabled. Direct client-side restoration bypasses double-entry ledger validation, idempotency controls, and security rules.')}
+              </p>
+              <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 font-mono text-[11px] text-slate-300">
+                <div className="text-slate-500 mb-1">{'# Official GCP Firestore backup & export command (DevOps / Admin):'}</div>
+                <span className="text-emerald-400">{'gcloud firestore export'}</span> {'gs://babasultan-backups-bucket/$(date +%Y-%m-%d)'}
+              </div>
             </div>
           </div>
         </div>

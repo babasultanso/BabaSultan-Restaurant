@@ -71,9 +71,10 @@ export function convertIngredientPurchaseQuantityToUsageUnit(
     throw Object.assign(new Error('Received quantity must be a finite non-negative number.'), { statusCode: 400 });
   }
 
-  const purchaseUnit = normalizeUnitName(ingredient.purchaseUnit);
-  const usageUnit = normalizeUnitName(ingredient.usageUnit);
-  const factor = Number(ingredient.conversionFactor);
+  const purchaseUnit = normalizeUnitName(ingredient.purchaseUnit || ingredient.unit);
+  const usageUnit = normalizeUnitName(ingredient.usageUnit || ingredient.unit);
+  const rawFactor = ingredient.conversionFactor;
+  const factor = Number(rawFactor !== undefined && rawFactor !== null ? rawFactor : (purchaseUnit && purchaseUnit === usageUnit ? 1 : NaN));
 
   if (!purchaseUnit || !usageUnit) {
     throw Object.assign(new Error(`Ingredient "${ingredient.name || ingredient.id || 'unknown'}" is missing purchaseUnit or usageUnit.`), { statusCode: 400 });
@@ -84,7 +85,7 @@ export function convertIngredientPurchaseQuantityToUsageUnit(
 
   if (purchaseUnit === usageUnit) {
     if (Math.abs(factor - 1) > 1e-9) {
-      throw Object.assign(new Error(`Ingredient "${ingredient.name || ingredient.id || 'unknown'}" has inconsistent units: purchaseUnit and usageUnit are both "${ingredient.usageUnit}", but conversionFactor is ${factor}.`), { statusCode: 400 });
+      throw Object.assign(new Error(`Ingredient "${ingredient.name || ingredient.id || 'unknown'}" has inconsistent units: purchaseUnit and usageUnit are both "${ingredient.usageUnit || purchaseUnit}", but conversionFactor is ${factor}.`), { statusCode: 400 });
     }
     return quantity;
   }
@@ -3400,9 +3401,15 @@ export async function handlePurchaseRegistration(req: express.Request, res: expr
         throw new Error(`No canonical ingredient in branch "${targetBranchId}" matches purchase item "${String(purchaseData.itemName || '').trim()}". Purchase rejected to prevent an unbacked inventory asset entry.`);
       }
       const matchedIngredient = matched.data() || {};
-      const usageQuantity = convertIngredientPurchaseQuantityToUsageUnit(quantity, matchedIngredient);
-      const usageUnit = String(matchedIngredient.usageUnit || '').trim();
-      const purchaseUnit = String(matchedIngredient.purchaseUnit || '').trim();
+      const usageUnit = String(matchedIngredient.usageUnit || matchedIngredient.unit || purchaseData.unit || 'kg').trim();
+      const purchaseUnit = String(matchedIngredient.purchaseUnit || matchedIngredient.unit || purchaseData.unit || 'kg').trim();
+      const ingredientWithDefaults = {
+        ...matchedIngredient,
+        purchaseUnit: matchedIngredient.purchaseUnit || purchaseUnit,
+        usageUnit: matchedIngredient.usageUnit || usageUnit,
+        conversionFactor: matchedIngredient.conversionFactor !== undefined ? matchedIngredient.conversionFactor : (purchaseUnit === usageUnit ? 1 : 1)
+      };
+      const usageQuantity = convertIngredientPurchaseQuantityToUsageUnit(quantity, ingredientWithDefaults);
       if (!usageUnit || !purchaseUnit) {
         throw new Error(`Ingredient "${matchedIngredient.name || matched.id}" is missing canonical purchase/usage units.`);
       }
@@ -4601,6 +4608,58 @@ export async function handleDeliveryStatusUpdate(req: express.Request, res: expr
         }
       }
 
+      // [DELIVERY STATUS READ 4] Check COD Financial Settlement Invariants
+      const linkedOrderData = orderSnap.exists ? (orderSnap.data() || {}) : {};
+      const orderPayMethod = String(linkedOrderData.paymentMethod || delData.paymentMethod || '').trim().toLowerCase();
+      const isCodOrder = orderPayMethod === 'cod';
+      const isAlreadySettled = linkedOrderData.codSettled === true || delData.codSettled === true || (isCodOrder && linkedOrderData.paymentStatus === 'paid');
+
+      const rawCodAmount = typeof linkedOrderData.totalAmount === 'number'
+        ? linkedOrderData.totalAmount
+        : (typeof delData.totalAmount === 'number'
+            ? delData.totalAmount
+            : (typeof linkedOrderData.orderTotal === 'number' ? linkedOrderData.orderTotal : 0));
+      const codAmount = Math.max(0, Number(rawCodAmount) || 0);
+
+      let recQuery: any = null;
+      let __codCashRegisterState: any = null;
+      let __codAccountState: any = null;
+      let dateStr: string = '';
+
+      if (newStatus === 'delivered' && isCodOrder && !isAlreadySettled) {
+        if (delData.orderId) {
+          recQuery = await transaction.get(db.collection('receivables').where('orderId', '==', delData.orderId));
+        }
+        dateStr = getMogadishuDateString(now);
+        await assertAccountingDateOpenInTransaction(transaction, db, dateStr, targetBranchId);
+        __codAccountState = await prepareAccountBalanceState(transaction, db, ['acc_cash', 'acc_ar']);
+
+        if (codAmount > 0) {
+          const openRegSnap = await transaction.get(
+            db.collection('cash_registers')
+              .where('branchId', '==', targetBranchId)
+              .where('status', '==', 'Open')
+          );
+          if (openRegSnap.empty) {
+            const noRegErr: any = new Error(`No open cash register exists for branch "${targetBranchId}". COD settlement is blocked.`);
+            noRegErr.statusCode = 409;
+            throw noRegErr;
+          }
+          if (openRegSnap.size > 1) {
+            const multRegErr: any = new Error(`Multiple open cash registers exist for this branch. COD settlement is blocked until the correct register is resolved.`);
+            multRegErr.statusCode = 409;
+            throw multRegErr;
+          }
+          const regDoc = openRegSnap.docs[0];
+          const regData = regDoc.data() || {};
+          __codCashRegisterState = {
+            ref: regDoc.ref,
+            currentExpected: Number(regData.expectedClosingBalance ?? regData.openingBalance ?? 0),
+            currentAdjustments: Number(regData.cashAdjustments || 0),
+          };
+        }
+      }
+
       // ----------------------------------------------------
       // PHASE 2 — ALL WRITES
       // ----------------------------------------------------
@@ -4617,6 +4676,12 @@ export async function handleDeliveryStatusUpdate(req: express.Request, res: expr
       if (newStatus === 'arrived') updates.arrivedAt = now;
       if (newStatus === 'delivered') {
         updates.deliveredAt = now;
+        if (isCodOrder && !isAlreadySettled) {
+          updates.codSettled = true;
+          updates.codSettledAt = now;
+          updates.amountCollected = codAmount;
+          updates.paymentStatus = 'paid';
+        }
       }
       if (['failed', 'returned', 'cancelled'].includes(newStatus)) {
         updates.failedAt = now;
@@ -4634,7 +4699,16 @@ export async function handleDeliveryStatusUpdate(req: express.Request, res: expr
         if (!drvBranch || !deliveryBranch) { throw new Error('Driver and delivery branch are required for secure release.'); }
         if (areBranchesMatching(drvBranch, deliveryBranch) || user.role === 'Owner' || (user.role === 'Admin' && user.branchId === 'all')) {
           console.log(`[DELIVERY STATUS WRITE 2] drivers/${effectiveDriverId} ADMIN SDK UPDATE (availability: available)`);
-          transaction.update(drvRef, { availability: 'available', activeDeliveryId: null, updatedAt: now });
+          const driverUpdates: any = { availability: 'available', activeDeliveryId: null, updatedAt: now };
+          if (newStatus === 'delivered') {
+            driverUpdates.totalDeliveries = (drvData.totalDeliveries || 0) + 1;
+            driverUpdates.completedDeliveries = (drvData.completedDeliveries || 0) + 1;
+            if (isCodOrder && !isAlreadySettled) {
+              driverUpdates.totalCashCollected = (drvData.totalCashCollected || 0) + codAmount;
+              driverUpdates.currentCashBalance = (drvData.currentCashBalance || 0) + codAmount;
+            }
+          }
+          transaction.update(drvRef, driverUpdates);
         }
       }
 
@@ -4645,6 +4719,12 @@ export async function handleDeliveryStatusUpdate(req: express.Request, res: expr
           orderUpdates.status = 'completed';
           orderUpdates.deliveryStatus = 'delivered';
           orderUpdates.completedAt = now;
+          if (isCodOrder && !isAlreadySettled) {
+            orderUpdates.paymentStatus = 'paid';
+            orderUpdates.paidAmount = codAmount;
+            orderUpdates.codSettled = true;
+            orderUpdates.codSettledAt = now;
+          }
         } else if (['assigned', 'accepted'].includes(newStatus)) {
           orderUpdates.deliveryStatus = 'assigned';
         } else if (['picked_up', 'on_the_way', 'arrived'].includes(newStatus)) {
@@ -4654,6 +4734,102 @@ export async function handleDeliveryStatusUpdate(req: express.Request, res: expr
         }
         console.log(`[DELIVERY STATUS WRITE 3] orders/${delData.orderId} ADMIN SDK UPDATE (deliveryStatus: ${orderUpdates.deliveryStatus})`);
         transaction.update(orderRef, orderUpdates);
+      }
+
+      // [DELIVERY STATUS WRITE 4] Settle linked Receivable (if COD and not already settled)
+      if (newStatus === 'delivered' && isCodOrder && !isAlreadySettled && recQuery && !recQuery.empty) {
+        for (const recDoc of recQuery.docs) {
+          transaction.update(recDoc.ref, {
+            paidAmount: codAmount,
+            remainingBalance: 0,
+            status: 'Paid',
+            updatedAt: now
+          });
+        }
+      }
+
+      // [DELIVERY STATUS WRITE 5] Update Open Cash Register (atomic with preloaded state)
+      if (newStatus === 'delivered' && isCodOrder && !isAlreadySettled && codAmount > 0 && __codCashRegisterState) {
+        applyCashRegisterMovementInTransaction(
+          transaction,
+          db,
+          targetBranchId,
+          codAmount,
+          'COD delivery settlement',
+          __codCashRegisterState
+        );
+      }
+
+      // [DELIVERY STATUS WRITE 6] Post Double-Entry Journal Entry & Ledger for COD Cash Collection
+      if (newStatus === 'delivered' && isCodOrder && !isAlreadySettled && codAmount > 0 && __codAccountState) {
+        const lines = [
+          {
+            accountId: 'acc_cash',
+            accountCode: '1010',
+            accountName: 'Cash on Hand (Register)',
+            debit: codAmount,
+            credit: 0,
+            memo: `COD Cash Collection for Delivered Order #${linkedOrderData.orderNumber || delData.orderNumber || delData.orderId || deliveryId}`
+          },
+          {
+            accountId: 'acc_ar',
+            accountCode: '1200',
+            accountName: 'Accounts Receivable',
+            debit: 0,
+            credit: codAmount,
+            memo: `COD AR Clearance for Delivered Order #${linkedOrderData.orderNumber || delData.orderNumber || delData.orderId || deliveryId}`
+          }
+        ];
+
+        const jeRef = db.collection('journal_entries').doc();
+        const entryNumber = `JE-COD-${String(linkedOrderData.orderNumber || delData.orderNumber || delData.orderId || deliveryId).slice(-6).toUpperCase()}`;
+        const journalEntry = {
+          id: jeRef.id,
+          entryNumber,
+          date: dateStr,
+          reference: linkedOrderData.orderNumber || delData.orderNumber || delData.orderId || deliveryId,
+          description: `COD Settlement for Delivered Order #${linkedOrderData.orderNumber || delData.orderNumber || delData.orderId || deliveryId}`,
+          source: 'Delivery',
+          status: 'Posted',
+          totalDebit: codAmount,
+          totalCredit: codAmount,
+          lines,
+          branchId: targetBranchId,
+          createdBy: user.name,
+          createdAt: now
+        };
+        transaction.set(jeRef, cleanUndefined(journalEntry));
+
+        for (const line of lines) {
+          const jlRef = db.collection('journal_lines').doc();
+          transaction.set(jlRef, cleanUndefined({
+            id: jlRef.id,
+            journalEntryId: jeRef.id,
+            entryNumber,
+            branchId: targetBranchId,
+            ...line,
+            createdAt: now
+          }));
+
+          const ledgerRef = db.collection('ledger').doc();
+          transaction.set(ledgerRef, cleanUndefined({
+            id: ledgerRef.id,
+            accountId: line.accountId,
+            accountCode: line.accountCode,
+            accountName: line.accountName,
+            journalEntryId: jeRef.id,
+            entryNumber,
+            date: dateStr,
+            reference: linkedOrderData.orderNumber || delData.orderNumber || delData.orderId || deliveryId,
+            description: line.memo,
+            debit: line.debit,
+            credit: line.credit,
+            branchId: targetBranchId,
+            createdAt: now
+          }));
+        }
+
+        applyAccountBalanceDeltasInTransaction(transaction, __codAccountState, lines, now);
       }
     });
 
@@ -5472,8 +5648,16 @@ export async function handleRecordARPayment(req: express.Request, res: express.R
         throw new Error(branchCheck.error);
       }
 
+      // Read linked sales order if available (Strictly in Phase 1 before any writes)
+      let orderRef: any = null;
+      let orderSnap: any = null;
+      if (item.orderId) {
+        orderRef = db.collection('orders').doc(String(item.orderId).trim());
+        orderSnap = await transaction.get(orderRef);
+      }
+
       const currentPaid = Number(item.paidAmount) || 0;
-      const totalAmt = Number(item.totalAmount) || 0;
+      const totalAmt = Number(item.totalAmount ?? item.amount) || 0;
       const currentRemaining = Math.max(0, totalAmt - currentPaid);
 
       if (paymentAmount > currentRemaining + 0.001) {
@@ -5483,6 +5667,27 @@ export async function handleRecordARPayment(req: express.Request, res: express.R
       const newPaidAmount = currentPaid + paymentAmount;
       const newRemaining = Math.max(0, totalAmt - newPaidAmount);
       const newStatus = newRemaining <= 0.001 ? 'Paid' : 'Partial';
+
+      let orderPaidAmount: number | undefined;
+      let orderPaymentStatus: string | undefined;
+      if (orderSnap && orderSnap.exists) {
+        const orderData = orderSnap.data() || {};
+        const existingOrderPaid = typeof orderData.paidAmount === 'number' ? orderData.paidAmount : 0;
+        const rawOrderTotal = typeof orderData.totalAmount === 'number'
+          ? orderData.totalAmount
+          : (typeof orderData.orderTotal === 'number' ? orderData.orderTotal : totalAmt);
+        const orderTotal = Math.max(0, Number(rawOrderTotal) || 0);
+
+        orderPaidAmount = Math.min(orderTotal, existingOrderPaid + paymentAmount);
+        const orderRemaining = Math.max(0, orderTotal - orderPaidAmount);
+        if (orderRemaining <= 0.001) {
+          orderPaymentStatus = 'paid';
+        } else if (orderPaidAmount > 0) {
+          orderPaymentStatus = 'partial';
+        } else {
+          orderPaymentStatus = 'unpaid';
+        }
+      }
 
       const timestamp = new Date().toISOString();
       const dateStr = String(payment.date || getMogadishuDateString(timestamp)).slice(0,10);
@@ -5510,6 +5715,14 @@ export async function handleRecordARPayment(req: express.Request, res: express.R
         updatedAt: timestamp
       });
 
+      if (orderSnap && orderSnap.exists && orderRef) {
+        transaction.update(orderRef, cleanUndefined({
+          paidAmount: orderPaidAmount,
+          paymentStatus: orderPaymentStatus,
+          updatedAt: timestamp
+        }));
+      }
+
       // Post Double-Entry Journal Entry
       const payMethod = normalizedPayMethod;
       const paymentAccountCode = settlement.code;
@@ -5526,7 +5739,7 @@ export async function handleRecordARPayment(req: express.Request, res: express.R
         },
         {
           accountId: 'acc_ar',
-          accountCode: '1100',
+          accountCode: '1200',
           accountName: 'Accounts Receivable',
           debit: 0,
           credit: paymentAmount,
@@ -5585,7 +5798,13 @@ export async function handleRecordARPayment(req: express.Request, res: express.R
 
       if (normalizedPayMethod === 'cash') await applyCashRegisterMovementInTransaction(transaction, db, targetBranchId, paymentAmount, 'accounts receivable cash collection', __cashRegisterState);
       applyAccountBalanceDeltasInTransaction(transaction, __accountState, lines, timestamp);
-      const out = { status: 'success', id, paidAmount: newPaidAmount, remainingBalance: newRemaining };
+      const out = {
+        status: 'success',
+        id,
+        paidAmount: newPaidAmount,
+        remainingBalance: newRemaining,
+        ...(orderSnap?.exists ? { orderId: item.orderId, orderPaidAmount, orderPaymentStatus } : {})
+      };
       transaction.set(idemRef, cleanUndefined({ ...out, createdAt: timestamp }));
       return out;
     });
@@ -5593,7 +5812,15 @@ export async function handleRecordARPayment(req: express.Request, res: express.R
     return res.json(result);
   } catch (err: any) {
     console.error('Record AR Payment Error:', err?.message || err);
-    return res.status(500).json({ error: err?.message || 'Record AR Payment Failed' });
+    const statusCode = err?.statusCode || (
+      err?.message?.includes('exceeds remaining') || 
+      err?.message?.includes('already been fully paid') || 
+      err?.message?.includes('not found') ||
+      err?.message?.includes('rejected')
+        ? 400 
+        : 500
+    );
+    return res.status(statusCode).json({ error: err?.message || 'Record AR Payment Failed' });
   }
 }
 
@@ -11551,6 +11778,7 @@ export async function handleAdminCreateUser(req: express.Request, res: express.R
   const authorizedTargetBranch = targetBranchCheck.targetBranchId;
   const db = getAdminDb();
   let uid = '';
+  let isNewlyCreatedAuthUser = false;
 
   try {
     const adminAuth = getAdminAuth();
@@ -11567,6 +11795,7 @@ export async function handleAdminCreateUser(req: express.Request, res: express.R
         emailVerified: false
       });
       uid = authUser.uid;
+      isNewlyCreatedAuthUser = true;
     }
 
     const now = new Date().toISOString();
@@ -11608,6 +11837,15 @@ export async function handleAdminCreateUser(req: express.Request, res: express.R
     });
   } catch (err: any) {
     console.error('Admin user creation error:', err);
+    if (uid && isNewlyCreatedAuthUser) {
+      try {
+        const adminAuth = getAdminAuth();
+        await adminAuth.deleteUser(uid);
+        console.warn(`[Compensating Transaction] Cleaned up orphaned Firebase Auth user ${uid} (${email}) after Firestore provisioning failure.`);
+      } catch (cleanupErr) {
+        console.error(`[Compensating Transaction Error] Failed to delete orphaned Auth user ${uid}:`, cleanupErr);
+      }
+    }
     return res.status(500).json({ error: `Failed to create user account: ${err?.message || err}` });
   }
 }

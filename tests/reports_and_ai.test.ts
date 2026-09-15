@@ -1,93 +1,160 @@
 import { describe, it, expect } from 'vitest';
 import request from 'supertest';
 import { app } from '../server.ts';
+import { calculateCFOAnalytics, CFODataPackage } from '../src/lib/cfoAnalytics.ts';
+import { generateCPAReport, getEmployeePayrollStatus } from '../src/lib/reports.ts';
+import { Employee, SalaryPayment } from '../src/types.ts';
 
 describe('11 & 12 & 13. REPORTS FINANCIAL CONSISTENCY, AI CPA ASSISTANT & AUDIT LOGS TESTS', () => {
 
-  interface FinancialData {
-    orders: { totalAmount: number; subtotal: number; taxAmount: number; discountAmount: number; cogs: number; status: string }[];
-    expenses: { amount: number }[];
-    cashBalance: number;
-    bankBalance: number;
-    receivables: number;
-    payables: number;
-    inventoryValue: number;
-  }
-
-  function calculateFinancialSummary(data: FinancialData) {
-    const activeOrders = data.orders.filter(o => o.status !== 'cancelled' && o.status !== 'refunded');
-
-    const totalSales = activeOrders.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
-    const discounts = activeOrders.reduce((sum, o) => sum + (o.discountAmount || 0), 0);
-    const tax = activeOrders.reduce((sum, o) => sum + (o.taxAmount || 0), 0);
-    const netSales = totalSales - discounts - tax;
-    const cogs = activeOrders.reduce((sum, o) => sum + (o.cogs || 0), 0);
-    const grossProfit = netSales - cogs;
-    const expenses = data.expenses.reduce((sum, e) => sum + (e.amount || 0), 0);
-    const netProfit = grossProfit - expenses;
-
-    return {
-      totalSales,
-      netSales,
-      discounts,
-      tax,
-      cogs,
-      grossProfit,
-      expenses,
-      netProfit,
-      cashBalance: data.cashBalance,
-      bankBalance: data.bankBalance,
-      receivables: data.receivables,
-      payables: data.payables,
-      inventoryValue: data.inventoryValue
-    };
-  }
-
-  it('11. Financial Summary Calculations: Net Profit == Gross Profit - Expenses', () => {
-    const mockData: FinancialData = {
+  it('11. Production CFO Financial Analytics: Net Profit == Gross Profit - Expenses', () => {
+    const pkg: CFODataPackage = {
       orders: [
-        { totalAmount: 115, subtotal: 100, taxAmount: 15, discountAmount: 0, cogs: 40, status: 'completed' },
-        { totalAmount: 230, subtotal: 200, taxAmount: 30, discountAmount: 0, cogs: 80, status: 'completed' }
+        {
+          id: 'ord_1',
+          orderNumber: '101',
+          customerName: 'Ali',
+          items: [],
+          totalAmount: 115,
+          subtotal: 100,
+          taxAmount: 15,
+          discountAmount: 0,
+          cogs: 40,
+          status: 'completed',
+          paymentStatus: 'paid',
+          paymentMethod: 'cash',
+          orderType: 'dine_in',
+          createdAt: new Date().toISOString()
+        } as any,
+        {
+          id: 'ord_2',
+          orderNumber: '102',
+          customerName: 'Hassan',
+          items: [],
+          totalAmount: 230,
+          subtotal: 200,
+          taxAmount: 30,
+          discountAmount: 0,
+          cogs: 80,
+          status: 'completed',
+          paymentStatus: 'paid',
+          paymentMethod: 'cash',
+          orderType: 'takeaway',
+          createdAt: new Date().toISOString()
+        } as any
       ],
-      expenses: [{ amount: 50 }, { amount: 30 }],
-      cashBalance: 500,
-      bankBalance: 1200,
-      receivables: 150,
-      payables: 200,
-      inventoryValue: 800
+      expenses: [
+        { id: 'exp_1', title: 'Supplies', amount: 50, category: 'Supplies', date: new Date().toISOString() } as any,
+        { id: 'exp_2', title: 'Repairs', amount: 30, category: 'Maintenance', date: new Date().toISOString() } as any
+      ],
+      purchases: [],
+      salaries: [],
+      products: [],
+      ingredients: [],
+      employees: [],
+      suppliers: [],
+      refunds: [],
+      bank_transactions: [],
+      inventory_movements: [],
+      accounts: []
     };
 
-    const summary = calculateFinancialSummary(mockData);
+    const analytics = calculateCFOAnalytics(pkg);
 
-    expect(summary.totalSales).toBe(345);
-    expect(summary.netSales).toBe(300);
-    expect(summary.cogs).toBe(120);
-    expect(summary.grossProfit).toBe(180); // 300 - 120 = 180
-    expect(summary.expenses).toBe(80); // 50 + 30 = 80
-    expect(summary.netProfit).toBe(100); // 180 - 80 = 100
+    expect(analytics.kpis.foodCosts).toBe(120);
+    expect(analytics.kpis.operatingCosts).toBe(80);
+    // Net profit = Gross Profit - Operating Expenses (when laborCosts = 0)
+    expect(analytics.kpis.netProfit).toBe(analytics.kpis.grossProfit - analytics.kpis.operatingCosts);
   });
 
-  it('12. AI Financial Context Provider: Ensures AI model receives backend calculated metrics', () => {
-    const mockSummary = calculateFinancialSummary({
-      orders: [{ totalAmount: 100, subtotal: 100, taxAmount: 0, discountAmount: 0, cogs: 30, status: 'completed' }],
-      expenses: [{ amount: 20 }],
-      cashBalance: 300,
-      bankBalance: 500,
-      receivables: 50,
-      payables: 100,
-      inventoryValue: 400
-    });
+  it('12. Production Payroll Report: Dynamic Status (PAID, PARTIAL, UNPAID)', () => {
+    const emp1: Employee = {
+      id: 'emp_101',
+      employeeId: 'EMP-101',
+      fullName: 'Ahmed Noor',
+      name: 'Ahmed Noor',
+      role: 'Chef',
+      salary: 1000,
+      payFrequency: 'monthly',
+      status: 'Active',
+      department: 'Kitchen',
+      phone: '+252615000001',
+      email: 'chef@example.com',
+      nationalIdOrPassport: 'NID-101',
+      address: 'Mogadishu',
+      dateOfBirth: '1990-01-01',
+      gender: 'Male',
+      hireDate: '2025-01-01',
+      employmentType: 'Full-time'
+    } as any;
 
-    const aiPromptContext = `
-      Verified Financial Metrics:
-      - Total Sales: $${mockSummary.totalSales}
-      - Net Profit: $${mockSummary.netProfit}
-      - Cash Balance: $${mockSummary.cashBalance}
-    `;
+    const emp2: Employee = {
+      id: 'emp_102',
+      employeeId: 'EMP-102',
+      fullName: 'Fatima Ali',
+      name: 'Fatima Ali',
+      role: 'Cashier',
+      salary: 600,
+      payFrequency: 'monthly',
+      status: 'Active',
+      department: 'Front Desk',
+      phone: '+252615000002',
+      email: 'cashier@example.com',
+      nationalIdOrPassport: 'NID-102',
+      address: 'Mogadishu',
+      dateOfBirth: '1995-01-01',
+      gender: 'Female',
+      hireDate: '2025-02-01',
+      employmentType: 'Full-time'
+    } as any;
 
-    expect(aiPromptContext).toContain('Total Sales: $100');
-    expect(aiPromptContext).toContain('Net Profit: $50');
-    expect(aiPromptContext).toContain('Cash Balance: $300');
+    const emp3: Employee = {
+      id: 'emp_103',
+      employeeId: 'EMP-103',
+      fullName: 'Yusuf Omar',
+      name: 'Yusuf Omar',
+      role: 'barista',
+      salary: 500,
+      payFrequency: 'monthly',
+      status: 'Active',
+      department: 'Beverages',
+      phone: '+252615000003',
+      email: 'barista@example.com',
+      nationalIdOrPassport: 'NID-103',
+      address: 'Mogadishu',
+      dateOfBirth: '1998-01-01',
+      gender: 'Male',
+      hireDate: '2025-03-01',
+      employmentType: 'Full-time'
+    } as any;
+
+    const currentPeriod = new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+    const salaries: SalaryPayment[] = [
+      {
+        id: 'sal_1',
+        employeeId: 'emp_101',
+        employeeName: 'Ahmed Noor',
+        amount: 1000,
+        period: currentPeriod,
+        status: 'paid',
+        paidDate: new Date().toISOString()
+      },
+      {
+        id: 'sal_2',
+        employeeId: 'emp_102',
+        employeeName: 'Fatima Ali',
+        amount: 300, // Partial: 300 of 600
+        period: currentPeriod,
+        status: 'paid',
+        paidDate: new Date().toISOString()
+      }
+      // emp3 has no payments
+    ];
+
+    expect(getEmployeePayrollStatus(emp1, salaries, currentPeriod)).toBe('PAID');
+    expect(getEmployeePayrollStatus(emp2, salaries, currentPeriod)).toBe('PARTIAL');
+    expect(getEmployeePayrollStatus(emp3, salaries, currentPeriod)).toBe('UNPAID');
   });
 
   it('13. Audit Log Generator: creates structured audit entries for financial operations', () => {

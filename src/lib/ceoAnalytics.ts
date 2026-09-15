@@ -137,19 +137,19 @@ export function calculateCEOAnalytics(data: CEODataPackage) {
   const todayStr = getMogadishuDateString();
 
   // 1. REVENUE, PROFIT & EXPENSES
-  const completedOrders = orders.filter(o => o.status === 'completed' || o.prepStatus === 'delivered');
-  const todayOrders = orders.filter(o => o.createdAt && o.createdAt.startsWith(todayStr));
+  const completedOrders = orders.filter(o => o.status === 'completed' || o.status === 'delivered' || o.prepStatus === 'delivered' || (o as any).deliveryStatus === 'delivered');
+  const todayCompletedOrders = completedOrders.filter(o => o.createdAt && o.createdAt.startsWith(todayStr));
 
-  const totalRevenue = completedOrders.reduce((sum, o) => sum + o.totalAmount, 0);
-  const totalCOGS = completedOrders.reduce((sum, o) => sum + (o.cogs || 0), 0);
-  const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0) + salaries.reduce((sum, s) => sum + s.amount, 0);
+  const totalRevenue = completedOrders.reduce((sum, o) => sum + (Number(o.totalAmount) || 0), 0);
+  const totalCOGS = completedOrders.reduce((sum, o) => sum + (Number(o.cogs) || 0), 0);
+  const totalExpenses = expenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0) + salaries.reduce((sum, s) => sum + (Number(s.amount) || 0), 0);
 
   const grossProfit = totalRevenue - totalCOGS;
   const netProfit = grossProfit - totalExpenses;
 
-  const todayRevenue = todayOrders.reduce((sum, o) => sum + o.totalAmount, 0);
-  const todayCOGS = todayOrders.reduce((sum, o) => sum + (o.cogs || 0), 0);
-  const todayExpenses = expenses.filter(e => e.createdAt && e.createdAt.startsWith(todayStr)).reduce((sum, e) => sum + e.amount, 0);
+  const todayRevenue = todayCompletedOrders.reduce((sum, o) => sum + (Number(o.totalAmount) || 0), 0);
+  const todayCOGS = todayCompletedOrders.reduce((sum, o) => sum + (Number(o.cogs) || 0), 0);
+  const todayExpenses = expenses.filter(e => e.createdAt && e.createdAt.startsWith(todayStr)).reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
   const todayProfit = todayRevenue - todayCOGS - todayExpenses;
 
   const totalOrdersCount = completedOrders.length;
@@ -436,13 +436,13 @@ export function calculateCEOAnalytics(data: CEODataPackage) {
       question_ar: 'ما هي حالة صحة مشروعي التجاري؟',
       question_so: 'Sida ay tahay caafimaadka ganacsigaaygu?',
       answer_en: `**Overall Business Health Score: ${businessHealthScore}/100 (${healthRating.toUpperCase()})**
-- **Sales & Revenue**: Today's revenue is $${todayRevenue.toLocaleString()} across ${todayOrders.length} orders.
+- **Sales & Revenue**: Today's revenue is $${todayRevenue.toLocaleString()} across ${todayCompletedOrders.length} orders.
 - **Profitability**: Net profit margin is healthy at ${Math.round(netMargin)}%.
 - **Customer Satisfaction**: High rating of ${avgCustomerRating}/5.0 (${customerSatisfactionPercentage}% satisfied).
 - **Operations & Delivery**: Kitchen prep status is ${kitchenPrepStatus}, delivery success rate is ${deliverySuccessRatePercentage}%.
 - **Cash Flow Balance**: Positive balance of $${cashFlowBalance.toLocaleString()}.`,
       answer_ar: `**مؤشر صحة الأعمال الإجمالي: ${businessHealthScore}/100 (${healthRating === 'Excellent' ? 'ممتاز' : healthRating === 'Good' ? 'جيد' : 'متوسط'})**
-- **المبيعات والإيرادات**: إيرادات اليوم $${todayRevenue.toLocaleString()} من ${todayOrders.length} طلبات.
+- **المبيعات والإيرادات**: إيرادات اليوم $${todayRevenue.toLocaleString()} من ${todayCompletedOrders.length} طلبات.
 - **الربحية**: هامش الربح الصافي ممتازة عند ${Math.round(netMargin)}%.
 - **رضا العملاء**: تقييم مرتفع ${avgCustomerRating}/5.0 (${customerSatisfactionPercentage}%).
 - **السيولة النقدية**: رصيد إيجابي قدره $${cashFlowBalance.toLocaleString()}.`,

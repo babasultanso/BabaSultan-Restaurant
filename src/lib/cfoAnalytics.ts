@@ -180,11 +180,17 @@ export function calculateCFOAnalytics(data: CFODataPackage) {
     ? ((weeklyRevenue - prevWeeklyRevenue) / prevWeeklyRevenue) * 100 
     : 0;
 
-  // Total Refunds
-  const totalRefunds = refunds.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
-  const netRevenue = Math.max(0, monthlyRevenue - totalRefunds);
+  // Refunds (30-day period aligned for monthly KPI)
+  const monthlyRefunds = refunds
+    .filter(r => {
+      const rDate = new Date(r.createdAt || (r as any).processedAt);
+      return Number.isFinite(rDate.getTime()) && rDate >= thirtyDaysAgo;
+    })
+    .reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+  const totalRefunds = monthlyRefunds;
+  const netRevenue = Math.max(0, monthlyRevenue - monthlyRefunds);
 
-  // COGS & Food Costs
+  // COGS & Food Costs (Strictly 30-day completed orders)
   let totalCOGS = 0;
   completedOrders.forEach(ord => {
     const ordDate = new Date(ord.createdAt);
@@ -202,29 +208,37 @@ export function calculateCFOAnalytics(data: CFODataPackage) {
   const foodCosts = hasRecordedCOGS ? totalCOGS : 0;
   const foodCostPercentage = netRevenue > 0 ? (foodCosts / netRevenue) * 100 : 0;
 
-  // Expenses Breakdown
+  // Operating Expenses Breakdown (Period-aligned to last 30 days)
   let operatingCosts = 0;
   let deliveryCosts = 0;
   let utilityCosts = 0;
   let rentCosts = 0;
 
   expenses.forEach(e => {
-    const amt = Number(e.amount) || 0;
-    operatingCosts += amt;
-    if (e.category === 'delivery') deliveryCosts += amt;
-    if (e.category === 'utilities') utilityCosts += amt;
-    if (e.category === 'rent') rentCosts += amt;
+    const eDate = new Date(e.createdAt || (e as any).date);
+    if (!Number.isFinite(eDate.getTime()) || eDate >= thirtyDaysAgo) {
+      const amt = Number(e.amount) || 0;
+      operatingCosts += amt;
+      const catLower = (e.category || '').toLowerCase();
+      if (catLower === 'delivery') deliveryCosts += amt;
+      if (catLower === 'utilities') utilityCosts += amt;
+      if (catLower === 'rent') rentCosts += amt;
+    }
   });
 
-  // Labor Costs
+  // Labor Costs (Period-aligned paid salaries in last 30 days)
   const totalSalariesPaid = salaries
-    .filter(s => s.status === 'paid')
+    .filter(s => {
+      if (s.status !== 'paid') return false;
+      const sDate = new Date(s.paidDate || (s as any).paidAt || (s as any).createdAt || (s as any).paymentDate);
+      return !Number.isFinite(sDate.getTime()) || sDate >= thirtyDaysAgo;
+    })
     .reduce((sum, s) => sum + (Number(s.amount) || 0), 0);
   // Do not treat current employee salary master-data as period cash expense when no paid payroll exists.
   const laborCosts = totalSalariesPaid;
   const laborCostPercentage = netRevenue > 0 ? (laborCosts / netRevenue) * 100 : 0;
 
-  // Total Expenses
+  // Total Expenses (Period-aligned: food costs + 30-day labor + 30-day operating costs)
   const totalExpenses = foodCosts + laborCosts + operatingCosts;
 
   // Gross & Net Profit
@@ -244,16 +258,29 @@ export function calculateCFOAnalytics(data: CFODataPackage) {
 
   // Cash Flow (Inflow - Outflow in 30 days)
   const totalBankDeposits = bank_transactions
-    .filter(t => t.type === 'deposit')
+    .filter(t => {
+      if (t.type !== 'deposit') return false;
+      const tDate = new Date(t.createdAt || (t as any).date);
+      return !Number.isFinite(tDate.getTime()) || tDate >= thirtyDaysAgo;
+    })
     .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
   const totalBankWithdrawals = bank_transactions
-    .filter(t => t.type === 'withdrawal' || t.type === 'fee')
+    .filter(t => {
+      if (t.type !== 'withdrawal' && t.type !== 'fee') return false;
+      const tDate = new Date(t.createdAt || (t as any).date);
+      return !Number.isFinite(tDate.getTime()) || tDate >= thirtyDaysAgo;
+    })
     .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
 
-  const cashFlow = (monthlyRevenue + totalBankDeposits) - (totalExpenses + totalBankWithdrawals + totalRefunds);
+  const cashFlow = (monthlyRevenue + totalBankDeposits) - (totalExpenses + totalBankWithdrawals + monthlyRefunds);
 
-  // Taxes: Authoritative recorded VAT from orders
-  const recordedVAT = orders.reduce((sum, o) => sum + (Number(o.tax) || 0), 0);
+  // Taxes: Authoritative recorded VAT from completed orders in 30-day reporting period
+  const recordedVAT = completedOrders
+    .filter(o => {
+      const ordDate = new Date(o.createdAt);
+      return Number.isFinite(ordDate.getTime()) && ordDate >= thirtyDaysAgo;
+    })
+    .reduce((sum, o) => sum + (Number(o.tax ?? (o as any).taxAmount) || 0), 0);
   const estimatedVAT = recordedVAT;
   // Corporate tax is jurisdiction/configuration dependent; this analytics package has no authoritative corporate-tax setting.
   // Do not fabricate a statutory rate here. Financial reports should source configured tax policy separately.

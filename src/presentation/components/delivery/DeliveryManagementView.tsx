@@ -478,9 +478,10 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
   const handleSaveZone = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const canonBranch = getCanonicalBranchId(zoneForm.branchId || userRecord?.branchId || (userRecord as any)?.branch);
-      if (!canonBranch) {
-        alert('Unable to determine your branch. Please reload your account profile or contact an administrator.');
+      const targetBranch = zoneForm.branchId || (!isHqUser ? (userRecord?.branchId || (userRecord as any)?.branch) : '');
+      const canonBranch = getCanonicalBranchId(targetBranch);
+      if (!canonBranch || canonBranch === 'all') {
+        alert('A valid specific branch must be selected for the delivery zone. Delivery zones cannot be assigned to "all" branches or an empty branch.');
         return;
       }
 
@@ -754,11 +755,13 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
                   onClick={() => {
                     const rawBranch = userRecord?.branchId || (userRecord as any)?.branch;
                     const userBranch = getCanonicalBranchId(rawBranch);
-                    if (!isHqUser && !userBranch) {
+                    if (!isHqUser && (!userBranch || userBranch === 'all')) {
                       alert('Unable to determine your branch. Please reload your account profile or contact an administrator.');
                       return;
                     }
-                    const defaultBranch = userBranch;
+                    const defaultBranch = (!isHqUser && userBranch && userBranch !== 'all')
+                      ? userBranch
+                      : (availableBranches[0]?.id || '');
                     setEditingZone(null);
                     setZoneForm({
                       name: '',
@@ -1568,16 +1571,22 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
                   value={zoneForm.branchId}
                   onChange={(e) => setZoneForm({ ...zoneForm, branchId: e.target.value })}
                   disabled={!isHqUser}
+                  required
                   className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-3.5 py-2 text-white font-medium disabled:opacity-60 disabled:cursor-not-allowed"
                 >
+                  {!zoneForm.branchId && (
+                    <option value="" disabled>-- Select a Branch --</option>
+                  )}
                   {availableBranches.map((branch) => (
                     <option key={branch.id} value={branch.id}>
                       {branch.name || branch.id}{branch.code ? ` (${branch.code})` : ''}
                     </option>
                   ))}
                 </select>
-                {!isHqUser && (
-                  <p className="text-[10px] text-slate-500 mt-1">Locked to your authenticated branch ({getBranchDisplayName(zoneForm.branchId)}).</p>
+                {!isHqUser ? (
+                  <p className="text-[10px] text-slate-500 mt-1">{`Locked to your authenticated branch (${getBranchDisplayName(zoneForm.branchId)}).`}</p>
+                ) : (
+                  <p className="text-[10px] text-indigo-400 mt-1">{translateRawUi('Select the concrete operating branch for this delivery zone.')}</p>
                 )}
               </div>
 

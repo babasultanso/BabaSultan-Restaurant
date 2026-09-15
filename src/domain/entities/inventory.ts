@@ -145,6 +145,7 @@ export interface PurchaseOrder {
 
 export interface Supplier {
   id: string;
+  name?: string;
   companyName: string;
   contactPerson: string;
   phone: string;

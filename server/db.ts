@@ -1,4 +1,4 @@
-import { cert, initializeApp, getApps } from 'firebase-admin/app';
+import { cert, applicationDefault, initializeApp, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 import { getMessaging } from 'firebase-admin/messaging';
@@ -267,12 +267,7 @@ function ensureAdminApp() {
   const clientEmail = String(process.env.FIREBASE_CLIENT_EMAIL || '').trim();
   const privateKey = String(process.env.FIREBASE_PRIVATE_KEY || '').replace(/\\n/g, '\n').trim();
 
-  if (isProduction && (!clientEmail || !privateKey)) {
-    throw new Error(
-      'Firebase Admin production credentials are incomplete: FIREBASE_CLIENT_EMAIL and FIREBASE_PRIVATE_KEY are required.'
-    );
-  }
-
+  // If explicit service account credentials are provided, use cert()
   if (clientEmail && privateKey) {
     return initializeApp({
       credential: cert({
@@ -284,9 +279,26 @@ function ensureAdminApp() {
     });
   }
 
-  // Development may still use local Google ADC when no explicit service
-  // account credentials are configured. Production never falls through here.
-  return initializeApp({ projectId });
+  // Check if running in a managed Google Cloud environment with Application Default Credentials (ADC)
+  // (Cloud Run sets K_SERVICE; Cloud Functions sets FUNCTION_TARGET; GAE sets GAE_ENV; or explicit GOOGLE_APPLICATION_CREDENTIALS)
+  const isGcpEnvironment = Boolean(
+    process.env.K_SERVICE ||
+    process.env.FUNCTION_TARGET ||
+    process.env.GAE_ENV ||
+    process.env.GOOGLE_APPLICATION_CREDENTIALS
+  );
+
+  if (isProduction && !isGcpEnvironment) {
+    throw new Error(
+      'Firebase Admin production credentials are incomplete: FIREBASE_CLIENT_EMAIL and FIREBASE_PRIVATE_KEY are required when running outside Google Cloud managed runtime (ADC).'
+    );
+  }
+
+  // Use Application Default Credentials (ADC) on Google Cloud Run or dev environment
+  return initializeApp({
+    credential: applicationDefault(),
+    projectId
+  });
 }
 
 export function getAdminDb(): any {

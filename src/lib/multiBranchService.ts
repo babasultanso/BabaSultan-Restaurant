@@ -2,22 +2,14 @@ import {
   collection, 
   doc, 
   setDoc, 
-  addDoc, 
-  updateDoc, 
-  deleteDoc, 
-  getDocs, 
-  query, 
-  where,
-  writeBatch
+  updateDoc
 } from 'firebase/firestore';
-import { db, COLLECTIONS } from './firebase';
+import { db, COLLECTIONS, getAuthToken } from './firebase';
+import { getApiUrl } from './apiConfig';
+import { areBranchesMatching } from './branchUtils';
 import { 
   Branch, 
-  BranchStatus, 
-  BranchHierarchyType, 
   BranchTransfer, 
-  TransferStatus, 
-  TransferItem, 
   Order, 
   Expense, 
   Employee, 
@@ -26,12 +18,50 @@ import {
   Customer 
 } from '../types';
 
+// Helper: Authoritative branch matching without unsafe substring inclusion
+export function matchesBranch(
+  entityBranchId?: string | null,
+  entityBranchName?: string | null,
+  targetBranchId?: string | null,
+  targetBranchName?: string | null
+): boolean {
+  const tId = targetBranchId ? String(targetBranchId).trim() : '';
+  const tName = targetBranchName ? String(targetBranchName).trim() : '';
+  if (!tId && !tName) return false;
+
+  const eId = entityBranchId ? String(entityBranchId).trim() : '';
+  const eName = entityBranchName ? String(entityBranchName).trim() : '';
+
+  // 1. Authoritative branch ID matching
+  if (eId && tId) {
+    if (eId === tId) return true;
+    if (areBranchesMatching(eId, tId)) return true;
+  }
+
+  // 2. Exact match on entity branchId vs target branchName (or canonical alias)
+  if (eId && tName) {
+    if (areBranchesMatching(eId, tName)) return true;
+  }
+
+  // 3. Exact match on entity branchName vs target branchId / target branchName
+  if (eName) {
+    if (tId && areBranchesMatching(eName, tId)) return true;
+    if (tName) {
+      if (eName.toLowerCase() === tName.toLowerCase()) return true;
+      if (areBranchesMatching(eName, tName)) return true;
+    }
+  }
+
+  return false;
+}
+
 // Branch Firestore Actions
 export async function createBranch(branchData: Omit<Branch, 'id' | 'createdAt'>): Promise<string> {
   const newRef = doc(collection(db, COLLECTIONS.BRANCHES));
   const newBranch: Branch = {
     ...branchData,
     id: newRef.id,
+    branchId: newRef.id,
     createdAt: new Date().toISOString()
   };
   await setDoc(newRef, newBranch);
@@ -52,44 +82,103 @@ export async function disableBranch(branchId: string): Promise<void> {
 
 export async function deleteBranch(branchId: string): Promise<void> {
   const ref = doc(db, COLLECTIONS.BRANCHES, branchId);
-  await deleteDoc(ref);
+  await updateDoc(ref, {
+    status: 'inactive',
+    isDeleted: true,
+    updatedAt: new Date().toISOString()
+  });
 }
 
-// Branch Inter-Transfer Actions
+// Branch Inter-Transfer Actions (Server-Authoritative via API endpoints)
 export async function createBranchTransfer(
   transferData: Omit<BranchTransfer, 'id' | 'transferNumber' | 'createdAt' | 'status'>
 ): Promise<string> {
-  const newRef = doc(collection(db, COLLECTIONS.BRANCH_TRANSFERS));
-  const transferNumber = `TRF-${Date.now().toString().slice(-6)}`;
-  
-  const transfer: BranchTransfer = {
-    ...transferData,
-    id: newRef.id,
-    transferNumber,
-    status: 'pending',
-    createdAt: new Date().toISOString()
-  };
+  const sourceBranchId = String(transferData.sourceBranchId || '').trim();
+  const destinationBranchId = String(transferData.destinationBranchId || '').trim();
+  if (!sourceBranchId || !destinationBranchId || sourceBranchId === destinationBranchId) {
+    throw new Error('Valid, different source and destination branches are required.');
+  }
+  if ((transferData.transferType === 'inventory' || transferData.transferType === 'product') && (!Array.isArray(transferData.items) || transferData.items.length === 0)) {
+    throw new Error('Inventory/product transfer requires at least one real item.');
+  }
+  if (transferData.transferType === 'employee' && !transferData.employeeId) {
+    throw new Error('Employee transfer requires employeeId.');
+  }
+  if (transferData.transferType === 'cash' && (!(Number(transferData.cashAmount) > 0))) {
+    throw new Error('Cash transfer requires a positive cashAmount.');
+  }
+  for (const item of transferData.items || []) {
+    if (!item.itemId || !(Number(item.quantity) > 0)) {
+      throw new Error('Every transfer item requires a real itemId and positive quantity.');
+    }
+  }
 
-  await setDoc(newRef, transfer);
-  return newRef.id;
+  const token = await getAuthToken();
+  const idempotencyKey = `branch-transfer-create:${sourceBranchId}:${destinationBranchId}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+  const res = await fetch(getApiUrl('/api/branch-transfers'), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+      'Idempotency-Key': idempotencyKey
+    },
+    body: JSON.stringify({ transferData: { ...transferData, idempotencyKey } })
+  });
+
+  if (!res.ok) {
+    let message = 'Branch transfer creation failed.';
+    try {
+      message = (await res.json())?.error || message;
+    } catch {}
+    throw new Error(message);
+  }
+
+  const data = await res.json();
+  return String(data.id || data.transfer?.id);
 }
 
 export async function approveBranchTransfer(transferId: string, approverName: string): Promise<void> {
-  const ref = doc(db, COLLECTIONS.BRANCH_TRANSFERS, transferId);
-  await updateDoc(ref, {
-    status: 'approved',
-    approvedBy: approverName,
-    completedAt: new Date().toISOString()
+  const token = await getAuthToken();
+  const idempotencyKey = `branch-transfer-approve:${transferId}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+  const res = await fetch(getApiUrl(`/api/branch-transfers/${encodeURIComponent(transferId)}/approve`), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+      'Idempotency-Key': idempotencyKey
+    },
+    body: JSON.stringify({ approverName })
   });
+
+  if (!res.ok) {
+    let message = 'Branch transfer approval failed.';
+    try {
+      message = (await res.json())?.error || message;
+    } catch {}
+    throw new Error(message);
+  }
 }
 
 export async function rejectBranchTransfer(transferId: string, approverName: string, reason: string): Promise<void> {
-  const ref = doc(db, COLLECTIONS.BRANCH_TRANSFERS, transferId);
-  await updateDoc(ref, {
-    status: 'rejected',
-    approvedBy: approverName,
-    rejectionReason: reason
+  const token = await getAuthToken();
+  const idempotencyKey = `branch-transfer-reject:${transferId}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+  const res = await fetch(getApiUrl(`/api/branch-transfers/${encodeURIComponent(transferId)}/reject`), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+      'Idempotency-Key': idempotencyKey
+    },
+    body: JSON.stringify({ approverName, reason })
   });
+
+  if (!res.ok) {
+    let message = 'Branch transfer rejection failed.';
+    try {
+      message = (await res.json())?.error || message;
+    } catch {}
+    throw new Error(message);
+  }
 }
 
 // Consolidated Multi-Branch Analytics Engine
@@ -105,7 +194,7 @@ export interface ConsolidatedAnalyticsPackage {
 }
 
 export function calculateConsolidatedBranchAnalytics(pkg: ConsolidatedAnalyticsPackage) {
-  const safeArray = <T>(arr: any): T[] => (Array.isArray(arr) ? arr.filter(Boolean) : []);
+  const safeArray = <T,>(arr: any): T[] => (Array.isArray(arr) ? arr.filter(Boolean) : []);
   
   const branches = safeArray<Branch>(pkg?.branches);
   const orders = safeArray<Order>(pkg?.orders);
@@ -126,17 +215,21 @@ export function calculateConsolidatedBranchAnalytics(pkg: ConsolidatedAnalyticsP
   const totalConsolidatedOrders = completedOrders.length;
   const totalConsolidatedExpenses = expenses.reduce((sum, e) => sum + (typeof e?.amount === 'number' && !isNaN(e.amount) ? e.amount : 0), 0);
   
-  // Calculate COGS - using strictly actual order COGS when available (no 45% estimation)
+  // Calculate COGS - using strictly actual order COGS when available
   const totalConsolidatedCOGS = completedOrders.reduce((sum, o) => sum + (typeof o?.cogs === 'number' && !isNaN(o.cogs) ? o.cogs : 0), 0);
   const grossProfit = totalConsolidatedSales - totalConsolidatedCOGS;
   const totalConsolidatedProfit = grossProfit - totalConsolidatedExpenses;
 
-  // Total Inventory Valuation across branches
+  // Total Inventory Valuation across all stock items
   const totalInventoryValuation = ingredients.reduce((sum, i) => sum + ((typeof i?.stock === 'number' ? i.stock : 0) * (typeof i?.costPerUnit === 'number' ? i.costPerUnit : 0)), 0) +
                                    products.reduce((sum, p) => sum + ((typeof p?.stock === 'number' ? p.stock : 0) * (typeof p?.cost === 'number' ? p.cost : 0)), 0);
 
   // Total Employees
   const totalEmployeesCount = employees.length;
+
+  // Track inventory items assigned vs unassigned
+  const assignedIngredientIds = new Set<string>();
+  const assignedProductIds = new Set<string>();
 
   // Branch Performance Ranking Table
   const branchMetrics = branches.map((b) => {
@@ -145,32 +238,51 @@ export function calculateConsolidatedBranchAnalytics(pkg: ConsolidatedAnalyticsP
     const bCode = b?.code || 'BR-00';
     const bCity = b?.city || 'Main City';
 
-    // Filter orders for this branch by branch ID or branch name matching
+    // Filter orders for this branch strictly by authoritative branch ID or exact canonical matching
     const bOrders = completedOrders.filter((o) => {
       const oBranchId = (o as any)?.branchId;
       const oBranchName = (o as any)?.branch;
-      return (oBranchId && oBranchId === bId) || (oBranchName && (oBranchName === bName || bName.includes(oBranchName)));
+      return matchesBranch(oBranchId, oBranchName, bId, bName);
     });
     
     const branchSales = bOrders.reduce((sum, o) => sum + (typeof o?.totalAmount === 'number' && !isNaN(o.totalAmount) ? o.totalAmount : 0), 0);
     const branchOrdersCount = bOrders.length;
 
+    // Filter operating expenses incurred by this branch
     const bExpenses = expenses.filter((e) => {
       const eBranchId = (e as any)?.branchId;
       const eBranchName = (e as any)?.branch;
-      return (eBranchId && eBranchId === bId) || (eBranchName && (eBranchName === bName || bName.includes(eBranchName)));
+      return matchesBranch(eBranchId, eBranchName, bId, bName);
     });
     const branchExpenses = bExpenses.reduce((sum, e) => sum + (typeof e?.amount === 'number' && !isNaN(e.amount) ? e.amount : 0), 0);
 
     const branchCOGS = bOrders.reduce((sum, o) => sum + (typeof o?.cogs === 'number' && !isNaN(o.cogs) ? o.cogs : 0), 0);
     const branchNetProfit = branchSales - branchCOGS - branchExpenses;
 
+    // Filter employees assigned to this branch
     const bEmployees = employees.filter((emp) => {
       const empBranchId = (emp as any)?.branchId;
       const empBranchName = emp?.branch;
-      return (empBranchId && empBranchId === bId) || (empBranchName && (empBranchName === bName || bName.includes(empBranchName)));
+      return matchesBranch(empBranchId, empBranchName, bId, bName);
     });
     const employeeCount = bEmployees.length;
+
+    // Actual branch-owned inventory valuation (NO equal division across branches)
+    const bIngredients = ingredients.filter((ing) => {
+      const match = matchesBranch((ing as any)?.branchId, (ing as any)?.branch, bId, bName);
+      if (match && ing?.id) assignedIngredientIds.add(ing.id);
+      return match;
+    });
+
+    const bProducts = products.filter((prod) => {
+      const match = matchesBranch((prod as any)?.branchId, (prod as any)?.branch, bId, bName);
+      if (match && prod?.id) assignedProductIds.add(prod.id);
+      return match;
+    });
+
+    const branchInventoryValuation = 
+      bIngredients.reduce((sum, i) => sum + ((typeof i?.stock === 'number' ? i.stock : 0) * (typeof i?.costPerUnit === 'number' ? i.costPerUnit : 0)), 0) +
+      bProducts.reduce((sum, p) => sum + ((typeof p?.stock === 'number' ? p.stock : 0) * (typeof p?.cost === 'number' ? p.cost : 0)), 0);
 
     return {
       branchId: bId,
@@ -184,10 +296,17 @@ export function calculateConsolidatedBranchAnalytics(pkg: ConsolidatedAnalyticsP
       expenses: typeof branchExpenses === 'number' && !isNaN(branchExpenses) ? branchExpenses : 0,
       netProfit: typeof branchNetProfit === 'number' && !isNaN(branchNetProfit) ? branchNetProfit : 0,
       employeeCount: typeof employeeCount === 'number' && !isNaN(employeeCount) ? employeeCount : 0,
-      inventoryValuation: totalBranchesCount > 0 ? totalInventoryValuation / totalBranchesCount : 0,
+      inventoryValuation: typeof branchInventoryValuation === 'number' && !isNaN(branchInventoryValuation) ? branchInventoryValuation : 0,
       profitMargin: branchSales > 0 ? Math.round((branchNetProfit / branchSales) * 100) : 0
     };
   });
+
+  // Calculate unassigned inventory valuation (stock items not mapped to any branch)
+  const unassignedIngredients = ingredients.filter((i) => i?.id && !assignedIngredientIds.has(i.id));
+  const unassignedProducts = products.filter((p) => p?.id && !assignedProductIds.has(p.id));
+  const unassignedInventoryValuation = 
+    unassignedIngredients.reduce((sum, i) => sum + ((typeof i?.stock === 'number' ? i.stock : 0) * (typeof i?.costPerUnit === 'number' ? i.costPerUnit : 0)), 0) +
+    unassignedProducts.reduce((sum, p) => sum + ((typeof p?.stock === 'number' ? p.stock : 0) * (typeof p?.cost === 'number' ? p.cost : 0)), 0);
 
   // Sort by Sales for Ranking
   const rankedBranches = [...branchMetrics].sort((a, b) => b.sales - a.sales);
@@ -206,6 +325,8 @@ export function calculateConsolidatedBranchAnalytics(pkg: ConsolidatedAnalyticsP
     totalConsolidatedExpenses: typeof totalConsolidatedExpenses === 'number' && !isNaN(totalConsolidatedExpenses) ? totalConsolidatedExpenses : 0,
     totalConsolidatedProfit: typeof totalConsolidatedProfit === 'number' && !isNaN(totalConsolidatedProfit) ? totalConsolidatedProfit : 0,
     totalInventoryValuation: typeof totalInventoryValuation === 'number' && !isNaN(totalInventoryValuation) ? totalInventoryValuation : 0,
+    unassignedInventoryValuation: typeof unassignedInventoryValuation === 'number' && !isNaN(unassignedInventoryValuation) ? unassignedInventoryValuation : 0,
+    unassignedInventoryCount: unassignedIngredients.length + unassignedProducts.length,
     totalEmployeesCount,
     totalCustomersCount: customers.length,
     rankedBranches,

@@ -241,8 +241,8 @@ export async function createDeliveryZone(zoneData: Omit<DeliveryZone, 'id' | 'cr
     } catch {}
   }
   const effectiveBranchId = getCanonicalBranchId(rawBranch);
-  if (!effectiveBranchId) {
-    throw new Error('Unable to determine your branch. Please reload your account profile or contact an administrator.');
+  if (!effectiveBranchId || effectiveBranchId === 'all') {
+    throw new Error('A valid specific branch is required to create a delivery zone. Delivery zones cannot belong to "all" branches or be unassigned.');
   }
 
   const rawFee = typeof zoneData.baseDeliveryFee === 'number' 
@@ -266,10 +266,11 @@ export async function updateDeliveryZone(zoneId: string, updates: Partial<Delive
   const normalizedUpdates: Partial<DeliveryZone> = { ...updates };
   if (updates.branchId || (updates as any)?.branch) {
     const canon = getCanonicalBranchId(updates.branchId || (updates as any)?.branch);
-    if (canon) {
-      normalizedUpdates.branchId = canon;
-      normalizedUpdates.branchName = updates.branchName || getBranchDisplayName(canon);
+    if (!canon || canon === 'all') {
+      throw new Error('Delivery zone branch must be a valid specific branch and cannot be "all" or empty.');
     }
+    normalizedUpdates.branchId = canon;
+    normalizedUpdates.branchName = updates.branchName || getBranchDisplayName(canon);
   }
   if (typeof updates.baseDeliveryFee === 'number') {
     normalizedUpdates.baseDeliveryFee = Number.isFinite(updates.baseDeliveryFee) && updates.baseDeliveryFee >= 0 ? updates.baseDeliveryFee : 0;

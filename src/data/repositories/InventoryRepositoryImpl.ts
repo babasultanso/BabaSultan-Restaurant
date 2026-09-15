@@ -354,7 +354,7 @@ export class InventoryRepositoryImpl implements IInventoryRepository {
       snap.forEach((d) => {
         const data = d.data();
         const name = String(data.companyName ?? data.name ?? '').trim();
-        list.push({ id: d.id, ...data, name, companyName: name } as Supplier);
+        list.push({ id: d.id, ...data, name, companyName: name } as unknown as Supplier);
       });
       list.sort((a, b) => String(a.companyName ?? a.name ?? '').localeCompare(String(b.companyName ?? b.name ?? '')));
       return list;
@@ -375,7 +375,7 @@ export class InventoryRepositoryImpl implements IInventoryRepository {
         snap.forEach((d) => {
           const data = d.data();
           const name = String(data.companyName ?? data.name ?? '').trim();
-          list.push({ id: d.id, ...data, name, companyName: name } as Supplier);
+          list.push({ id: d.id, ...data, name, companyName: name } as unknown as Supplier);
         });
         list.sort((a, b) => String(a.companyName ?? a.name ?? '').localeCompare(String(b.companyName ?? b.name ?? '')));
         callback(list);

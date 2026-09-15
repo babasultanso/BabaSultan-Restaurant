@@ -159,17 +159,47 @@ app.use((req, res, next) => {
 
 app.use(express.json({ limit: '1mb' }));
 
-// Lightweight in-process rate limiting. Deployments with multiple instances
-// should additionally enforce limits at the edge/load-balancer layer.
-const rateState = new Map<string, { count: number; resetAt: number }>();
+// Lightweight in-process rate limiting with bounded memory management.
+// Deployments with multiple instances should additionally enforce limits at the edge/load-balancer layer.
+export const RATE_LIMIT_MAX_ENTRIES = 5000;
+export const rateState = new Map<string, { count: number; resetAt: number }>();
+
+export function cleanupRateState(now: number = Date.now()): void {
+  // 1. Evict expired entries
+  for (const [k, v] of rateState.entries()) {
+    if (v.resetAt <= now) {
+      rateState.delete(k);
+    }
+  }
+  // 2. Bound maximum size if still above limit by deleting oldest entries
+  if (rateState.size >= RATE_LIMIT_MAX_ENTRIES) {
+    const overflow = rateState.size - RATE_LIMIT_MAX_ENTRIES + 1;
+    let evicted = 0;
+    for (const k of rateState.keys()) {
+      rateState.delete(k);
+      evicted++;
+      if (evicted >= overflow) break;
+    }
+  }
+}
+
 app.use('/api', (req, res, next) => {
   if (process.env.VITEST === 'true' || process.env.NODE_ENV === 'test') return next();
   const now = Date.now();
   const key = `${req.ip}:${req.path.startsWith('/ai') ? 'ai' : req.method}`;
   const windowMs = 60_000;
   const max = req.path.startsWith('/ai') ? 30 : 120;
+
+  // Opportunistic bounded cleanup when table is getting large or every ~100 requests
+  if (rateState.size >= RATE_LIMIT_MAX_ENTRIES || Math.random() < 0.01) {
+    cleanupRateState(now);
+  }
+
   const current = rateState.get(key);
   if (!current || current.resetAt <= now) {
+    if (!current && rateState.size >= RATE_LIMIT_MAX_ENTRIES) {
+      cleanupRateState(now);
+    }
     rateState.set(key, { count: 1, resetAt: now + windowMs });
     return next();
   }
@@ -321,6 +351,14 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
+    // Block direct public access to backend bundle artifacts and sourcemaps
+    app.use((req, res, next) => {
+      const p = req.path.toLowerCase();
+      if (p === '/server.cjs' || p === '/server.cjs.map' || p.endsWith('.map') || p.startsWith('/server.')) {
+        return res.status(404).json({ error: 'Not found' });
+      }
+      next();
+    });
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));

@@ -6,6 +6,7 @@ import { SYSTEM_CONFIG } from '../../constants';
 import { CartItem, POSCheckoutPayload, ReceiptData } from '../../domain/entities/pos';
 import { db, COLLECTIONS, createOrderFirestore, holdOrderFirestore, fetchHoldOrdersFirestore, fetchTablesFirestore, fetchCustomersFirestore } from '../../lib/firebase';
 import { createDeliveryOrder } from '../../lib/deliveryService';
+import { areBranchesMatching } from '../../lib/branchUtils';
 import { useAuth } from '../context/AuthContext';
 import { calculateCartTotals } from '../../domain/services/posService';
 import { ProductOptionModal } from './pos/ProductOptionModal';
@@ -108,7 +109,7 @@ export const POSView: React.FC<POSViewProps> = ({ products, onOrderCompleted }) 
         const branchSnap = await getDocs(query(collection(db, COLLECTIONS.BRANCHES)));
         if (!branchSnap.empty && isMounted) {
           const branches = branchSnap.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
-          const b = effectiveBranch ? branches.find(br => br.id === effectiveBranch || br.code === effectiveBranch) : undefined;
+          const b = effectiveBranch ? branches.find(br => areBranchesMatching(br.id, effectiveBranch) || areBranchesMatching(br.code, effectiveBranch)) : undefined;
           if (b && typeof b.defaultDeliveryFee === 'number') {
             setBranchDeliveryFee(b.defaultDeliveryFee);
           } else if (b && typeof b.deliveryFee === 'number') {
@@ -122,7 +123,7 @@ export const POSView: React.FC<POSViewProps> = ({ products, onOrderCompleted }) 
           const allZones = zonesSnap.docs.map(d => ({ id: d.id, ...(d.data() as any) } as DeliveryZone));
           const filtered = isHQUser
             ? allZones
-            : effectiveBranch ? allZones.filter(z => z.branchId === effectiveBranch) : [];
+            : effectiveBranch ? allZones.filter(z => areBranchesMatching(z.branchId, effectiveBranch)) : [];
           setDeliveryZones(filtered);
         }
       } catch (err) {
