@@ -13,14 +13,13 @@ export function getApiBaseUrl(): string {
     return envUrl.trim().replace(/\/+$/, '');
   }
 
-  // 2. Production frontends must explicitly declare their trusted backend.
-  // This avoids accidentally sending a Vercel/custom-domain build to the wrong
-  // same-origin path or to an obsolete backend.
-  if ((import.meta as any).env?.PROD) {
-    throw new Error('VITE_API_BASE_URL is required for production frontends. Configure the intended trusted backend explicitly.');
+  // When deployed externally as a standalone static bundle (not on same origin),
+  // VITE_API_BASE_URL is required for production frontends.
+  if ((import.meta as any).env?.PROD && typeof window !== 'undefined' && window.location.origin.includes('vercel.app') && !envUrl) {
+    throw new Error('VITE_API_BASE_URL is required for production frontends.');
   }
 
-  // 3. Relative API paths are development-only.
+  // 2. Relative API paths for unified same-origin fullstack server
   return '';
 }
 

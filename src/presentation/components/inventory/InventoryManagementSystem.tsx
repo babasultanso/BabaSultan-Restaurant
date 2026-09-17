@@ -50,7 +50,7 @@ export const InventoryManagementSystem: React.FC<InventoryManagementSystemProps>
   const controller = useMemo(() => new InventoryController(new InventoryRepositoryImpl()), []);
 
   const effectiveRole = String(role || userRecord?.role || userRole || '').toLowerCase().trim();
-  const rawUserBranch = userRecord?.branchId || (userRecord as any)?.branch || userBranch;
+  const rawUserBranch = userRecord?.branchId || userRecord?.branch || userBranch;
   const isHqUser = effectiveRole === 'owner' || (effectiveRole === 'admin' && (!rawUserBranch || rawUserBranch === 'all'));
   const effectiveBranchId = isHqUser ? undefined : rawUserBranch;
 
@@ -125,7 +125,7 @@ export const InventoryManagementSystem: React.FC<InventoryManagementSystemProps>
               <div className="flex items-center gap-2">
                 <h1 className="text-xl font-black text-white tracking-tight">{t.inventoryTitle}</h1>
                 <span className="px-2.5 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-slate-300 text-[10px] font-mono font-bold">
-                  Phase 7 • {userBranch}
+                  {userBranch}
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-0.5">{t.inventorySubtitle}</p>

@@ -6,6 +6,10 @@ export interface AuthenticatedUser {
   uid: string;
   role: string;
   branchId: string;
+  branch?: string;
+  employeeId?: string;
+  employee?: { id?: string };
+  claims?: Record<string, unknown>;
   name: string;
   email: string;
   phone?: string;

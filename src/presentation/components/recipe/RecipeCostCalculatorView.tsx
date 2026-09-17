@@ -122,7 +122,7 @@ export const RecipeCostCalculatorView: React.FC<RecipeCostCalculatorViewProps> =
           <div className="space-y-5">
             <div>
               <div className="flex items-center justify-between text-xs font-bold mb-2">
-                <span className="text-slate-300">{(t.calculator as any).scenarioPrice || 'What-If Selling Price'}:</span>
+                <span className="text-slate-300">{t.calculator.scenarioPrice || 'What-If Selling Price'}:</span>
                 <span className="text-amber-400 font-mono text-sm">${scenarioPrice.toFixed(2)}</span>
               </div>
               <input
@@ -194,7 +194,7 @@ export const RecipeCostCalculatorView: React.FC<RecipeCostCalculatorViewProps> =
             {/* Metric Gauges */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6">
               <div className="p-4 bg-slate-950 border border-slate-800 rounded-2xl space-y-1">
-                <p className="text-xs text-slate-400 font-bold">{(t.calculator as any).scenarioCost || 'Scenario Cost'} / Portion</p>
+                <p className="text-xs text-slate-400 font-bold">{t.calculator.scenarioCost || 'Scenario Cost'} / Portion</p>
                 <p className="text-xl font-black text-amber-400 font-mono">${scenarioCost.toFixed(2)}</p>
                 <p className="text-[10px] text-slate-500">Base Cost: ${originalCost.toFixed(2)}</p>
               </div>

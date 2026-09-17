@@ -55,25 +55,28 @@ import {
 import { getApiUrl } from './apiConfig';
 export { getApiUrl };
 
-// Build active Firebase config using explicit environment values when supplied.
-// VITE_FIREBASE_PROJECT_ID is required for production builds.
-// Production builds must explicitly name their Firebase project to prevent a bundled
-// test configuration from silently becoming the production data source.
+// Build active Firebase config using explicit environment values when supplied,
+// falling back to defaultFirebaseConfig from firebase-applet-config.json.
 const env = (import.meta as any).env || {};
-const requiredProductionFirebaseEnv = [
-  'VITE_FIREBASE_PROJECT_ID',
-  'VITE_FIREBASE_API_KEY',
-  'VITE_FIREBASE_AUTH_DOMAIN',
-  'VITE_FIREBASE_STORAGE_BUCKET',
-  'VITE_FIREBASE_MESSAGING_SENDER_ID',
-  'VITE_FIREBASE_APP_ID'
-] as const;
+
 if (env.PROD) {
-  const missing = requiredProductionFirebaseEnv.filter((name) => !env[name] || String(env[name]).trim() === '');
-  if (missing.length > 0) {
-    throw new Error(`Missing required Firebase production configuration: ${missing.join(', ')}`);
+  const requiredKeys = [
+    'VITE_FIREBASE_PROJECT_ID',
+    'VITE_FIREBASE_API_KEY',
+    'VITE_FIREBASE_AUTH_DOMAIN',
+    'VITE_FIREBASE_STORAGE_BUCKET',
+    'VITE_FIREBASE_MESSAGING_SENDER_ID',
+    'VITE_FIREBASE_APP_ID'
+  ];
+  const missingKeys = requiredKeys.filter((k) => !env[k]);
+  if (!env.VITE_FIREBASE_PROJECT_ID) {
+    throw new Error('VITE_FIREBASE_PROJECT_ID is required for production builds.');
+  }
+  if (missingKeys.length > 0) {
+    throw new Error(`Missing required Firebase production configuration: ${missingKeys.join(', ')}`);
   }
 }
+
 const resolvedFirebaseConfig = {
   apiKey: env.VITE_FIREBASE_API_KEY || defaultFirebaseConfig.apiKey,
   authDomain: env.VITE_FIREBASE_AUTH_DOMAIN || defaultFirebaseConfig.authDomain,

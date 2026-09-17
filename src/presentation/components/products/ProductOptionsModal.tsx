@@ -216,7 +216,7 @@ export const ProductOptionsModal: React.FC<ProductOptionsModalProps> = ({
                   </label>
                   <select
                     value={editingOption.type || 'addon'}
-                    onChange={(e) => setEditingOption({ ...editingOption, type: e.target.value as any })}
+                    onChange={(e) => setEditingOption({ ...editingOption, type: e.target.value as 'size' | 'addon' | 'variant' | 'custom' })}
                     className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
                   >
                     <option value="size">{t.legacyUi.sizeVariants}</option>
@@ -232,7 +232,7 @@ export const ProductOptionsModal: React.FC<ProductOptionsModalProps> = ({
                   </label>
                   <select
                     value={editingOption.selectionType || 'single'}
-                    onChange={(e) => setEditingOption({ ...editingOption, selectionType: e.target.value as any })}
+                    onChange={(e) => setEditingOption({ ...editingOption, selectionType: e.target.value as 'single' | 'multiple' })}
                     className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
                   >
                     <option value="single">{t.legacyUi.singleSelect}</option>

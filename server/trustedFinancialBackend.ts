@@ -1265,7 +1265,7 @@ export async function handlePosCheckout(req: express.Request, res: express.Respo
           deliveryZoneId: fullOrder.deliveryZoneId,
           deliveryZoneName: fullOrder.deliveryZoneName,
           branchId: targetBranchId,
-          branchName: String((user as any).branch || '').trim(),
+          branchName: String(user.branch || '').trim(),
           status: 'unassigned',
           subtotal: verifiedSubtotal,
           deliveryFee: fullOrder.deliveryFee || 0,
@@ -2862,7 +2862,7 @@ function originalPositive(value: any): number {
 
 function getProductStation(productData: any): 'grill' | 'kitchen' | 'bar' | 'bakery' {
   const explicit = String(productData?.productionStation || productData?.station || productData?.stationId || '').trim().toLowerCase();
-  if (['grill','kitchen','bar','bakery'].includes(explicit)) return explicit as any;
+  if (explicit === 'grill' || explicit === 'kitchen' || explicit === 'bar' || explicit === 'bakery') return explicit;
   return routeProductToStation(String(productData?.name || ''), String(productData?.category || ''));
 }
 
@@ -5253,7 +5253,7 @@ export async function handleCreateAccount(req: express.Request, res: express.Res
       const idemSnap = await transaction.get(accountIdemRef);
       if (idemSnap.exists) return idemSnap.data();
       if (payload.openingBalanceRequested > 0) throw Object.assign(new Error('Opening balance must be posted through an opening journal entry; account creation does not accept a direct balance.'), { statusCode: 400 });
-      delete (payload as any).openingBalanceRequested;
+      delete (payload as Record<string, unknown>).openingBalanceRequested;
       let existingQuery: any = db.collection('accounts').where('code', '==', payload.code);
       const existingSnap = await transaction.get(existingQuery);
       const conflict = existingSnap.docs.find((d: any) => {
@@ -7895,9 +7895,9 @@ export async function handleAttendanceClockIn(req: express.Request, res: express
       const branchId = normalizeCanonicalBranchId(emp.branchId || emp.branch || '');
       const auth = checkBranchAuthorization(user, branchId);
       if (!auth.authorized) throw Object.assign(new Error(auth.error), { statusCode: 403 });
-      const actorRole = String(user.role || (user as any).claims?.role || '').toLowerCase();
+      const actorRole = String(user.role || (user.claims?.role as string) || '').toLowerCase();
       const isManagerial = ['owner','admin','manager','accountant'].includes(actorRole);
-      const actorEmployeeId = String((user as any).employeeId || (user as any).employee?.id || '').trim();
+      const actorEmployeeId = String(user.employeeId || user.employee?.id || '').trim();
       if (!isManagerial && actorEmployeeId && actorEmployeeId !== empId) {
         throw Object.assign(new Error('You can only clock in for your own employee record.'), { statusCode: 403 });
       }
@@ -7931,8 +7931,8 @@ export async function handleAttendanceClockOut(req: express.Request, res: expres
       const ref=db.collection('employee_attendance').doc(attendanceId); const snap=await transaction.get(ref);
       if(!snap.exists) throw Object.assign(new Error('Attendance record not found.'),{statusCode:404});
       const data=snap.data()||{}; const auth=checkBranchAuthorization(user,data.branchId||''); if(!auth.authorized) throw Object.assign(new Error(auth.error),{statusCode:403});
-      const actorRole=String(user.role||(user as any).claims?.role||'').toLowerCase(); const isManagerial=['owner','admin','manager','accountant'].includes(actorRole);
-      const actorEmployeeId=String((user as any).employeeId||(user as any).employee?.id||'').trim();
+      const actorRole=String(user.role||(user.claims?.role as string)||'').toLowerCase(); const isManagerial=['owner','admin','manager','accountant'].includes(actorRole);
+      const actorEmployeeId=String(user.employeeId||user.employee?.id||'').trim();
       if(!isManagerial && ((actorEmployeeId && actorEmployeeId !== String(data.employeeId||'')) || (!actorEmployeeId && String(user.uid||'') !== String(data.userId||'')))) throw Object.assign(new Error('You can only clock out your own employee record.'),{statusCode:403});
       if(data.clockOut) return {status:'success',attendance:{id:snap.id,...data},alreadyClockedOut:true};
       const now=new Date(); const start=new Date(data.clockIn).getTime(); if(!Number.isFinite(start)||start>now.getTime()) throw Object.assign(new Error('Invalid clock-in time.'),{statusCode:409});
@@ -8733,7 +8733,7 @@ export async function handleGetFinancialSummary(req: express.Request, res: expre
     return res.status(403).json({ error: 'Unauthorized: Financial summary access is restricted to management and accountant roles.' });
   }
 
-  const { branchId, dateFrom, dateTo, period } = req.query as any;
+  const { branchId, dateFrom, dateTo, period } = req.query as Record<string, string | undefined>;
   const requestedBranch = branchId !== undefined && branchId !== null && String(branchId).trim() !== ''
     ? String(branchId).trim()
     : undefined;
@@ -11603,7 +11603,7 @@ export async function handleInitialSetup(req: express.Request, res: express.Resp
   const restaurant = body.restaurant || {};
   const tax = body.tax || {};
   const payments = body.payments || {};
-  const requestedBranchId = String((branch as any).id || '').trim();
+  const requestedBranchId = String((branch as { id?: string; code?: string }).id || '').trim();
   const requestedBranchCode = String(branch.code || '').trim();
   let targetBranchId = normalizeCanonicalBranchId(requestedBranchId || requestedBranchCode || user.branchId);
   if (requestedBranchCode && requestedBranchCode !== 'all' && requestedBranchCode !== requestedBranchId) {

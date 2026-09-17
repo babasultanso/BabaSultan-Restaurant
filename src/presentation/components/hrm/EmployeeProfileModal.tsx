@@ -557,7 +557,7 @@ export const EmployeeProfileModal: React.FC<Props> = ({ employee, isOpen, onClos
               <label className="text-xs font-bold text-slate-300 block mb-1">{t.legacyUi.documentType}</label>
               <select
                 value={docType}
-                onChange={(e) => setDocType(e.target.value as any)}
+                onChange={(e) => setDocType(e.target.value as EmployeeDocument['documentType'])}
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white"
               >
                 <option value="Employment Contract">{t.legacyUi.employmentContract}</option>

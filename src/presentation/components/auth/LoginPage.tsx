@@ -83,14 +83,27 @@ export const LoginPage: React.FC<{ onLoginSuccess?: () => void; initialError?: s
         {/* Left Branding Column */}
         <div className="lg:col-span-5 space-y-6">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center font-black text-xl shadow-lg shadow-emerald-950/50">
+            <div
+              className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center font-black text-xl shadow-lg shadow-emerald-950/50 shrink-0 select-none font-mono"
+              title={translateRawUi('Enterprise Resource Planning System')}
+            >
               {translateRawUi('ERP')}
             </div>
             <div>
-              <h1 className="text-xl font-extrabold text-white tracking-wide">{t.appName}</h1>
-              <span className="text-xs text-emerald-400 font-semibold uppercase tracking-widest bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20">
-                {translateRawUi('Phase 2 — Auth Portal')}
-              </span>
+              <div className="flex items-center gap-2">
+                <h1 className="text-xl font-extrabold text-white tracking-wide">{t.appName}</h1>
+                <span className="text-xs font-black text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded font-mono">
+                  {translateRawUi('ERP')}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 mt-1">
+                <span className="text-xs text-emerald-400 font-semibold uppercase tracking-widest bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20">
+                  {translateRawUi('Auth Portal')}
+                </span>
+                <span className="text-xs text-slate-400 font-medium">
+                  {translateRawUi('Enterprise Resource Planning System')}
+                </span>
+              </div>
             </div>
           </div>
 

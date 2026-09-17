@@ -58,7 +58,9 @@ export interface Employee {
   employmentStatus: EmploymentStatus;
   status?: string; // Legacy status compatibility
   role: EmployeeRole;
+  systemRole?: string;
   salary: number;
+  joinDate?: string; // Legacy join date compatibility
   payFrequency: PayFrequency;
   totalSales?: number; // Legacy analytics compatibility
   ordersCount?: number; // Legacy analytics compatibility

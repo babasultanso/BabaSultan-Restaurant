@@ -398,7 +398,7 @@ export const HRMManagementView: React.FC = () => {
         <div>
           <div className="flex items-center gap-2">
             <span className="bg-emerald-500/10 text-emerald-400 font-extrabold px-3 py-1 rounded-full text-xs border border-emerald-500/20">
-              {translateRawUi('PHASE 9 HRM SYSTEM')}
+              {translateRawUi('HRM SYSTEM')}
             </span>
             <span className="text-xs text-slate-400">{translateRawUi('• Real-Time Firestore Synced')}</span>
           </div>
@@ -1200,7 +1200,7 @@ export const HRMManagementView: React.FC = () => {
               <label className="text-slate-300 font-semibold block mb-1">{t.legacyUi.leaveType}</label>
               <select
                 value={leaveType}
-                onChange={(e) => setLeaveType(e.target.value as any)}
+                onChange={(e) => setLeaveType(e.target.value as LeaveRequest['leaveType'])}
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white"
               >
                 <option value="Annual Leave">{t.legacyUi.annualLeave}</option>

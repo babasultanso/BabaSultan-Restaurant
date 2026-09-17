@@ -533,7 +533,7 @@ export const UserManagementView: React.FC = () => {
                 </label>
                 <select
                   value={editStatus}
-                  onChange={(e) => setEditStatus(e.target.value as any)}
+                  onChange={(e) => setEditStatus(e.target.value as 'active' | 'suspended' | 'pending')}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
                 >
                   <option value="active">{translateRawUi('Active')}</option>

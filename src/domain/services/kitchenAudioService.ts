@@ -7,6 +7,10 @@
 
 export type AudioState = 'ready' | 'blocked' | 'muted' | 'suspended' | 'error' | 'unsupported';
 
+interface WebkitWindow extends Window {
+  webkitAudioContext?: typeof AudioContext;
+}
+
 class KitchenAudioServiceImpl {
   private audioCtx: AudioContext | null = null;
   private isMuted: boolean = false;
@@ -40,7 +44,7 @@ class KitchenAudioServiceImpl {
 
   public getState(): AudioState {
     if (typeof window === 'undefined') return 'unsupported';
-    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    const AudioContextClass = window.AudioContext || (window as unknown as WebkitWindow).webkitAudioContext;
     if (!AudioContextClass) return 'unsupported';
 
     if (this.isMuted) return 'muted';
@@ -55,7 +59,7 @@ class KitchenAudioServiceImpl {
 
   private ensureAudioContext(): AudioContext | null {
     if (typeof window === 'undefined') return null;
-    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    const AudioContextClass = window.AudioContext || (window as unknown as WebkitWindow).webkitAudioContext;
     if (!AudioContextClass) return null;
 
     if (!this.audioCtx) {

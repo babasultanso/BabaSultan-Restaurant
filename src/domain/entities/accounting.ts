@@ -5,6 +5,7 @@ export interface Account {
   code: string;
   name: string;
   type: AccountType;
+  accountType?: string;
   parentId?: string;
   parentName?: string;
   balance: number;

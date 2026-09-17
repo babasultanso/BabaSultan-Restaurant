@@ -408,7 +408,7 @@ export const AIBusinessPlatformView: React.FC<AIBusinessPlatformViewProps> = ({
           <div>
             <div className="flex items-center gap-2 mb-2">
               <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-wider flex items-center gap-1.5 shadow-sm">
-                <Crown className="w-3.5 h-3.5 text-amber-400" /> {translateRawUi('Phase 12 AI Business Platform')}
+                <Crown className="w-3.5 h-3.5 text-amber-400" /> {translateRawUi('AI Business Platform')}
               </span>
               <span className="bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-[10px] font-bold px-3 py-1 rounded-full flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" /> {translateRawUi('Real-time Firestore Sync')}

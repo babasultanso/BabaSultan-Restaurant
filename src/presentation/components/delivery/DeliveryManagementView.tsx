@@ -215,7 +215,7 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
 
   const isHqUser = useMemo(() => {
     const userRoleStr = (userRecord?.role || role || '').toLowerCase();
-    const userBranch = userRecord?.branchId || (userRecord as any)?.branch;
+    const userBranch = userRecord?.branchId || userRecord?.branch;
     return userRoleStr === 'owner' || (userRoleStr === 'admin' && (userBranch === 'all' || !userBranch));
   }, [userRecord, role]);
 
@@ -228,14 +228,14 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
     // Check branch permissions
     if (isHqUser) return true;
     if (!del.branchId) return true;
-    const userBranch = getCanonicalBranchId(userRecord?.branchId || (userRecord as any)?.branch);
+    const userBranch = getCanonicalBranchId(userRecord?.branchId || userRecord?.branch);
     if (!userBranch || userBranch === 'all') return true;
     return getCanonicalBranchId(del.branchId) === userBranch;
   };
 
   // Realtime Firestore listeners
   useEffect(() => {
-    const rawUserBranch = userRecord?.branchId || (userRecord as any)?.branch;
+    const rawUserBranch = userRecord?.branchId || userRecord?.branch;
     const userBranch = getCanonicalBranchId(rawUserBranch);
     const isBranchScoped = !isHqUser && Boolean(rawUserBranch) && rawUserBranch !== 'all';
 
@@ -406,7 +406,7 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
       unsubZones();
       unsubNotifs();
     };
-  }, [userRecord?.branchId, (userRecord as any)?.branch, isHqUser]);
+  }, [userRecord?.branchId, userRecord?.branch, isHqUser]);
 
   // Compute Logistics Analytics
   const analytics = useMemo(() => {
@@ -422,9 +422,9 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
   const handleSaveDriver = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const canonBranch = getCanonicalBranchId(driverForm.branchId || userRecord?.branchId || (userRecord as any)?.branch || '');
+      const canonBranch = getCanonicalBranchId(driverForm.branchId || userRecord?.branchId || userRecord?.branch || '');
       if (!canonBranch) { alert('Unable to determine the driver branch. Select a valid branch or reload your profile.'); return; }
-      const payload = {
+      const payload: Omit<DeliveryDriver, 'id' | 'createdAt'> = {
         fullName: driverForm.fullName,
         employeeId: driverForm.employeeId || `EMP-${Date.now().toString().slice(-4)}`,
         phoneNumber: driverForm.phoneNumber,
@@ -432,9 +432,9 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
         vehicleNumber: driverForm.vehicleNumber,
         licenseNumber: driverForm.licenseNumber,
         status: driverForm.status,
+        availability: driverForm.availability,
         branchId: canonBranch,
         branchName: getBranchDisplayName(canonBranch),
-        ...(editingDriver ? {} : { availability: driverForm.availability }),
         currentLocation: driverForm.address.trim() ? {
           lat: editingDriver?.currentLocation?.lat ?? 0,
           lng: editingDriver?.currentLocation?.lng ?? 0,
@@ -447,7 +447,7 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
         await updateDriver(editingDriver.id, payload);
         showToast(`Driver "${driverForm.fullName}" updated successfully.`);
       } else {
-        await createDriver({ ...payload, availability: driverForm.availability } as any);
+        await createDriver(payload);
         showToast(`New Driver "${driverForm.fullName}" registered.`);
       }
       setShowDriverModal(false);
@@ -478,7 +478,7 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
   const handleSaveZone = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const targetBranch = zoneForm.branchId || (!isHqUser ? (userRecord?.branchId || (userRecord as any)?.branch) : '');
+      const targetBranch = zoneForm.branchId || (!isHqUser ? (userRecord?.branchId || userRecord?.branch) : '');
       const canonBranch = getCanonicalBranchId(targetBranch);
       if (!canonBranch || canonBranch === 'all') {
         alert('A valid specific branch must be selected for the delivery zone. Delivery zones cannot be assigned to "all" branches or an empty branch.');
@@ -486,7 +486,7 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
       }
 
       if (!isHqUser) {
-        const userBranch = getCanonicalBranchId(userRecord?.branchId || (userRecord as any)?.branch);
+        const userBranch = getCanonicalBranchId(userRecord?.branchId || userRecord?.branch);
         if (!userBranch || !areBranchesMatching(canonBranch, userBranch)) {
           alert('Cross-branch operation rejected: You can only create or manage delivery zones for your assigned branch.');
           return;
@@ -525,9 +525,9 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
 
   const openEditZone = (z: DeliveryZone) => {
     setEditingZone(z);
-    const rawBranch = z.branchId || userRecord?.branchId || (userRecord as any)?.branch;
+    const rawBranch = z.branchId || userRecord?.branchId || userRecord?.branch;
     const canonBranch = getCanonicalBranchId(rawBranch || '');
-    const rawFee = typeof z.baseDeliveryFee === 'number' ? z.baseDeliveryFee : (typeof (z as any).deliveryFee === 'number' ? (z as any).deliveryFee : 0);
+    const rawFee = typeof z.baseDeliveryFee === 'number' ? z.baseDeliveryFee : (typeof z.deliveryFee === 'number' ? z.deliveryFee : 0);
     setZoneForm({
       name: z.name || '',
       code: z.code || '',
@@ -710,7 +710,7 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
           <div>
             <div className="flex items-center gap-2 mb-2">
               <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-wider flex items-center gap-1.5 shadow-sm">
-                <Truck className="w-3.5 h-3.5 text-emerald-400" /> {translateRawUi('Phase 14 Delivery & Logistics Engine')}
+                <Truck className="w-3.5 h-3.5 text-emerald-400" /> {translateRawUi('Delivery & Logistics Engine')}
               </span>
               <span className="bg-teal-500/20 text-teal-300 border border-teal-500/30 text-[10px] font-bold px-3 py-1 rounded-full flex items-center gap-1.5">
                 <Navigation className="w-3.5 h-3.5 text-teal-400" /> {translateRawUi('Live GPS Dispatch Center')}
@@ -742,7 +742,7 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
                       status: 'active',
                       availability: 'available',
                       address: '',
-                      branchId: getCanonicalBranchId(userRecord?.branchId || (userRecord as any)?.branch || '')
+                      branchId: getCanonicalBranchId(userRecord?.branchId || userRecord?.branch || '')
                     });
                     setShowDriverModal(true);
                   }}
@@ -753,7 +753,7 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
 
                 <button
                   onClick={() => {
-                    const rawBranch = userRecord?.branchId || (userRecord as any)?.branch;
+                    const rawBranch = userRecord?.branchId || userRecord?.branch;
                     const userBranch = getCanonicalBranchId(rawBranch);
                     if (!isHqUser && (!userBranch || userBranch === 'all')) {
                       alert('Unable to determine your branch. Please reload your account profile or contact an administrator.');

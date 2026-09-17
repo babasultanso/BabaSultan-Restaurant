@@ -172,8 +172,8 @@ export const ProductManagementView: React.FC = () => {
   };
 
   const handleToggleAvailability = async (id: string, currentStatus: string) => {
-    const nextStatus = currentStatus === 'enabled' ? 'disabled' : 'enabled';
-    await productRepository.toggleAvailability(id, nextStatus as any);
+    const nextStatus: 'enabled' | 'disabled' = currentStatus === 'enabled' ? 'disabled' : 'enabled';
+    await productRepository.toggleAvailability(id, nextStatus);
   };
 
   // Category Save Handler
@@ -303,7 +303,8 @@ export const ProductManagementView: React.FC = () => {
         {categories.map((c) => {
           const count = products.filter((p) => p.categoryId === c.id || p.category === c.name).length;
           const isSelected = selectedCategory === c.id || selectedCategory === c.name;
-          const catName = productService.getLocalizedCategoryName(c, language as any);
+          const currentLang: 'en' | 'ar' | 'so' = (language === 'ar' || language === 'so') ? language : 'en';
+          const catName = productService.getLocalizedCategoryName(c, currentLang);
 
           return (
             <button
@@ -401,7 +402,8 @@ export const ProductManagementView: React.FC = () => {
           {filteredProducts.map((product) => {
             const pricing = productService.calculateEffectivePrice(product);
             const status = product.availabilityStatus || 'enabled';
-            const localizedName = productService.getLocalizedName(product, language as any);
+            const currentLang: 'en' | 'ar' | 'so' = (language === 'ar' || language === 'so') ? language : 'en';
+            const localizedName = productService.getLocalizedName(product, currentLang);
 
             return (
               <div

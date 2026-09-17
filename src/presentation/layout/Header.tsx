@@ -144,13 +144,26 @@ export const Header: React.FC<HeaderProps> = ({ onMobileMenuToggle, onOpenSetupW
           <MenuIcon className="w-5 h-5" />
         </button>
 
-        <div className="flex items-center gap-2">
-          <div className="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center font-black">
+        <div
+          className="flex items-center gap-2.5 min-w-0"
+          title={translateRawUi('Enterprise Resource Planning System')}
+        >
+          {/* Logo Badge with ERP acronym */}
+          <div className="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center font-black text-xs tracking-wider shadow-sm select-none shrink-0 font-mono">
             {translateRawUi('ERP')}
           </div>
-          <div className="hidden sm:block">
-            <h1 className="text-sm font-bold text-white tracking-wide">{t.appName}</h1>
-            <p className="text-[10px] text-emerald-400 font-semibold uppercase tracking-widest">
+
+          {/* System & Brand Labels - responsive & non-stretching */}
+          <div className="flex flex-col min-w-0">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <h1 className="text-xs sm:text-sm font-bold text-white tracking-wide truncate max-w-[120px] xs:max-w-[160px] sm:max-w-[200px] md:max-w-[260px] lg:max-w-[320px]">
+                {t.appName}
+              </h1>
+              <span className="shrink-0 text-[10px] font-black text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.2 rounded font-mono">
+                {translateRawUi('ERP')}
+              </span>
+            </div>
+            <p className="hidden sm:block text-[10px] text-emerald-400/80 font-medium uppercase tracking-wider truncate">
               {translateRawUi('Commercial Edition')}
             </p>
           </div>
@@ -190,7 +203,7 @@ export const Header: React.FC<HeaderProps> = ({ onMobileMenuToggle, onOpenSetupW
           <button
             onClick={onOpenSetupWizard}
             className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-500/20 to-teal-500/20 border border-emerald-500/40 text-emerald-300 hover:text-emerald-200 hover:border-emerald-400 text-xs font-bold transition cursor-pointer shadow-sm shadow-emerald-500/10"
-            title={translateRawUi('Launch Guided 10-Step Setup Wizard')}
+            title={translateRawUi('Launch Guided Setup Wizard')}
           >
             <Wand2 className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
             <span>{translateRawUi('Setup Wizard')}</span>

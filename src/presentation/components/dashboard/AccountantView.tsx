@@ -60,8 +60,8 @@ export const AccountantView: React.FC<AccountantViewProps> = ({
   const totalSupplierOverdue = suppliers.reduce((sum, s) => sum + (s.overdueAmount || 0), 0);
 
   // 5. Cash & Bank Balance
-  const cashBalance = accounts.find(a => String(a.type || '').toLowerCase() === 'cash' || String((a as any).accountType || '').toLowerCase() === 'cash' || String((a as any).code || '').startsWith('101'))?.balance ?? 0;
-  const bankBalance = accounts.find(a => String(a.type || '').toLowerCase() === 'bank' || String((a as any).accountType || '').toLowerCase() === 'bank' || String((a as any).code || '').startsWith('102'))?.balance ?? 0;
+  const cashBalance = accounts.find(a => String(a.type || '').toLowerCase() === 'cash' || String(a.accountType || '').toLowerCase() === 'cash' || String(a.code || '').startsWith('101'))?.balance ?? 0;
+  const bankBalance = accounts.find(a => String(a.type || '').toLowerCase() === 'bank' || String(a.accountType || '').toLowerCase() === 'bank' || String(a.code || '').startsWith('102'))?.balance ?? 0;
   const totalLiquidity = cashBalance + bankBalance;
 
   // Recorded Tax / VAT
@@ -71,7 +71,7 @@ export const AccountantView: React.FC<AccountantViewProps> = ({
   const pendingReceivables = orders
     .filter((o) => String(o.paymentMethod || '').toLowerCase() === 'credit')
     .filter((o) => !['cancelled', 'refunded'].includes(String(o.status || '').toLowerCase()))
-    .reduce((sum, o) => sum + Math.max(0, Number(o.totalAmount || 0) - Number((o as any).paidAmount || 0)), 0);
+    .reduce((sum, o) => sum + Math.max(0, Number(o.totalAmount || 0) - Number(o.paidAmount || 0)), 0);
 
   return (
     <div className="space-y-6">

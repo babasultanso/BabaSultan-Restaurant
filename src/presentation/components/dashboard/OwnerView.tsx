@@ -79,8 +79,8 @@ export const OwnerView: React.FC<OwnerViewProps> = ({
   const monthlyProfit = totalSales - totalCogs - totalExpenses;
 
   // Liquidity & Cash Flow
-  const cashAccount = accounts.find(a => String(a.type || '').toLowerCase() === 'cash' || String((a as any).accountType || '').toLowerCase() === 'cash' || String((a as any).code || '').startsWith('101'))?.balance ?? 0;
-  const bankAccount = accounts.find(a => String(a.type || '').toLowerCase() === 'bank' || String((a as any).accountType || '').toLowerCase() === 'bank' || String((a as any).code || '').startsWith('102'))?.balance ?? 0;
+  const cashAccount = accounts.find(a => String(a.type || '').toLowerCase() === 'cash' || String(a.accountType || '').toLowerCase() === 'cash' || String(a.code || '').startsWith('101'))?.balance ?? 0;
+  const bankAccount = accounts.find(a => String(a.type || '').toLowerCase() === 'bank' || String(a.accountType || '').toLowerCase() === 'bank' || String(a.code || '').startsWith('102'))?.balance ?? 0;
   const totalCashFlow = cashAccount + bankAccount;
 
   // Metrics

@@ -77,11 +77,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const content = (
     <aside className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col h-full overflow-y-auto">
       <div className="p-4 border-b border-slate-800 flex items-center justify-between">
-        <div>
-          <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest block">
-            {translateRawUi('ERP PHASE 2 PORTAL')}
-          </span>
-          <span className="text-xs text-slate-400 font-medium">{t.legacyUi.enterpriseAccess}</span>
+        <div
+          className="flex items-center gap-2.5 min-w-0"
+          title={translateRawUi('Enterprise Resource Planning System')}
+        >
+          <div className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center font-black text-xs font-mono shrink-0 select-none shadow-sm">
+            {translateRawUi('ERP')}
+          </div>
+          <div className="min-w-0">
+            <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider block truncate">
+              {translateRawUi('ERP PORTAL')}
+            </span>
+            <span className="text-xs text-slate-400 font-medium block truncate">{t.legacyUi.enterpriseAccess}</span>
+          </div>
         </div>
         <button onClick={onCloseMobile} className="lg:hidden text-slate-400 hover:text-white">
           <X className="w-5 h-5" />

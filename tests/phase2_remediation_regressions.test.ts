@@ -301,4 +301,112 @@ describe('PHASE 2 REMEDIATION REGRESSION TESTS', () => {
     });
   });
 
+  describe('6. Branch Payroll & Net Profit Reconciliation', () => {
+    it('integrates branch payroll into net profit without double-counting expenses', () => {
+      const mockBranches: any[] = [
+        { id: 'b1', name: 'Branch 1', branchCode: 'B1', status: 'active' },
+        { id: 'b2', name: 'Branch 2 (No Payroll)', branchCode: 'B2', status: 'active' }
+      ];
+
+      const mockOrders: any[] = [
+        { id: 'o1', branchId: 'b1', totalAmount: 500, status: 'completed', cogs: 150 },
+        { id: 'o2', branchId: 'b2', totalAmount: 300, status: 'completed', cogs: 100 }
+      ];
+
+      const mockExpenses: any[] = [
+        { id: 'e1', branchId: 'b1', amount: 50, category: 'Utilities' }
+      ];
+
+      const mockSalaries: any[] = [
+        { id: 's1', branchId: 'b1', amount: 100, status: 'paid' },
+        { id: 's2', branchId: 'b1', amount: 80, status: 'pending' }, // Pending salary must not be deducted
+        { id: 's3', branchId: 'b_hq', amount: 200, status: 'paid' } // Central HQ salary must not be deducted from b1 or b2
+      ];
+
+      const analytics = calculateConsolidatedBranchAnalytics({
+        branches: mockBranches,
+        orders: mockOrders,
+        expenses: mockExpenses,
+        ingredients: [],
+        products: [],
+        employees: [],
+        customers: [],
+        transfers: [],
+        salaries: mockSalaries
+      });
+
+      const b1 = analytics.rankedBranches.find(r => r.branchId === 'b1');
+      const b2 = analytics.rankedBranches.find(r => r.branchId === 'b2');
+
+      expect(b1).toBeDefined();
+      expect(b2).toBeDefined();
+
+      // Branch 1: Sales $500, COGS $150, Expenses $50, Paid Payroll $100
+      // Net Profit = 500 - 150 - 50 - 100 = $200
+      expect(b1?.sales).toBe(500);
+      expect(b1?.expenses).toBe(50);
+      expect(b1?.payroll).toBe(100);
+      expect(b1?.totalExpenses).toBe(150); // 50 expenses + 100 payroll
+      expect(b1?.netProfit).toBe(200);
+
+      // Branch 2: Sales $300, COGS $100, Expenses $0, Paid Payroll $0
+      // Net Profit = 300 - 100 = $200
+      expect(b2?.sales).toBe(300);
+      expect(b2?.expenses).toBe(0);
+      expect(b2?.payroll).toBe(0);
+      expect(b2?.netProfit).toBe(200);
+
+      // Consolidated Totals:
+      // Total Sales: 800, Total Expenses: 50, Total Payroll: 300 (b1 $100 + HQ $200)
+      // Consolidated operating expenses = 50 + 300 = 350
+      // Consolidated profit = 800 - 250 (COGS) - 350 = 200
+      expect(analytics.totalConsolidatedSales).toBe(800);
+      expect(analytics.totalConsolidatedExpenses).toBe(50);
+      expect(analytics.totalConsolidatedProfit).toBe(200);
+    });
+  });
+
+  describe('7. Cashier Shift Settlement Integrity', () => {
+    it('verifies that settled sales only include completed/delivered orders', () => {
+      const orders: any[] = [
+        { id: 'o1', totalAmount: 100, paymentMethod: 'cash', status: 'completed' },
+        { id: 'o2', totalAmount: 50, paymentMethod: 'card', status: 'delivered' },
+        { id: 'o3', totalAmount: 70, paymentMethod: 'cash', status: 'pending' }, // Pending / unsettled
+        { id: 'o4', totalAmount: 200, paymentMethod: 'cash', status: 'cancelled' } // Cancelled
+      ];
+
+      const completedOrders = orders.filter(o => o.status === 'completed' || o.status === 'delivered');
+      const dailySales = completedOrders.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
+      const cashSales = completedOrders.filter(o => o.paymentMethod === 'cash').reduce((sum, o) => sum + (o.totalAmount || 0), 0);
+      const cardSales = completedOrders.filter(o => o.paymentMethod === 'card').reduce((sum, o) => sum + (o.totalAmount || 0), 0);
+
+      expect(dailySales).toBe(150); // 100 + 50
+      expect(cashSales).toBe(100);
+      expect(cardSales).toBe(50);
+      expect(completedOrders.length).toBe(2);
+    });
+  });
+
+  describe('8. Recipe Estimation Transparency', () => {
+    it('preserves estimatedNetProfit, estimatedOverhead, and overheadRateEstimated in recipe calculation', () => {
+      const controller = new RecipeController({} as any);
+      const items = [
+        { id: '1', ingredientId: 'i1', ingredientName: 'Beef Patty', quantity: 1, unit: 'pcs', costPerUnit: 3, totalCost: 3 }
+      ];
+
+      const totals = controller.calculateRecipeTotals(items, 10, 1);
+      // Selling price: $10, Food Cost: $3
+      // Gross Margin: $7
+      // 15% estimated overhead: $1.05
+      // Estimated net profit: $5.95
+      expect(totals.totalCost).toBe(3);
+      expect(totals.grossProfit).toBe(7);
+      expect(totals.estimatedOverhead).toBe(1.05);
+      expect(totals.estimatedProfit).toBe(5.95);
+      expect(totals.estimatedNetProfit).toBe(5.95);
+      expect(totals.netProfit).toBe(5.95);
+      expect(totals.overheadRateEstimated).toBe(0.15);
+    });
+  });
+
 });

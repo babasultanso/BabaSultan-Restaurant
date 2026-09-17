@@ -636,7 +636,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-emerald-400 text-sm font-bold">
                   <Users className="w-5 h-5" />
-                  <span>Step 4: Initial Staff & Employee Records ({employees.length})</span>
+                  <span>{translateRawUi('Initial Staff & Employee Records')} ({employees.length})</span>
                 </div>
 
                 <button
@@ -737,7 +737,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-emerald-400 text-sm font-bold">
                   <Truck className="w-5 h-5" />
-                  <span>Step 5: Food & Ingredient Suppliers ({suppliers.length})</span>
+                  <span>{translateRawUi('Food & Ingredient Suppliers')} ({suppliers.length})</span>
                 </div>
 
                 <button
@@ -806,7 +806,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-emerald-400 text-sm font-bold">
                   <Boxes className="w-5 h-5" />
-                  <span>Step 6: Raw Ingredients & Inventory Items ({inventory.length})</span>
+                  <span>{translateRawUi('Raw Ingredients & Inventory Items')} ({inventory.length})</span>
                 </div>
 
                 <button
@@ -938,7 +938,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-emerald-400 text-sm font-bold">
                   <UtensilsCrossed className="w-5 h-5" />
-                  <span>Step 8: Menu Dish Catalog ({products.length})</span>
+                  <span>{translateRawUi('Menu Dish Catalog')} ({products.length})</span>
                 </div>
 
                 <button

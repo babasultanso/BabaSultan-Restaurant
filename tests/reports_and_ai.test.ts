@@ -276,7 +276,7 @@ describe('11 & 12 & 13. REPORTS FINANCIAL CONSISTENCY, AI CPA ASSISTANT & AUDIT 
 
     it('verifies active production model identifier is a supported Gemini Flash model', () => {
       const defaultModel = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
-      expect(['gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-2.5-flash-lite']).toContain(defaultModel);
+      expect(['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-2.5-flash-lite']).toContain(defaultModel);
       expect(defaultModel).not.toBe('gemini-2.5-flash');
       expect(defaultModel).not.toBe('gemini-1.5-flash');
     });

@@ -15,7 +15,8 @@ import {
   Employee, 
   Ingredient, 
   Product, 
-  Customer 
+  Customer,
+  SalaryPayment 
 } from '../types';
 
 // Helper: Authoritative branch matching without unsafe substring inclusion or cross-branch bleed
@@ -197,6 +198,7 @@ export interface ConsolidatedAnalyticsPackage {
   products: Product[];
   customers: Customer[];
   transfers: BranchTransfer[];
+  salaries?: SalaryPayment[];
 }
 
 export function calculateConsolidatedBranchAnalytics(pkg: ConsolidatedAnalyticsPackage) {
@@ -210,6 +212,7 @@ export function calculateConsolidatedBranchAnalytics(pkg: ConsolidatedAnalyticsP
   const products = safeArray<Product>(pkg?.products);
   const customers = safeArray<Customer>(pkg?.customers);
   const transfers = safeArray<BranchTransfer>(pkg?.transfers);
+  const salaries = safeArray<SalaryPayment>(pkg?.salaries);
 
   const totalBranchesCount = branches.length;
   const activeBranchesCount = branches.filter((b) => b?.status === 'active').length;
@@ -221,10 +224,15 @@ export function calculateConsolidatedBranchAnalytics(pkg: ConsolidatedAnalyticsP
   const totalConsolidatedOrders = completedOrders.length;
   const totalConsolidatedExpenses = expenses.reduce((sum, e) => sum + (typeof e?.amount === 'number' && !isNaN(e.amount) ? e.amount : 0), 0);
   
+  // Paid Salaries across all branches (pending/unpaid salaries are not recognized as incurred cash expense)
+  const paidSalaries = salaries.filter((s) => !s?.status || s?.status === 'paid');
+  const totalConsolidatedPayroll = paidSalaries.reduce((sum, s) => sum + (typeof s?.amount === 'number' && !isNaN(s.amount) ? s.amount : 0), 0);
+
   // Calculate COGS - using strictly actual order COGS when available
   const totalConsolidatedCOGS = completedOrders.reduce((sum, o) => sum + (typeof o?.cogs === 'number' && !isNaN(o.cogs) ? o.cogs : 0), 0);
   const grossProfit = totalConsolidatedSales - totalConsolidatedCOGS;
-  const totalConsolidatedProfit = grossProfit - totalConsolidatedExpenses;
+  const totalConsolidatedOperatingExpenses = totalConsolidatedExpenses + totalConsolidatedPayroll;
+  const totalConsolidatedProfit = grossProfit - totalConsolidatedOperatingExpenses;
 
   // Total Inventory Valuation across all stock items
   const totalInventoryValuation = ingredients.reduce((sum, i) => sum + ((typeof i?.stock === 'number' ? i.stock : 0) * (typeof i?.costPerUnit === 'number' ? i.costPerUnit : 0)), 0) +
@@ -262,8 +270,17 @@ export function calculateConsolidatedBranchAnalytics(pkg: ConsolidatedAnalyticsP
     });
     const branchExpenses = bExpenses.reduce((sum, e) => sum + (typeof e?.amount === 'number' && !isNaN(e.amount) ? e.amount : 0), 0);
 
+    // Filter paid salaries incurred by this branch
+    const bSalaries = paidSalaries.filter((s) => {
+      const sBranchId = (s as any)?.branchId;
+      const sBranchName = (s as any)?.branch;
+      return matchesBranch(sBranchId, sBranchName, bId, bName);
+    });
+    const branchPayroll = bSalaries.reduce((sum, s) => sum + (typeof s?.amount === 'number' && !isNaN(s.amount) ? s.amount : 0), 0);
+    const branchTotalExpenses = branchExpenses + branchPayroll;
+
     const branchCOGS = bOrders.reduce((sum, o) => sum + (typeof o?.cogs === 'number' && !isNaN(o.cogs) ? o.cogs : 0), 0);
-    const branchNetProfit = branchSales - branchCOGS - branchExpenses;
+    const branchNetProfit = branchSales - branchCOGS - branchTotalExpenses;
 
     // Filter employees assigned to this branch
     const bEmployees = employees.filter((emp) => {
@@ -300,6 +317,8 @@ export function calculateConsolidatedBranchAnalytics(pkg: ConsolidatedAnalyticsP
       sales: typeof branchSales === 'number' && !isNaN(branchSales) ? branchSales : 0,
       ordersCount: typeof branchOrdersCount === 'number' && !isNaN(branchOrdersCount) ? branchOrdersCount : 0,
       expenses: typeof branchExpenses === 'number' && !isNaN(branchExpenses) ? branchExpenses : 0,
+      payroll: typeof branchPayroll === 'number' && !isNaN(branchPayroll) ? branchPayroll : 0,
+      totalExpenses: typeof branchTotalExpenses === 'number' && !isNaN(branchTotalExpenses) ? branchTotalExpenses : 0,
       netProfit: typeof branchNetProfit === 'number' && !isNaN(branchNetProfit) ? branchNetProfit : 0,
       employeeCount: typeof employeeCount === 'number' && !isNaN(employeeCount) ? employeeCount : 0,
       inventoryValuation: typeof branchInventoryValuation === 'number' && !isNaN(branchInventoryValuation) ? branchInventoryValuation : 0,
@@ -329,6 +348,7 @@ export function calculateConsolidatedBranchAnalytics(pkg: ConsolidatedAnalyticsP
     totalConsolidatedSales: typeof totalConsolidatedSales === 'number' && !isNaN(totalConsolidatedSales) ? totalConsolidatedSales : 0,
     totalConsolidatedOrders: typeof totalConsolidatedOrders === 'number' && !isNaN(totalConsolidatedOrders) ? totalConsolidatedOrders : 0,
     totalConsolidatedExpenses: typeof totalConsolidatedExpenses === 'number' && !isNaN(totalConsolidatedExpenses) ? totalConsolidatedExpenses : 0,
+    totalConsolidatedPayroll: typeof totalConsolidatedPayroll === 'number' && !isNaN(totalConsolidatedPayroll) ? totalConsolidatedPayroll : 0,
     totalConsolidatedProfit: typeof totalConsolidatedProfit === 'number' && !isNaN(totalConsolidatedProfit) ? totalConsolidatedProfit : 0,
     totalInventoryValuation: typeof totalInventoryValuation === 'number' && !isNaN(totalInventoryValuation) ? totalInventoryValuation : 0,
     unassignedInventoryValuation: typeof unassignedInventoryValuation === 'number' && !isNaN(unassignedInventoryValuation) ? unassignedInventoryValuation : 0,

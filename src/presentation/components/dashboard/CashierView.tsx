@@ -31,17 +31,17 @@ export const CashierView: React.FC<CashierViewProps> = ({ orders, onNavigateToTa
 
   // Cashier metrics
   const newOrders = orders.filter(o => o.status === 'pending');
-  const completedOrdersToday = todayOrders.filter(o => o.status === 'completed');
-  const dailySales = todayOrders.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
+  const completedOrdersToday = todayOrders.filter(o => o.status === 'completed' || o.status === 'delivered');
+  const dailySales = completedOrdersToday.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
 
-  // Payment Method Breakdown
-  const cashSales = todayOrders
+  // Payment Method Breakdown (strictly completed/settled tickets)
+  const cashSales = completedOrdersToday
     .filter(o => o.paymentMethod === 'cash')
     .reduce((sum, o) => sum + (o.totalAmount || 0), 0);
-  const cardSales = todayOrders
+  const cardSales = completedOrdersToday
     .filter(o => o.paymentMethod === 'card')
     .reduce((sum, o) => sum + (o.totalAmount || 0), 0);
-  const mobileSales = todayOrders
+  const mobileSales = completedOrdersToday
     .filter(o => o.paymentMethod === 'mobile_money')
     .reduce((sum, o) => sum + (o.totalAmount || 0), 0);
 
@@ -99,7 +99,7 @@ export const CashierView: React.FC<CashierViewProps> = ({ orders, onNavigateToTa
         <KPICard
           title={d.dailySalesTotal || 'Daily Sales Total'}
           value={`$${dailySales.toFixed(2)}`}
-          sublabel={`${todayOrders.length} settled tickets`}
+          sublabel={`${completedOrdersToday.length} settled tickets`}
           icon={DollarSign}
           iconColor="teal"
         />
@@ -127,7 +127,7 @@ export const CashierView: React.FC<CashierViewProps> = ({ orders, onNavigateToTa
             </div>
           </div>
           <span className="text-xs text-slate-500 font-bold">
-            {todayOrders.length > 0 ? `${Math.round((cashSales / dailySales) * 100 || 0)}%` : '0%'}
+            {completedOrdersToday.length > 0 && dailySales > 0 ? `${Math.round((cashSales / dailySales) * 100 || 0)}%` : '0%'}
           </span>
         </div>
 
@@ -142,7 +142,7 @@ export const CashierView: React.FC<CashierViewProps> = ({ orders, onNavigateToTa
             </div>
           </div>
           <span className="text-xs text-slate-500 font-bold">
-            {todayOrders.length > 0 ? `${Math.round((cardSales / dailySales) * 100 || 0)}%` : '0%'}
+            {completedOrdersToday.length > 0 && dailySales > 0 ? `${Math.round((cardSales / dailySales) * 100 || 0)}%` : '0%'}
           </span>
         </div>
 
@@ -157,7 +157,7 @@ export const CashierView: React.FC<CashierViewProps> = ({ orders, onNavigateToTa
             </div>
           </div>
           <span className="text-xs text-slate-500 font-bold">
-            {todayOrders.length > 0 ? `${Math.round((mobileSales / dailySales) * 100 || 0)}%` : '0%'}
+            {completedOrdersToday.length > 0 && dailySales > 0 ? `${Math.round((mobileSales / dailySales) * 100 || 0)}%` : '0%'}
           </span>
         </div>
       </div>

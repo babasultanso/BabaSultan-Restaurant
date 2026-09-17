@@ -140,7 +140,34 @@ export const EmployeeFormModal: React.FC<Props> = ({ employee, isOpen, onClose, 
       if (employee?.id) {
         await repository.updateEmployee(employee.id, formData);
       } else {
-        await repository.createEmployee(formData as any);
+        const newEmployee: Omit<Employee, 'id' | 'createdAt'> = {
+          employeeId: formData.employeeId || `EMP-${Date.now().toString().slice(-4)}`,
+          fullName: formData.fullName || '',
+          photo: formData.photo || '',
+          nationalIdOrPassport: formData.nationalIdOrPassport || '',
+          phone: formData.phone || '',
+          email: formData.email || '',
+          dateOfBirth: formData.dateOfBirth || '',
+          gender: (formData.gender as GenderType) || '',
+          nationality: formData.nationality || '',
+          hireDate: formData.hireDate || formData.joinDate || getMogadishuDateString(),
+          joinDate: formData.joinDate || formData.hireDate || getMogadishuDateString(),
+          address: formData.address || '',
+          role: formData.role || 'Cashier',
+          systemRole: formData.systemRole || formData.role || 'Cashier',
+          department: formData.department || 'Operations',
+          jobTitle: formData.jobTitle || '',
+          branch: formData.branch || 'Branch 1',
+          branchId: formData.branchId || 'main',
+          status: formData.status || 'Active',
+          employmentStatus: (formData.employmentStatus as EmploymentStatus) || 'Active',
+          salary: formData.salary ?? 0,
+          payFrequency: formData.payFrequency || 'monthly',
+          bankAccount: formData.bankAccount || { bankName: '', accountNumber: '' },
+          emergencyContact: formData.emergencyContact || { name: '', relationship: '', phone: '' },
+          notes: formData.notes || ''
+        };
+        await repository.createEmployee(newEmployee);
       }
       onSuccess();
       onClose();

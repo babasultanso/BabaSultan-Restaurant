@@ -173,7 +173,7 @@ export const DeliveryDriverView: React.FC<OtherRolesViewProps> = ({ orders }) =>
     }, (err) => {
       console.warn('Driver deliveries realtime listener fallback:', err?.message || err);
       // Fallback matching from orders prop
-      const myOrders = orders.filter(o => (o as any).driverId === user.uid || ((o as any).deliveryOrder as any)?.driverId === user.uid);
+      const myOrders = orders.filter(o => o.driverId === user.uid || o.deliveryOrder?.driverId === user.uid);
       setAssignedDeliveries(myOrders.map(o => ({
         id: o.id,
         orderId: o.id,
@@ -182,7 +182,7 @@ export const DeliveryDriverView: React.FC<OtherRolesViewProps> = ({ orders }) =>
         customerPhone: o.customerPhone || '',
         deliveryAddress: o.deliveryAddress || '',
         totalAmount: o.totalAmount,
-        status: (o as any).deliveryStatus || 'assigned',
+        status: o.deliveryStatus || 'assigned',
         branchId: o.branchId,
         createdAt: o.createdAt
       })));

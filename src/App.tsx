@@ -49,7 +49,6 @@ import { POSView } from './presentation/components/POSView';
 import { OrdersView } from './presentation/components/OrdersView';
 import { KDSView } from './presentation/components/orders/KDSView';
 import { updateOrderStatusFirestore } from './lib/firebase';
-import { InventoryView } from './presentation/components/InventoryView';
 import { InventoryManagementSystem } from './presentation/components/inventory/InventoryManagementSystem';
 import { RecipeEngineMainView } from './presentation/components/recipe/RecipeEngineMainView';
 import { CustomerManagementView } from './presentation/components/crm/CustomerManagementView';
@@ -65,7 +64,6 @@ import { DeliveryDriverView } from './presentation/components/dashboard/OtherRol
 import { SystemSettingsView } from './presentation/components/SystemSettingsView';
 import { InitialSetupWizardModal } from './presentation/components/setup/InitialSetupWizardModal';
 import { AIBusinessPlatformView } from './presentation/components/AIBusinessPlatformView';
-import { AIFinancialAdvisorView } from './components/AIFinancialAdvisorView';
 import { AIOperationsManagerView } from './components/AIOperationsManagerView';
 import { AICEOView } from './components/AICEOView';
 import { AIAssistantModal } from './components/AIAssistantModal';
@@ -99,7 +97,7 @@ function ERPAppContent() {
   useEffect(() => {
     const userRoleStr = (userRecord?.role || '').toLowerCase().trim();
     const isHqUser = userRoleStr === 'owner' || (userRoleStr === 'admin' && (!userRecord?.branchId || userRecord?.branchId === 'all'));
-    const userBranch = userRecord?.branchId || (userRecord as any)?.branch;
+    const userBranch = userRecord?.branchId || userRecord?.branch;
     const isBranchScoped = !isHqUser && Boolean(userBranch) && userBranch !== 'all';
 
     setIsOrdersLoading(true);
@@ -137,7 +135,7 @@ function ERPAppContent() {
 
     const unsubIngredients = onSnapshot(ingredientsQuery, (snapshot) => {
       const docs = snapshot.docs.map(doc => {
-        const raw = doc.data() as any;
+        const raw = doc.data() as Partial<Ingredient> & Record<string, unknown>;
         const usageStock = Number(raw.currentStockUsageUnit ?? raw.stock ?? raw.currentQuantity ?? 0);
         const usageMin = Number(raw.minStockUsageUnit ?? raw.minAlertStock ?? 0);
         const usageCost = Number(raw.costPerUsageUnit ?? raw.costPerUnit ?? 0);
@@ -370,6 +368,7 @@ function ERPAppContent() {
               initialIngredients={ingredients}
               initialProducts={products}
               initialCustomers={[]}
+              initialSalaries={salaries}
               language={language === 'ar' ? 'ar' : language === 'so' ? 'so' : 'en'}
             />
           </ErrorBoundary>

@@ -437,7 +437,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                   </label>
                   <select
                     value={formData.availabilityStatus || 'enabled'}
-                    onChange={(e) => setFormData({ ...formData, availabilityStatus: e.target.value as any })}
+                    onChange={(e) => setFormData({ ...formData, availabilityStatus: e.target.value as 'enabled' | 'disabled' | 'out_of_stock' })}
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
                   >
                     <option value="enabled">{t.legacyUi.enabledAvailable}</option>

@@ -292,7 +292,7 @@ export const StockMovementView: React.FC<StockMovementViewProps> = ({
                 <label className="block text-slate-400 font-bold mb-1">{t.legacyUi.movementTypeRequired}</label>
                 <select
                   value={movType}
-                  onChange={(e) => setMovType(e.target.value as any)}
+                  onChange={(e) => setMovType(e.target.value as 'stock_in' | 'stock_out' | 'adjustment' | 'transfer' | 'waste')}
                   className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-3 text-white focus:border-amber-500 focus:outline-none"
                 >
                   <option value="stock_in">{t.legacyUi.stockInPurchase}</option>
