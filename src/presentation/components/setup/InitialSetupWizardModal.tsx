@@ -34,6 +34,14 @@ interface InitialSetupWizardModalProps {
   onComplete?: () => void;
 }
 
+async function hashPin(pin: string): Promise<string> {
+  if (!pin) return '';
+  const msgBuffer = new TextEncoder().encode(pin);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
 export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = ({
   isOpen,
   onClose,
@@ -155,10 +163,14 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
     setIsSaving(true);
     setErrorMessage(null);
     try {
+      const hashedPin = admin.pin ? await hashPin(admin.pin) : '';
       const fullSetupData: InitialSetupData = {
         restaurant,
         branch,
-        admin,
+        admin: {
+          ...admin,
+          pin: hashedPin
+        },
         employees,
         suppliers,
         inventory,
@@ -194,12 +206,9 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                 <h2 className="text-lg font-extrabold text-white">
                   {language === 'ar' ? 'معالج الإعداد الأولي للمؤسسة' : language === 'so' ? 'Tusaha Habaynta Hore ee Ganacsiga' : 'Initial Enterprise Setup Wizard'}
                 </h2>
-                <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-bold">
-                  Step {currentStep} of 10
-                </span>
               </div>
               <p className="text-xs text-slate-400">
-                {language === 'ar' ? 'إعداد متكامل وموجه لشُعب النظام العشرة' : language === 'so' ? 'Hanuunin talaabo-talaabo ah oo loogu talagalay 10-ka qeybood' : 'Guided step-by-step launch configuration for all 10 core modules'}
+                {language === 'ar' ? 'إعداد متكامل وموجّه لتجهيز النظام' : language === 'so' ? 'Hanuunin hufan oo loogu talagalay diyaarinta nidaamka' : 'Guided configuration to prepare your system'}
               </p>
             </div>
           </div>
@@ -233,8 +242,8 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                   }`}
                 >
                   <Icon className="w-3.5 h-3.5" />
-                  <span>{s.num}. {s.title}</span>
-                  {isDone && <CheckCircle2 className="w-3.5 h-3.5 ml-0.5 text-emerald-400" />}
+                  <span>{s.title}</span>
+                  {isDone && <CheckCircle2 className="w-3.5 h-3.5 ms-0.5 text-emerald-400" />}
                 </button>
               );
             })}
@@ -275,7 +284,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                   {/* Restaurant */}
                   <div className="bg-slate-900 border border-slate-800 p-3.5 rounded-xl space-y-1">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block flex items-center justify-between">
-                      <span className="flex items-center gap-1.5"><Building2 className="w-3.5 h-3.5 text-emerald-400" /> {translateRawUi('1. Restaurant')}</span>
+                      <span className="flex items-center gap-1.5"><Building2 className="w-3.5 h-3.5 text-emerald-400" /> {translateRawUi('Restaurant')}</span>
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
                     </span>
                     <p className="text-xs font-extrabold text-white truncate">{restaurant.name}</p>
@@ -285,7 +294,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                   {/* Branches */}
                   <div className="bg-slate-900 border border-slate-800 p-3.5 rounded-xl space-y-1">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block flex items-center justify-between">
-                      <span className="flex items-center gap-1.5"><GitBranch className="w-3.5 h-3.5 text-blue-400" /> {translateRawUi('2. Branch')}</span>
+                      <span className="flex items-center gap-1.5"><GitBranch className="w-3.5 h-3.5 text-blue-400" /> {translateRawUi('Branch')}</span>
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
                     </span>
                     <p className="text-xs font-extrabold text-white truncate">{t.legacyUi.oneHqBranch}</p>
@@ -295,17 +304,17 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                   {/* Admin Account */}
                   <div className="bg-slate-900 border border-slate-800 p-3.5 rounded-xl space-y-1">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block flex items-center justify-between">
-                      <span className="flex items-center gap-1.5"><ShieldCheck className="w-3.5 h-3.5 text-teal-400" /> {translateRawUi('3. Admin User')}</span>
+                      <span className="flex items-center gap-1.5"><ShieldCheck className="w-3.5 h-3.5 text-teal-400" /> {translateRawUi('Admin User')}</span>
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
                     </span>
                     <p className="text-xs font-extrabold text-white truncate">{admin.name}</p>
-                    <p className="text-[11px] text-slate-400 truncate">Role: {admin.role} (PIN: {admin.pin})</p>
+                    <p className="text-[11px] text-slate-400 truncate">Role: {admin.role} {admin.pin ? '(PIN: ••••)' : ''}</p>
                   </div>
 
                   {/* Employees */}
                   <div className="bg-slate-900 border border-slate-800 p-3.5 rounded-xl space-y-1">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block flex items-center justify-between">
-                      <span className="flex items-center gap-1.5"><Users className="w-3.5 h-3.5 text-purple-400" /> {translateRawUi('4. Employees')}</span>
+                      <span className="flex items-center gap-1.5"><Users className="w-3.5 h-3.5 text-purple-400" /> {translateRawUi('Employees')}</span>
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
                     </span>
                     <p className="text-xs font-extrabold text-white">{employees.length} Staff Records</p>
@@ -315,7 +324,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                   {/* Suppliers */}
                   <div className="bg-slate-900 border border-slate-800 p-3.5 rounded-xl space-y-1">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block flex items-center justify-between">
-                      <span className="flex items-center gap-1.5"><Truck className="w-3.5 h-3.5 text-amber-400" /> {translateRawUi('5. Suppliers')}</span>
+                      <span className="flex items-center gap-1.5"><Truck className="w-3.5 h-3.5 text-amber-400" /> {translateRawUi('Suppliers')}</span>
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
                     </span>
                     <p className="text-xs font-extrabold text-white">{suppliers.length} Vendors</p>
@@ -325,7 +334,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                   {/* Inventory items */}
                   <div className="bg-slate-900 border border-slate-800 p-3.5 rounded-xl space-y-1">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block flex items-center justify-between">
-                      <span className="flex items-center gap-1.5"><Boxes className="w-3.5 h-3.5 text-cyan-400" /> {translateRawUi('6. Inventory')}</span>
+                      <span className="flex items-center gap-1.5"><Boxes className="w-3.5 h-3.5 text-cyan-400" /> {translateRawUi('Inventory')}</span>
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
                     </span>
                     <p className="text-xs font-extrabold text-white">{inventory.length} Stock Items</p>
@@ -335,7 +344,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                   {/* Recipes */}
                   <div className="bg-slate-900 border border-slate-800 p-3.5 rounded-xl space-y-1">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block flex items-center justify-between">
-                      <span className="flex items-center gap-1.5"><UtensilsCrossed className="w-3.5 h-3.5 text-rose-400" /> {translateRawUi('7. Recipes')}</span>
+                      <span className="flex items-center gap-1.5"><UtensilsCrossed className="w-3.5 h-3.5 text-rose-400" /> {translateRawUi('Recipes')}</span>
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
                     </span>
                     <p className="text-xs font-extrabold text-white">{recipes.length} Recipe BOMs</p>
@@ -345,7 +354,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                   {/* Products */}
                   <div className="bg-slate-900 border border-slate-800 p-3.5 rounded-xl space-y-1">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block flex items-center justify-between">
-                      <span className="flex items-center gap-1.5"><ChefHat className="w-3.5 h-3.5 text-orange-400" /> {translateRawUi('8. Menu Products')}</span>
+                      <span className="flex items-center gap-1.5"><ChefHat className="w-3.5 h-3.5 text-orange-400" /> {translateRawUi('Menu Products')}</span>
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
                     </span>
                     <p className="text-xs font-extrabold text-white">{products.length} Menu Items</p>
@@ -355,7 +364,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                   {/* Taxes */}
                   <div className="bg-slate-900 border border-slate-800 p-3.5 rounded-xl space-y-1">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block flex items-center justify-between">
-                      <span className="flex items-center gap-1.5"><Percent className="w-3.5 h-3.5 text-indigo-400" /> {translateRawUi('9. Taxes & Fees')}</span>
+                      <span className="flex items-center gap-1.5"><Percent className="w-3.5 h-3.5 text-indigo-400" /> {translateRawUi('Taxes & Fees')}</span>
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
                     </span>
                     <p className="text-xs font-extrabold text-white">{tax.taxName} ({tax.taxRate}%)</p>
@@ -365,7 +374,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                   {/* Payment Methods */}
                   <div className="bg-slate-900 border border-slate-800 p-3.5 rounded-xl space-y-1">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block flex items-center justify-between">
-                      <span className="flex items-center gap-1.5"><CreditCard className="w-3.5 h-3.5 text-emerald-400" /> {translateRawUi('10. Payments')}</span>
+                      <span className="flex items-center gap-1.5"><CreditCard className="w-3.5 h-3.5 text-emerald-400" /> {translateRawUi('Payments')}</span>
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
                     </span>
                     <p className="text-xs font-extrabold text-white">
@@ -391,7 +400,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                     className="px-6 py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs rounded-xl flex items-center gap-2 shadow-xl shadow-emerald-500/20 transition cursor-pointer"
                   >
                     <span>{t.legacyUi.launchErp}</span>
-                    <ArrowRight className="w-4 h-4" />
+                    <ArrowRight className="w-4 h-4 rtl:rotate-180" />
                   </button>
                 </div>
               </div>
@@ -607,7 +616,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                 <div>
                   <label className="block text-xs font-bold text-slate-300 mb-1">{t.legacyUi.securityPinPos}</label>
                   <input
-                    type="text"
+                    type="password"
                     maxLength={4}
                     value={admin.pin}
                     onChange={e => setAdmin({ ...admin, pin: e.target.value })}
@@ -650,7 +659,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
 
               <div className="space-y-2">
                 {employees.map((emp, idx) => (
-                  <div key={idx} className="bg-slate-950 border border-slate-800 p-3 rounded-2xl grid grid-cols-1 sm:grid-cols-5 gap-2 items-center">
+                  <div key={idx} className="bg-slate-950 border border-slate-800 p-3 rounded-2xl grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
                     <input
                       type="text"
                       placeholder={t.legacyUi.nameLabel}
@@ -660,7 +669,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                         updated[idx].name = e.target.value;
                         setEmployees(updated);
                       }}
-                      className="bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white"
+                      className="sm:col-span-3 bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white"
                     />
 
                     <select
@@ -670,7 +679,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                         updated[idx].role = e.target.value;
                         setEmployees(updated);
                       }}
-                      className="bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white"
+                      className="sm:col-span-2 bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white"
                     >
                       <option value="Cashier">{t.legacyUi.cashier}</option>
                       <option value="Head Chef">{t.legacyUi.headChef}</option>
@@ -690,7 +699,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                         updated[idx].salary = Number(e.target.value);
                         setEmployees(updated);
                       }}
-                      className="bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white"
+                      className="sm:col-span-2 bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white"
                     />
 
                     <select
@@ -700,7 +709,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                         updated[idx].payFrequency = e.target.value;
                         setEmployees(updated);
                       }}
-                      className="bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white"
+                      className="sm:col-span-2 bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white"
                     >
                       <option value="daily">{t.legacyUi.daily}</option>
                       <option value="weekly">{t.legacyUi.weekly}</option>
@@ -716,12 +725,12 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                         updated[idx].shift = e.target.value;
                         setEmployees(updated);
                       }}
-                      className="bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white"
+                      className="sm:col-span-2 bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white"
                     />
 
                     <button
                       onClick={() => setEmployees(employees.filter((_, i) => i !== idx))}
-                      className="p-1.5 bg-rose-500/20 text-rose-400 hover:bg-rose-500/30 rounded-lg text-xs self-center justify-self-end flex items-center gap-1"
+                      className="sm:col-span-1 p-1.5 bg-rose-500/20 text-rose-400 hover:bg-rose-500/30 rounded-lg text-xs self-center justify-self-end flex items-center justify-center transition cursor-pointer"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -917,7 +926,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                       {rec.productName}
                     </h4>
 
-                    <div className="space-y-1 pl-4 border-l-2 border-emerald-500/20">
+                    <div className="space-y-1 ps-4 border-s-2 border-emerald-500/20">
                       {rec.ingredients.map((ing, iIdx) => (
                         <div key={iIdx} className="text-xs text-slate-300 flex items-center gap-2">
                           <span>• {ing.ingredientName}:</span>
@@ -1207,7 +1216,7 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                   : 'bg-slate-800 hover:bg-slate-700 text-slate-200 cursor-pointer'
               }`}
             >
-              <ArrowLeft className="w-4 h-4" />
+              <ArrowLeft className="w-4 h-4 rtl:rotate-180" />
               <span>{t.legacyUi.previousStep}</span>
             </button>
 
@@ -1217,8 +1226,10 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
                   onClick={handleNext}
                   className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-xs rounded-xl flex items-center gap-1.5 shadow-lg shadow-emerald-500/20 transition cursor-pointer"
                 >
-                  <span>Next Step ({currentStep + 1}/10)</span>
-                  <ArrowRight className="w-4 h-4" />
+                  <span>
+                    {language === 'ar' ? 'التالي' : language === 'so' ? 'Xiga' : 'Next'}
+                  </span>
+                  <ArrowRight className="w-4 h-4 rtl:rotate-180" />
                 </button>
               ) : (
                 <button

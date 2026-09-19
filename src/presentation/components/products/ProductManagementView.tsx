@@ -194,14 +194,14 @@ export const ProductManagementView: React.FC = () => {
   };
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-6">
+    <div className="space-y-6">
       
       {/* Top Banner Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-900 border border-slate-800 p-6 rounded-3xl shadow-xl">
         <div>
           <div className="flex items-center gap-2 text-emerald-400 text-xs font-bold uppercase tracking-wider mb-1">
             <Sparkles className="w-4 h-4" />
-            <span>{t.legacyUi.phase4Catalog}</span>
+            <span>{t.legacyUi.menuCatalogEngine || t.legacyUi.phase4Catalog}</span>
           </div>
           <h1 className="text-xl font-extrabold text-white">{titleText}</h1>
           <p className="text-xs text-slate-400 mt-1">
@@ -332,13 +332,13 @@ export const ProductManagementView: React.FC = () => {
         
         {/* Search Bar */}
         <div className="relative flex-1 w-full">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+          <Search className="w-4 h-4 text-slate-400 absolute start-3.5 top-1/2 -translate-y-1/2" />
           <input
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             placeholder={translateRawUi('Search by Dish Name (English, Arabic, Somali), SKU, Barcode, or ingredients...')}
-            className="w-full pl-10 pr-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+            className="w-full ps-10 pe-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
           />
         </div>
 
@@ -545,7 +545,7 @@ export const ProductManagementView: React.FC = () => {
         /* TABLE VIEW */
         <div className="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs text-slate-300">
+            <table className="w-full text-start text-xs text-slate-300">
               <thead className="bg-slate-950 border-b border-slate-800 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                 <tr>
                   <th className="p-4">{translateRawUi('Dish')}</th>
@@ -555,7 +555,7 @@ export const ProductManagementView: React.FC = () => {
                   <th className="p-4">{translateRawUi('Stock')}</th>
                   <th className="p-4">{t.legacyUi.prepTime}</th>
                   <th className="p-4">{translateRawUi('Status')}</th>
-                  <th className="p-4 text-right">{translateRawUi('Actions')}</th>
+                  <th className="p-4 text-end">{translateRawUi('Actions')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60">
@@ -621,7 +621,7 @@ export const ProductManagementView: React.FC = () => {
                         </span>
                       </td>
 
-                      <td className="p-4 text-right">
+                      <td className="p-4 text-end">
                         <div className="flex items-center justify-end gap-1.5">
                           <button
                             onClick={() => {

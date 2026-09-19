@@ -35,12 +35,12 @@ import { RoleGuard } from './presentation/components/common/RoleGuard';
 import { ErrorBoundary } from './presentation/components/common/ErrorBoundary';
 import { handleFirestoreError, OperationType } from './infrastructure/firebase/errorHandler';
 
-// Phase 2 Auth Components
+// User & Auth Management Components
 import { UserManagementView } from './presentation/components/auth/UserManagementView';
 import { ProfilePage } from './presentation/components/auth/ProfilePage';
 import { RolePermissionsView } from './presentation/components/auth/RolePermissionsView';
 
-// Phase 4 Product Management Components
+// Product & Menu Management Components
 import { ProductManagementView } from './presentation/components/products/ProductManagementView';
 
 // Modules & Views

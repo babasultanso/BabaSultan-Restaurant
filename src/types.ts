@@ -653,11 +653,11 @@ export interface ActivityLog {
   userAgent?: string;
 }
 
-// Re-export Phase 7 Inventory Entities & Phase 8 Customer Entities
+// Inventory Entities & Customer Entities
 export * from './domain/entities/inventory';
 export * from './domain/entities/customer';
 
-// Phase 13 Multi-Branch Management Interfaces
+// Multi-Branch Management Interfaces
 export type BranchStatus = 'active' | 'inactive' | 'maintenance' | 'closed';
 export type BranchHierarchyType = 'head_office' | 'flagship' | 'standard' | 'express';
 
@@ -765,7 +765,7 @@ export interface BranchReportData {
   generatedAt: string;
 }
 
-// Phase 14 Delivery Management & Logistics Interfaces
+// Delivery Management & Logistics Interfaces
 
 export interface DeliveryOrder {
   id: string;

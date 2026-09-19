@@ -146,3 +146,20 @@ export const kdsDict: Record<KitchenLang, Record<string, string>> = {
     newOrderAlert: 'Dalab cusub ayaa soo gaaray jikada!'
   }
 };
+
+export function formatNewOrdersQueueAlert(count: number, lang: KitchenLang = 'en'): string {
+  if (lang === 'ar') {
+    if (count === 1) return 'وصل طلب جديد إلى قائمة الانتظار.';
+    if (count === 2) return 'وصل طلبان جديدان إلى قائمة الانتظار.';
+    if (count >= 3 && count <= 10) return `وصلت ${count} طلبات جديدة إلى قائمة الانتظار.`;
+    return `وصل ${count} طلباً جديداً إلى قائمة الانتظار.`;
+  }
+  if (lang === 'so') {
+    if (count === 1) return '1 dalab oo cusub ayaa soo gaaray safka.';
+    return `${count} dalab oo cusub ayaa soo gaaray safka.`;
+  }
+  return count === 1
+    ? '1 new order arrived in the queue.'
+    : `${count} new orders arrived in the queue.`;
+}
+

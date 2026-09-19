@@ -75,7 +75,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   const content = (
-    <aside className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col h-full overflow-y-auto">
+    <aside className="w-64 bg-slate-900 border-e border-slate-800 flex flex-col h-full overflow-y-auto">
       <div className="p-4 border-b border-slate-800 flex items-center justify-between">
         <div
           className="flex items-center gap-2.5 min-w-0"

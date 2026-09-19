@@ -202,13 +202,13 @@ export const UserManagementView: React.FC = () => {
           {/* Controls Bar */}
           <div className="bg-slate-900/80 border border-slate-800 p-4 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-3">
             <div className="relative w-full md:w-72">
-              <Search className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
+              <Search className="w-4 h-4 text-slate-500 absolute start-3 top-3" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder={t.userManagement.searchUsers}
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500/50"
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl ps-9 pe-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500/50"
               />
             </div>
 
@@ -244,7 +244,7 @@ export const UserManagementView: React.FC = () => {
           {/* Table */}
           <div className="bg-slate-900/80 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs text-slate-300">
+              <table className="w-full text-start text-xs text-slate-300">
                 <thead className="bg-slate-950 text-slate-400 font-bold uppercase tracking-wider text-[10px] border-b border-slate-800">
                   <tr>
                     <th className="p-4">{t.userManagement.userName}</th>
@@ -252,7 +252,7 @@ export const UserManagementView: React.FC = () => {
                     <th className="p-4">{t.userManagement.branchOffice}</th>
                     <th className="p-4">{t.userManagement.accountStatus}</th>
                     <th className="p-4">{t.userManagement.lastLogin}</th>
-                    <th className="p-4 text-right">{t.userManagement.actions}</th>
+                    <th className="p-4 text-end">{t.userManagement.actions}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60">
@@ -303,7 +303,7 @@ export const UserManagementView: React.FC = () => {
                           {u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleDateString() : 'Never'}
                         </td>
 
-                        <td className="p-4 text-right space-x-2">
+                        <td className="p-4 text-end space-x-2 rtl:space-x-reverse">
                           <button
                             onClick={() => {
                               setSelectedUser(u);
@@ -341,7 +341,7 @@ export const UserManagementView: React.FC = () => {
           </h2>
 
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs text-slate-300">
+            <table className="w-full text-start text-xs text-slate-300">
               <thead className="bg-slate-950 text-slate-400 font-bold uppercase tracking-wider text-[10px] border-b border-slate-800">
                 <tr>
                   <th className="p-3">{t.activityLogs.timestamp}</th>

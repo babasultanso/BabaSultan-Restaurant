@@ -52,43 +52,43 @@ export const KPICard: React.FC<KPICardProps> = ({
         onClick ? 'hover:border-slate-700 cursor-pointer hover:scale-[1.01]' : ''
       }`}
     >
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-semibold text-slate-400 truncate">{title}</span>
-        <div className={`p-2.5 rounded-2xl border ${colorMap[iconColor]}`}>
+      <div className="flex items-center justify-between gap-2.5 min-w-0">
+        <span className="text-xs font-semibold text-slate-400 truncate min-w-0">{title}</span>
+        <div className={`p-2.5 rounded-2xl border shrink-0 ${colorMap[iconColor]}`}>
           <Icon className="w-5 h-5" />
         </div>
       </div>
 
       <div className="mt-3">
-        <div className="flex items-baseline justify-between gap-2">
-          <h3 className="text-2xl font-extrabold text-white tracking-tight truncate">{value}</h3>
+        <div className="flex items-baseline justify-between gap-2 min-w-0">
+          <h3 className="text-2xl font-extrabold text-white tracking-tight truncate min-w-0">{value}</h3>
           {badgeText && (
-            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${badgeStyles[badgeType]}`}>
+            <span className={`shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full border ${badgeStyles[badgeType]}`}>
               {badgeText}
             </span>
           )}
         </div>
 
         {/* Change or sublabel */}
-        <div className="mt-2 flex items-center justify-between text-[11px]">
+        <div className="mt-2 flex items-center justify-between text-[11px] min-w-0">
           {change !== undefined ? (
             <div
-              className={`flex items-center gap-1 font-bold ${
+              className={`flex items-center gap-1 font-bold truncate min-w-0 ${
                 change > 0 ? 'text-emerald-400' : change < 0 ? 'text-rose-400' : 'text-slate-400'
               }`}
             >
               {change > 0 ? (
-                <ArrowUpRight className="w-3.5 h-3.5" />
+                <ArrowUpRight className="w-3.5 h-3.5 shrink-0" />
               ) : change < 0 ? (
-                <ArrowDownRight className="w-3.5 h-3.5" />
+                <ArrowDownRight className="w-3.5 h-3.5 shrink-0" />
               ) : (
-                <Minus className="w-3.5 h-3.5" />
+                <Minus className="w-3.5 h-3.5 shrink-0" />
               )}
-              <span>{change > 0 ? `+${change}%` : `${change}%`}</span>
-              <span className="text-slate-500 font-normal ml-0.5">{changeLabel}</span>
+              <span className="shrink-0">{change > 0 ? `+${change}%` : `${change}%`}</span>
+              <span className="text-slate-500 font-normal ms-1 truncate">{changeLabel}</span>
             </div>
           ) : sublabel ? (
-            <span className="text-slate-400 text-[10px] font-medium">{sublabel}</span>
+            <span className="text-slate-400 text-[10px] font-medium truncate">{sublabel}</span>
           ) : null}
         </div>
 

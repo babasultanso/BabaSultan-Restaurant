@@ -26,5 +26,12 @@ export function getApiBaseUrl(): string {
 export function getApiUrl(endpoint: string): string {
   const base = getApiBaseUrl();
   const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-  return base ? `${base}${cleanEndpoint}` : cleanEndpoint;
+  if (!base) {
+    return cleanEndpoint;
+  }
+  // Prevent duplicate `/api` prefix when base ends with `/api` and endpoint begins with `/api`
+  if (base.endsWith('/api') && (cleanEndpoint === '/api' || cleanEndpoint.startsWith('/api/'))) {
+    return `${base}${cleanEndpoint.slice(4)}`;
+  }
+  return `${base}${cleanEndpoint}`;
 }

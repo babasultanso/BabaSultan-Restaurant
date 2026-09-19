@@ -518,13 +518,13 @@ export const POSView: React.FC<POSViewProps> = ({ products, onOrderCompleted }) 
           {/* Search Bar & Categories */}
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
             <div className="relative flex-1">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+              <Search className="w-4 h-4 text-slate-400 absolute start-3.5 top-3" />
               <input
                 type="text"
                 placeholder={t.pos.searchPlaceholder}
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-800 rounded-2xl pl-10 pr-4 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500"
+                className="w-full bg-slate-900 border border-slate-800 rounded-2xl ps-10 pe-4 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500"
               />
             </div>
 

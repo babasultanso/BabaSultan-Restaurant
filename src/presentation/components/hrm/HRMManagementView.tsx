@@ -644,13 +644,13 @@ export const HRMManagementView: React.FC = () => {
           {/* Controls & Search */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-slate-900 border border-slate-800 p-4 rounded-2xl">
             <div className="relative">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+              <Search className="w-4 h-4 text-slate-400 absolute start-3 top-2.5" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder={translateRawUi('Search staff by name, ID, title...')}
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-white"
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl ps-9 pe-3 py-2 text-xs text-white"
               />
             </div>
 
@@ -761,7 +761,7 @@ export const HRMManagementView: React.FC = () => {
           </div>
 
           <div className="overflow-x-auto rounded-3xl border border-slate-800 bg-slate-900 shadow-xl">
-            <table className="w-full text-left text-xs text-slate-300">
+            <table className="w-full text-start text-xs text-slate-300">
               <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] font-bold tracking-wider">
                 <tr>
                   <th className="p-4">{pt.employee}</th>
@@ -917,7 +917,7 @@ export const HRMManagementView: React.FC = () => {
           </div>
 
           <div className="overflow-x-auto rounded-3xl border border-slate-800 bg-slate-900 shadow-xl">
-            <table className="w-full text-left text-xs text-slate-300">
+            <table className="w-full text-start text-xs text-slate-300">
               <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] font-bold tracking-wider">
                 <tr>
                   <th className="p-4">{pt.referenceNumber}</th>
@@ -926,7 +926,7 @@ export const HRMManagementView: React.FC = () => {
                   <th className="p-4">{pt.overtimePay}</th>
                   <th className="p-4">{pt.netPayout}</th>
                   <th className="p-4">{pt.status}</th>
-                  <th className="p-4 text-right">{pt.actions}</th>
+                  <th className="p-4 text-end">{pt.actions}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60">
@@ -947,7 +947,7 @@ export const HRMManagementView: React.FC = () => {
                         {(pay.paymentStatus || 'PAID').toUpperCase()}
                       </span>
                     </td>
-                    <td className="p-4 text-right space-x-2">
+                    <td className="p-4 text-end space-x-2 rtl:space-x-reverse">
                       {pay.paymentStatus !== 'paid' && (
                         <button
                           onClick={async () => {

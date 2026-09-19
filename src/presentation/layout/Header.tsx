@@ -145,25 +145,25 @@ export const Header: React.FC<HeaderProps> = ({ onMobileMenuToggle, onOpenSetupW
         </button>
 
         <div
-          className="flex items-center gap-2.5 min-w-0"
+          className="flex items-center gap-2 sm:gap-2.5 min-w-0"
           title={translateRawUi('Enterprise Resource Planning System')}
         >
           {/* Logo Badge with ERP acronym */}
-          <div className="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center font-black text-xs tracking-wider shadow-sm select-none shrink-0 font-mono">
+          <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center font-black text-xs tracking-wider shadow-sm select-none shrink-0 font-mono">
             {translateRawUi('ERP')}
           </div>
 
           {/* System & Brand Labels - responsive & non-stretching */}
           <div className="flex flex-col min-w-0">
             <div className="flex items-center gap-1.5 min-w-0">
-              <h1 className="text-xs sm:text-sm font-bold text-white tracking-wide truncate max-w-[120px] xs:max-w-[160px] sm:max-w-[200px] md:max-w-[260px] lg:max-w-[320px]">
+              <h1 className="text-xs sm:text-sm font-bold text-white tracking-wide truncate max-w-[110px] xs:max-w-[140px] sm:max-w-[200px] md:max-w-[260px] lg:max-w-[320px]">
                 {t.appName}
               </h1>
-              <span className="shrink-0 text-[10px] font-black text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.2 rounded font-mono">
+              <span className="hidden sm:inline-block shrink-0 text-[10px] font-black text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.2 rounded font-mono">
                 {translateRawUi('ERP')}
               </span>
             </div>
-            <p className="hidden sm:block text-[10px] text-emerald-400/80 font-medium uppercase tracking-wider truncate">
+            <p className="hidden md:block text-[10px] text-emerald-400/80 font-medium uppercase tracking-wider truncate">
               {translateRawUi('Commercial Edition')}
             </p>
           </div>
@@ -231,10 +231,10 @@ export const Header: React.FC<HeaderProps> = ({ onMobileMenuToggle, onOpenSetupW
           >
             <Bell className="w-4 h-4" />
             {unreadCount > 0 && (
-              <span className="absolute top-1 right-1 w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping" />
+              <span className="absolute top-1 end-1 w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping" />
             )}
             {unreadCount > 0 && (
-              <span className="absolute -top-1 -right-1 bg-amber-500 text-slate-950 text-[9px] font-black w-4 h-4 rounded-full flex items-center justify-center">
+              <span className="absolute -top-1 -end-1 bg-amber-500 text-slate-950 text-[9px] font-black w-4 h-4 rounded-full flex items-center justify-center">
                 {unreadCount}
               </span>
             )}
@@ -242,7 +242,7 @@ export const Header: React.FC<HeaderProps> = ({ onMobileMenuToggle, onOpenSetupW
 
           {/* Notifications Dropdown */}
           {showNotifications && (
-            <div className="absolute ltr:right-0 ltr:left-auto rtl:left-0 rtl:right-auto mt-2 w-80 sm:w-96 max-w-[calc(100vw-2rem)] bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl z-50 p-4 space-y-3">
+            <div className="absolute end-0 mt-2 w-80 sm:w-96 max-w-[calc(100vw-2rem)] bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl z-50 p-4 space-y-3">
               <div className="flex items-center justify-between border-b border-slate-800 pb-2">
                 <div className="flex items-center gap-2">
                   <Bell className="w-4 h-4 text-amber-400" />
@@ -264,7 +264,7 @@ export const Header: React.FC<HeaderProps> = ({ onMobileMenuToggle, onOpenSetupW
                 )}
               </div>
 
-              <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+              <div className="space-y-2 max-h-72 overflow-y-auto pe-1">
                 {notifications.map((item) => (
                   <div
                     key={item.id}
@@ -276,7 +276,7 @@ export const Header: React.FC<HeaderProps> = ({ onMobileMenuToggle, onOpenSetupW
                   >
                     <button
                       onClick={() => removeNotification(item.id)}
-                      className="absolute top-2 right-2 text-slate-500 hover:text-white"
+                      className="absolute top-2 end-2 text-slate-500 hover:text-white"
                     >
                       <X className="w-3 h-3" />
                     </button>
@@ -290,7 +290,7 @@ export const Header: React.FC<HeaderProps> = ({ onMobileMenuToggle, onOpenSetupW
                         <Info className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
                       )}
 
-                      <div className="space-y-0.5 pr-4">
+                      <div className="space-y-0.5 pe-4">
                         <p className="font-bold text-white text-[11px]">{item.title}</p>
                         <p className="text-[10px] leading-relaxed">{item.message}</p>
                         <span className="text-[9px] text-slate-500 block pt-1 font-mono">{item.time}</span>
@@ -310,7 +310,7 @@ export const Header: React.FC<HeaderProps> = ({ onMobileMenuToggle, onOpenSetupW
         </div>
 
         {/* Profile Avatar Button & Menu Dropdown */}
-        <div className="relative pl-2 border-l border-slate-800">
+        <div className="relative ps-2 border-s border-slate-800">
           <button
             onClick={() => {
               setShowProfileMenu(!showProfileMenu);
@@ -323,7 +323,7 @@ export const Header: React.FC<HeaderProps> = ({ onMobileMenuToggle, onOpenSetupW
           </button>
 
           {showProfileMenu && (
-            <div className="absolute ltr:right-0 ltr:left-auto rtl:left-0 rtl:right-auto mt-2 w-64 max-w-[calc(100vw-2rem)] bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl z-50 p-4 space-y-4">
+            <div className="absolute end-0 mt-2 w-64 max-w-[calc(100vw-2rem)] bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl z-50 p-4 space-y-4">
               <div className="flex items-center gap-3 border-b border-slate-800 pb-3">
                 <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 flex items-center justify-center font-bold text-sm">
                   {userRecord?.displayName?.substring(0, 2).toUpperCase() || 'US'}
@@ -336,7 +336,7 @@ export const Header: React.FC<HeaderProps> = ({ onMobileMenuToggle, onOpenSetupW
                     {user?.email || 'admin@restaurant-erp.internal'}
                   </p>
                   <span className="inline-block mt-1 px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 text-[9px] font-bold border border-emerald-500/20">
-                    {role} • Flagship Branch
+                    {t.roles[role as keyof typeof t.roles] || role} • {translateRawUi('Flagship Branch')}
                   </span>
                 </div>
               </div>

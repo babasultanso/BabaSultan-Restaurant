@@ -175,13 +175,13 @@ export const InventoryListView: React.FC<InventoryListViewProps> = ({
         
         {/* Search Input */}
         <div className="relative w-full md:w-80">
-          <Search className="w-4 h-4 absolute left-3.5 top-3.5 text-slate-500" />
+          <Search className="w-4 h-4 absolute start-3.5 top-3.5 text-slate-500" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder={t.searchPlaceholder}
-            className="w-full bg-slate-950 border border-slate-800 pl-10 pr-4 py-2.5 rounded-2xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 transition"
+            className="w-full bg-slate-950 border border-slate-800 ps-10 pe-4 py-2.5 rounded-2xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 transition"
           />
         </div>
 
@@ -233,14 +233,14 @@ export const InventoryListView: React.FC<InventoryListViewProps> = ({
       {/* Inventory Table */}
       <div className="bg-slate-900 border border-slate-800 rounded-3xl shadow-xl overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
+          <table className="w-full text-start text-xs">
             <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] font-extrabold tracking-wider border-b border-slate-800">
               <tr>
                 <th className="p-4">{t.itemName}</th>
                 <th className="p-4">{t.category}</th>
                 <th className="p-4 text-center">{t.currentQuantity}</th>
-                <th className="p-4 text-right">{t.purchaseCost}</th>
-                <th className="p-4 text-right">{t.sellingCost}</th>
+                <th className="p-4 text-end">{t.purchaseCost}</th>
+                <th className="p-4 text-end">{t.sellingCost}</th>
                 <th className="p-4">{t.storageLocation}</th>
                 <th className="p-4">{t.status}</th>
                 <th className="p-4 text-center">{t.actions}</th>
@@ -298,10 +298,10 @@ export const InventoryListView: React.FC<InventoryListViewProps> = ({
                       </td>
 
                       {/* Costs */}
-                      <td className="p-4 text-right font-mono font-bold text-slate-300">
+                      <td className="p-4 text-end font-mono font-bold text-slate-300">
                         ${(item.purchaseCost || 0).toFixed(2)}
                       </td>
-                      <td className="p-4 text-right font-mono font-bold text-emerald-400">
+                      <td className="p-4 text-end font-mono font-bold text-emerald-400">
                         ${(item.sellingCost || 0).toFixed(2)}
                       </td>
 
