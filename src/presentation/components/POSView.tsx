@@ -6,6 +6,7 @@ import { SYSTEM_CONFIG } from '../../constants';
 import { CartItem, POSCheckoutPayload, ReceiptData } from '../../domain/entities/pos';
 import { db, COLLECTIONS, createOrderFirestore, holdOrderFirestore, fetchHoldOrdersFirestore, fetchTablesFirestore, fetchCustomersFirestore } from '../../lib/firebase';
 import { createDeliveryOrder } from '../../lib/deliveryService';
+import { areBranchesMatching } from '../../lib/branchUtils';
 import { useAuth } from '../context/AuthContext';
 import { calculateCartTotals } from '../../domain/services/posService';
 import { ProductOptionModal } from './pos/ProductOptionModal';
@@ -108,7 +109,7 @@ export const POSView: React.FC<POSViewProps> = ({ products, onOrderCompleted }) 
         const branchSnap = await getDocs(query(collection(db, COLLECTIONS.BRANCHES)));
         if (!branchSnap.empty && isMounted) {
           const branches = branchSnap.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
-          const b = effectiveBranch ? branches.find(br => br.id === effectiveBranch || br.code === effectiveBranch) : undefined;
+          const b = effectiveBranch ? branches.find(br => areBranchesMatching(br.id, effectiveBranch) || areBranchesMatching(br.code, effectiveBranch)) : undefined;
           if (b && typeof b.defaultDeliveryFee === 'number') {
             setBranchDeliveryFee(b.defaultDeliveryFee);
           } else if (b && typeof b.deliveryFee === 'number') {
@@ -122,7 +123,7 @@ export const POSView: React.FC<POSViewProps> = ({ products, onOrderCompleted }) 
           const allZones = zonesSnap.docs.map(d => ({ id: d.id, ...(d.data() as any) } as DeliveryZone));
           const filtered = isHQUser
             ? allZones
-            : effectiveBranch ? allZones.filter(z => z.branchId === effectiveBranch) : [];
+            : effectiveBranch ? allZones.filter(z => areBranchesMatching(z.branchId, effectiveBranch)) : [];
           setDeliveryZones(filtered);
         }
       } catch (err) {
@@ -517,13 +518,13 @@ export const POSView: React.FC<POSViewProps> = ({ products, onOrderCompleted }) 
           {/* Search Bar & Categories */}
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
             <div className="relative flex-1">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+              <Search className="w-4 h-4 text-slate-400 absolute start-3.5 top-3" />
               <input
                 type="text"
                 placeholder={t.pos.searchPlaceholder}
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-800 rounded-2xl pl-10 pr-4 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500"
+                className="w-full bg-slate-900 border border-slate-800 rounded-2xl ps-10 pe-4 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500"
               />
             </div>
 

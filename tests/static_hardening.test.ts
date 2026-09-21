@@ -217,3 +217,30 @@ it('keeps master-data hard-delete bypasses closed', () => {
     expect(block).toContain('allow delete: if false;');
   }
 });
+
+it('blocks direct public access to backend bundle artifacts and sourcemaps', () => {
+  const server = readFileSync(new URL('../server.ts', import.meta.url), 'utf8');
+  expect(server).toContain("p === '/server.cjs' || p === '/server.cjs.map'");
+  expect(server).toContain("return res.status(404).json({ error: 'Not found' });");
+});
+
+it('implements compensating transaction cleanup in handleAdminCreateUser if Firestore fails', () => {
+  const backend = readFileSync(new URL('../server/trustedFinancialBackend.ts', import.meta.url), 'utf8');
+  expect(backend).toContain('let isNewlyCreatedAuthUser = false;');
+  expect(backend).toContain('isNewlyCreatedAuthUser = true;');
+  expect(backend).toContain('if (uid && isNewlyCreatedAuthUser)');
+  expect(backend).toContain('await adminAuth.deleteUser(uid);');
+});
+
+it('includes composite indexes for production query patterns in firestore.indexes.json', () => {
+  const indexesRaw = readFileSync(new URL('../firestore.indexes.json', import.meta.url), 'utf8');
+  const indexConfig = JSON.parse(indexesRaw);
+  const groups = indexConfig.indexes.map((idx: any) => idx.collectionGroup);
+  expect(groups).toContain('cash_registers');
+  expect(groups).toContain('taxes');
+  expect(groups).toContain('bank_accounts');
+  expect(groups).toContain('employee_attendance');
+  expect(groups).toContain('recipes');
+  expect(groups).toContain('notifications');
+});
+

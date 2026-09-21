@@ -541,13 +541,13 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
             <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
               {/* Search Bar */}
               <div className="relative flex-1">
-                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <Search className="w-4 h-4 text-slate-400 absolute start-3.5 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
                   placeholder={t.ui.searchOrdersPlaceholder}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-4 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl ps-9 pe-4 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition"
                 />
               </div>
 
@@ -598,7 +598,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                       : 'bg-slate-950 text-slate-400 border border-slate-800/80 hover:text-white hover:border-slate-700'
                   }`}
                 >
-                  {s.label}
+                  {translateRawUi(s.label)}
                 </button>
               ))}
             </div>
@@ -635,7 +635,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs text-slate-300 border-collapse">
+                <table className="w-full text-start text-xs text-slate-300 border-collapse">
                   <thead className="bg-slate-950/80 text-slate-400 font-bold uppercase text-[10px] tracking-wider border-b border-slate-800">
                     <tr>
                       <th className="py-3.5 px-4">{t.ui.orderNumber}</th>
@@ -646,7 +646,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                       <th className="py-3.5 px-4">{t.ui.payment}</th>
                       <th className="py-3.5 px-4">{t.ui.orderState}</th>
                       <th className="py-3.5 px-4">{t.ui.operationalProgress}</th>
-                      <th className="py-3.5 px-4 text-right">{t.ui.actions}</th>
+                      <th className="py-3.5 px-4 text-end">{t.ui.actions}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/60">
@@ -732,7 +732,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                           </td>
 
                           {/* Actions */}
-                          <td className="py-3.5 px-4 text-right">
+                          <td className="py-3.5 px-4 text-end">
                             <button
                               onClick={() => setSelectedOrderDetails(order)}
                               className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-emerald-500 hover:text-slate-950 text-white font-bold text-xs transition cursor-pointer inline-flex items-center gap-1"

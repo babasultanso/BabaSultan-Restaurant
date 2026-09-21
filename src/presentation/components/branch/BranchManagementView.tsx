@@ -1,6 +1,6 @@
 import { translateRawUi } from '../../../i18n/rawUi';
 import React, { useState, useEffect, useMemo } from 'react';
-import { collection, onSnapshot, query } from 'firebase/firestore';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { db, COLLECTIONS } from '../../../lib/firebase';
 import { 
   Branch, 
@@ -15,6 +15,7 @@ import {
   Ingredient, 
   Product, 
   Customer, 
+  SalaryPayment,
   Language 
 } from '../../../types';
 import { 
@@ -89,6 +90,7 @@ interface BranchManagementViewProps {
   initialIngredients?: Ingredient[];
   initialProducts?: Product[];
   initialCustomers?: Customer[];
+  initialSalaries?: SalaryPayment[];
   language?: Language;
 }
 
@@ -100,9 +102,10 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
   initialIngredients = [],
   initialProducts = [],
   initialCustomers = [],
+  initialSalaries = [],
   language
 }) => {
-  const { language: authLang, role, t } = useAuth();
+  const { userRecord, language: authLang, role, t } = useAuth();
   const isManagementRole = ['Owner', 'owner', 'Admin', 'admin', 'Manager', 'manager'].includes(role || '');
   const activeLang = (language || authLang || 'en') as Language;
   const [currentLang, setCurrentLang] = useState<Language>(activeLang);
@@ -122,6 +125,7 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
   const [ingredients, setIngredients] = useState<Ingredient[]>(initialIngredients);
   const [products, setProducts] = useState<Product[]>(initialProducts);
   const [customers, setCustomers] = useState<Customer[]>(initialCustomers);
+  const [salaries, setSalaries] = useState<SalaryPayment[]>(initialSalaries);
   const [transfers, setTransfers] = useState<BranchTransfer[]>([]);
 
   // Selected Branch for Individual Branch Dashboard
@@ -235,6 +239,27 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
       console.warn('Branch management listener warning:', err?.message || err);
     };
 
+    const userRoleStr = (userRecord?.role || role || '').toLowerCase().trim();
+    const isHqUser = userRoleStr === 'owner' || (userRoleStr === 'admin' && (!userRecord?.branchId || userRecord?.branchId === 'all'));
+    const userBranch = userRecord?.branchId || userRecord?.branch;
+    const isBranchScoped = !isHqUser && Boolean(userBranch) && userBranch !== 'all';
+
+    const ordersQuery = isBranchScoped
+      ? query(collection(db, COLLECTIONS.ORDERS), where('branchId', '==', userBranch))
+      : query(collection(db, COLLECTIONS.ORDERS));
+
+    const expensesQuery = isBranchScoped
+      ? query(collection(db, COLLECTIONS.EXPENSES), where('branchId', '==', userBranch))
+      : query(collection(db, COLLECTIONS.EXPENSES));
+
+    const employeesQuery = isBranchScoped
+      ? query(collection(db, COLLECTIONS.EMPLOYEES), where('branchId', '==', userBranch))
+      : query(collection(db, COLLECTIONS.EMPLOYEES));
+
+    const salariesQuery = isBranchScoped
+      ? query(collection(db, COLLECTIONS.SALARIES), where('branchId', '==', userBranch))
+      : query(collection(db, COLLECTIONS.SALARIES));
+
     const unsubBranches = onSnapshot(query(collection(db, COLLECTIONS.BRANCHES)), (snap) => {
       const list: Branch[] = [];
       snap.forEach((d) => list.push(normalizeBranch(d.id, d.data())));
@@ -244,22 +269,28 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
       }
     }, handleBranchErr);
 
-    const unsubOrders = onSnapshot(query(collection(db, COLLECTIONS.ORDERS)), (snap) => {
+    const unsubOrders = onSnapshot(ordersQuery, (snap) => {
       const list: Order[] = [];
       snap.forEach((d) => list.push({ id: d.id, ...d.data() } as Order));
       if (list.length > 0) setOrders(list);
     }, handleBranchErr);
 
-    const unsubExpenses = onSnapshot(query(collection(db, COLLECTIONS.EXPENSES)), (snap) => {
+    const unsubExpenses = onSnapshot(expensesQuery, (snap) => {
       const list: Expense[] = [];
       snap.forEach((d) => list.push({ id: d.id, ...d.data() } as Expense));
       if (list.length > 0) setExpenses(list);
     }, handleBranchErr);
 
-    const unsubEmployees = onSnapshot(query(collection(db, COLLECTIONS.EMPLOYEES)), (snap) => {
+    const unsubEmployees = onSnapshot(employeesQuery, (snap) => {
       const list: Employee[] = [];
       snap.forEach((d) => list.push({ id: d.id, ...d.data() } as Employee));
       if (list.length > 0) setEmployees(list);
+    }, handleBranchErr);
+
+    const unsubSalaries = onSnapshot(salariesQuery, (snap) => {
+      const list: SalaryPayment[] = [];
+      snap.forEach((d) => list.push({ id: d.id, ...d.data() } as SalaryPayment));
+      if (list.length > 0) setSalaries(list);
     }, handleBranchErr);
 
     const unsubTransfers = onSnapshot(query(collection(db, COLLECTIONS.BRANCH_TRANSFERS)), (snap) => {
@@ -273,9 +304,10 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
       unsubOrders();
       unsubExpenses();
       unsubEmployees();
+      unsubSalaries();
       unsubTransfers();
     };
-  }, [role]);
+  }, [role, userRecord?.branchId, userRecord?.branch]);
 
   // Compute Consolidated Analytics
   const analytics = useMemo(() => {
@@ -287,9 +319,10 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
       ingredients,
       products,
       customers,
-      transfers
+      transfers,
+      salaries
     });
-  }, [branches, orders, expenses, employees, ingredients, products, customers, transfers]);
+  }, [branches, orders, expenses, employees, ingredients, products, customers, transfers, salaries]);
 
   // Selected Branch Data for Individual Dashboard
   const currentBranch = useMemo(() => {
@@ -467,7 +500,7 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
           <div>
             <div className="flex items-center gap-2 mb-2">
               <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-wider flex items-center gap-1.5 shadow-sm">
-                <Crown className="w-3.5 h-3.5 text-amber-400" /> {translateRawUi('Phase 13 Multi-Branch Management')}
+                <Crown className="w-3.5 h-3.5 text-amber-400" /> {translateRawUi('Multi-Branch Management')}
               </span>
               <span className="bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-[10px] font-bold px-3 py-1 rounded-full flex items-center gap-1.5">
                 <GitFork className="w-3.5 h-3.5 text-indigo-400" /> {analytics.totalBranchesCount} Active Outlets

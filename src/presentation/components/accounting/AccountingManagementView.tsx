@@ -444,13 +444,13 @@ export const AccountingManagementView: React.FC = () => {
   const bankBalance = bankAccounts.reduce((s, b) => s + (b.currentBalance || 0), 0);
 
   return (
-    <div className={`p-4 md:p-8 max-w-7xl mx-auto space-y-6 ${isRtl ? 'rtl' : 'ltr'}`}>
+    <div className={`space-y-6 ${isRtl ? 'rtl' : 'ltr'}`}>
       {/* Header Banner */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-900 border border-slate-800 p-6 rounded-3xl shadow-xl">
         <div className="space-y-1">
           <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-emerald-400">
             <Landmark className="w-4 h-4" />
-            <span>{t.legacyUi.erpPhase10}</span>
+            <span>{t.legacyUi.doubleEntryEngine || t.legacyUi.erpPhase10}</span>
           </div>
           <h1 className="text-2xl font-extrabold text-white">{t.accounting?.title || 'Accounting & Finance System'}</h1>
           <p className="text-xs text-slate-400">
@@ -700,13 +700,13 @@ export const AccountingManagementView: React.FC = () => {
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-slate-900 p-4 rounded-2xl border border-slate-800">
             <div className="flex items-center gap-2 w-full sm:w-auto">
               <div className="relative w-full sm:w-64">
-                <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-500" />
+                <Search className="w-4 h-4 absolute start-3 top-2.5 text-slate-500" />
                 <input
                   type="text"
                   placeholder={translateRawUi('Search account by code/name...')}
                   value={searchTerm}
                   onChange={e => setSearchTerm(e.target.value)}
-                  className="w-full pl-9 pr-4 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                  className="w-full ps-9 pe-4 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
                 />
               </div>
 
@@ -746,14 +746,14 @@ export const AccountingManagementView: React.FC = () => {
 
           <div className="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs text-slate-300">
+              <table className="w-full text-start text-xs text-slate-300">
                 <thead className="bg-slate-950 text-slate-400 font-bold border-b border-slate-800 uppercase tracking-wider text-[10px]">
                   <tr>
                     <th className="p-4">{translateRawUi('Code')}</th>
                     <th className="p-4">{t.legacyUi.accountName}</th>
                     <th className="p-4">{translateRawUi('Type')}</th>
                     <th className="p-4">{translateRawUi('Description')}</th>
-                    <th className="p-4 text-right">{translateRawUi('Balance')}</th>
+                    <th className="p-4 text-end">{translateRawUi('Balance')}</th>
                     <th className="p-4">{translateRawUi('Status')}</th>
                   </tr>
                 </thead>
@@ -789,7 +789,7 @@ export const AccountingManagementView: React.FC = () => {
                           </span>
                         </td>
                         <td className="p-4 text-slate-400 text-[11px]">{acc.description || 'N/A'}</td>
-                        <td className="p-4 text-right font-mono font-bold text-white">
+                        <td className="p-4 text-end font-mono font-bold text-white">
                           ${acc.balance.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                         </td>
                         <td className="p-4">
@@ -861,13 +861,13 @@ export const AccountingManagementView: React.FC = () => {
 
                   {/* Lines Table */}
                   <div className="overflow-x-auto">
-                    <table className="w-full text-left text-xs">
+                    <table className="w-full text-start text-xs">
                       <thead className="text-[10px] uppercase text-slate-500 border-b border-slate-800/40">
                         <tr>
                           <th className="py-1">{translateRawUi('Account')}</th>
                           <th className="py-1">{translateRawUi('Memo')}</th>
-                          <th className="py-1 text-right">{t.legacyUi.debitUsd}</th>
-                          <th className="py-1 text-right">{t.legacyUi.creditUsd}</th>
+                          <th className="py-1 text-end">{t.legacyUi.debitUsd}</th>
+                          <th className="py-1 text-end">{t.legacyUi.creditUsd}</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-800/30 font-medium text-slate-300">
@@ -877,10 +877,10 @@ export const AccountingManagementView: React.FC = () => {
                               {line.accountCode} - {line.accountName}
                             </td>
                             <td className="py-1.5 text-slate-400 text-[11px]">{line.memo || '-'}</td>
-                            <td className="py-1.5 text-right font-mono text-emerald-400">
+                            <td className="py-1.5 text-end font-mono text-emerald-400">
                               {(line.debit || 0) > 0 ? `$${(line.debit || 0).toFixed(2)}` : '-'}
                             </td>
-                            <td className="py-1.5 text-right font-mono text-sky-400">
+                            <td className="py-1.5 text-end font-mono text-sky-400">
                               {(line.credit || 0) > 0 ? `$${(line.credit || 0).toFixed(2)}` : '-'}
                             </td>
                           </tr>
@@ -925,16 +925,16 @@ export const AccountingManagementView: React.FC = () => {
 
           <div className="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs text-slate-300">
+              <table className="w-full text-start text-xs text-slate-300">
                 <thead className="bg-slate-950 text-slate-400 font-bold border-b border-slate-800 uppercase tracking-wider text-[10px]">
                   <tr>
                     <th className="p-4">{t.legacyUi.dateLabel}</th>
                     <th className="p-4">{t.legacyUi.entryNumber}</th>
                     <th className="p-4">{translateRawUi('Reference')}</th>
                     <th className="p-4">{translateRawUi('Description')}</th>
-                    <th className="p-4 text-right">{t.legacyUi.debitUsd}</th>
-                    <th className="p-4 text-right">{t.legacyUi.creditUsd}</th>
-                    <th className="p-4 text-right">{t.legacyUi.runningBalance}</th>
+                    <th className="p-4 text-end">{t.legacyUi.debitUsd}</th>
+                    <th className="p-4 text-end">{t.legacyUi.creditUsd}</th>
+                    <th className="p-4 text-end">{t.legacyUi.runningBalance}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60 font-medium">
@@ -946,13 +946,13 @@ export const AccountingManagementView: React.FC = () => {
                         <td className="p-4 font-mono font-bold text-emerald-400">{l.entryNumber}</td>
                         <td className="p-4 font-bold text-white">{l.reference || '-'}</td>
                         <td className="p-4 text-slate-300">{l.description}</td>
-                        <td className="p-4 text-right font-mono text-emerald-400">
+                        <td className="p-4 text-end font-mono text-emerald-400">
                           {l.debit > 0 ? `$${l.debit.toFixed(2)}` : '-'}
                         </td>
-                        <td className="p-4 text-right font-mono text-sky-400">
+                        <td className="p-4 text-end font-mono text-sky-400">
                           {l.credit > 0 ? `$${l.credit.toFixed(2)}` : '-'}
                         </td>
-                        <td className="p-4 text-right font-mono font-bold text-white">
+                        <td className="p-4 text-end font-mono font-bold text-white">
                           ${(l.runningBalance || 0).toFixed(2)}
                         </td>
                       </tr>
@@ -976,18 +976,18 @@ export const AccountingManagementView: React.FC = () => {
 
           <div className="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs text-slate-300">
+              <table className="w-full text-start text-xs text-slate-300">
                 <thead className="bg-slate-950 text-slate-400 font-bold border-b border-slate-800 uppercase tracking-wider text-[10px]">
                   <tr>
                     <th className="p-4">{t.legacyUi.invoiceNumber}</th>
                     <th className="p-4">{t.legacyUi.customerName}</th>
                     <th className="p-4">{t.legacyUi.issueDate}</th>
                     <th className="p-4">{t.legacyUi.dueDate}</th>
-                    <th className="p-4 text-right">{t.legacyUi.totalUsd}</th>
-                    <th className="p-4 text-right">{t.legacyUi.paidUsd}</th>
-                    <th className="p-4 text-right">{t.legacyUi.remainingUsd}</th>
+                    <th className="p-4 text-end">{t.legacyUi.totalUsd}</th>
+                    <th className="p-4 text-end">{t.legacyUi.paidUsd}</th>
+                    <th className="p-4 text-end">{t.legacyUi.remainingUsd}</th>
                     <th className="p-4">{translateRawUi('Status')}</th>
-                    <th className="p-4 text-right">{translateRawUi('Action')}</th>
+                    <th className="p-4 text-end">{translateRawUi('Action')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60 font-medium">
@@ -997,9 +997,9 @@ export const AccountingManagementView: React.FC = () => {
                       <td className="p-4 font-bold text-white">{r.customerName}</td>
                       <td className="p-4 text-slate-400">{r.issueDate}</td>
                       <td className="p-4 text-slate-400">{r.dueDate}</td>
-                      <td className="p-4 text-right font-mono text-white">${(r.totalAmount || 0).toFixed(2)}</td>
-                      <td className="p-4 text-right font-mono text-emerald-400">${(r.paidAmount || 0).toFixed(2)}</td>
-                      <td className="p-4 text-right font-mono font-bold text-rose-400">${(r.remainingBalance || 0).toFixed(2)}</td>
+                      <td className="p-4 text-end font-mono text-white">${(r.totalAmount || 0).toFixed(2)}</td>
+                      <td className="p-4 text-end font-mono text-emerald-400">${(r.paidAmount || 0).toFixed(2)}</td>
+                      <td className="p-4 text-end font-mono font-bold text-rose-400">${(r.remainingBalance || 0).toFixed(2)}</td>
                       <td className="p-4">
                         <span
                           className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
@@ -1013,7 +1013,7 @@ export const AccountingManagementView: React.FC = () => {
                           {r.status}
                         </span>
                       </td>
-                      <td className="p-4 text-right">
+                      <td className="p-4 text-end">
                         {r.remainingBalance > 0 && (
                           <button
                             onClick={() => {
@@ -1048,18 +1048,18 @@ export const AccountingManagementView: React.FC = () => {
 
           <div className="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs text-slate-300">
+              <table className="w-full text-start text-xs text-slate-300">
                 <thead className="bg-slate-950 text-slate-400 font-bold border-b border-slate-800 uppercase tracking-wider text-[10px]">
                   <tr>
                     <th className="p-4">{t.legacyUi.billNumber}</th>
                     <th className="p-4">{t.legacyUi.supplierName}</th>
                     <th className="p-4">{t.legacyUi.issueDate}</th>
                     <th className="p-4">{t.legacyUi.dueDate}</th>
-                    <th className="p-4 text-right">{t.legacyUi.totalUsd}</th>
-                    <th className="p-4 text-right">{t.legacyUi.paidUsd}</th>
-                    <th className="p-4 text-right">{t.legacyUi.remainingUsd}</th>
+                    <th className="p-4 text-end">{t.legacyUi.totalUsd}</th>
+                    <th className="p-4 text-end">{t.legacyUi.paidUsd}</th>
+                    <th className="p-4 text-end">{t.legacyUi.remainingUsd}</th>
                     <th className="p-4">{translateRawUi('Status')}</th>
-                    <th className="p-4 text-right">{translateRawUi('Action')}</th>
+                    <th className="p-4 text-end">{translateRawUi('Action')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60 font-medium">
@@ -1069,9 +1069,9 @@ export const AccountingManagementView: React.FC = () => {
                       <td className="p-4 font-bold text-white">{p.supplierName}</td>
                       <td className="p-4 text-slate-400">{p.issueDate}</td>
                       <td className="p-4 text-slate-400">{p.dueDate}</td>
-                      <td className="p-4 text-right font-mono text-white">${(p.totalAmount || 0).toFixed(2)}</td>
-                      <td className="p-4 text-right font-mono text-emerald-400">${(p.paidAmount || 0).toFixed(2)}</td>
-                      <td className="p-4 text-right font-mono font-bold text-rose-400">${(p.remainingBalance || 0).toFixed(2)}</td>
+                      <td className="p-4 text-end font-mono text-white">${(p.totalAmount || 0).toFixed(2)}</td>
+                      <td className="p-4 text-end font-mono text-emerald-400">${(p.paidAmount || 0).toFixed(2)}</td>
+                      <td className="p-4 text-end font-mono font-bold text-rose-400">${(p.remainingBalance || 0).toFixed(2)}</td>
                       <td className="p-4">
                         <span
                           className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
@@ -1085,7 +1085,7 @@ export const AccountingManagementView: React.FC = () => {
                           {p.status}
                         </span>
                       </td>
-                      <td className="p-4 text-right">
+                      <td className="p-4 text-end">
                         {p.remainingBalance > 0 && (
                           <button
                             onClick={() => {

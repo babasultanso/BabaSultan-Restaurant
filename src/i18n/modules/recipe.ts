@@ -3,7 +3,7 @@ export type RecipeLang = 'en' | 'ar' | 'so';
 export const recipeDict = {
   en: {
     title: 'Recipe & Ingredient Engine',
-    subtitle: 'Phase 16 • Food Costing, Unit Conversion & Auto Inventory Deduction',
+    subtitle: 'Food Costing, Unit Conversion & Auto Inventory Deduction',
     tabs: {
       recipes: 'Recipe Builder',
       ingredients: 'Ingredient Manager',
@@ -129,7 +129,7 @@ export const recipeDict = {
   },
   ar: {
     title: 'محرك الوصفات والمكونات',
-    subtitle: 'المرحلة 16 • تكلفة الأغذية، تحويل الوحدات والخصم الآلي للمخزون',
+    subtitle: 'تكلفة الأغذية، تحويل الوحدات والخصم الآلي للمخزون',
     tabs: {
       recipes: 'منشئ الوصفات',
       ingredients: 'إدارة المكونات',
@@ -255,7 +255,7 @@ export const recipeDict = {
   },
   so: {
     title: 'Mishiinka Cunto-kariyaha & Walxaha',
-    subtitle: 'Wajiga 16 • Qiimaynta Cuntada, Beddelidda Halbeegyada & Jarista Otomaatiga ah',
+    subtitle: 'Qiimaynta Cuntada, Beddelidda Halbeegyada & Jarista Otomaatiga ah',
     tabs: {
       recipes: 'Dhisaha Cunno-fariinta',
       ingredients: 'Maamulaha Walxaha',

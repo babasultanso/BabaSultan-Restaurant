@@ -512,7 +512,7 @@ export const RecipeBuilderView: React.FC<RecipeBuilderViewProps> = ({
                     <p className="text-sm font-black text-white">${calc.grossProfit.toFixed(2)}</p>
                   </div>
                   <div>
-                    <p className="text-[10px] text-slate-400 font-bold">{t.common.netProfit}</p>
+                    <p className="text-[10px] text-slate-400 font-bold">{t.common.netProfit} (Est.)</p>
                     <p className="text-sm font-black text-emerald-400">${calc.netProfit.toFixed(2)}</p>
                   </div>
                 </div>

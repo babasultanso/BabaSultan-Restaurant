@@ -1,4 +1,4 @@
-import { cert, initializeApp, getApps } from 'firebase-admin/app';
+import { cert, applicationDefault, initializeApp, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 import { getMessaging } from 'firebase-admin/messaging';
@@ -6,14 +6,6 @@ import firebaseConfig from '../firebase-applet-config.json';
 
 export function getFirebaseProjectId(): string {
   const isProduction = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
-  if (isProduction) {
-    const explicitProductionId = String(process.env.FIREBASE_PROJECT_ID || '').trim();
-    if (!explicitProductionId) {
-      throw new Error('FIREBASE_PROJECT_ID is required in production; refusing implicit project selection or bundled-project fallback.');
-    }
-    return explicitProductionId;
-  }
-
   const explicit =
     process.env.FIREBASE_PROJECT_ID ||
     process.env.GCLOUD_PROJECT ||
@@ -21,22 +13,27 @@ export function getFirebaseProjectId(): string {
     process.env.VITE_FIREBASE_PROJECT_ID;
 
   if (explicit && explicit.trim()) return explicit.trim();
-  return firebaseConfig.projectId;
+  if (isProduction) {
+    const explicitProductionId = process.env.FIREBASE_PROJECT_ID || process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT;
+    if (!explicitProductionId) {
+      throw new Error('FIREBASE_PROJECT_ID is required in production');
+    }
+    return explicitProductionId.trim();
+  }
+  return firebaseConfig.projectId || 'babasultan-restaurant';
 }
 
 export function getFirebaseApiKey(): string {
+  const explicit =
+    process.env.FIREBASE_API_KEY ||
+    process.env.VITE_FIREBASE_API_KEY;
+
+  if (explicit && explicit.trim()) return explicit.trim();
   const isProduction = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
   if (isProduction) {
-    const explicit = String(process.env.FIREBASE_API_KEY || '').trim();
-    if (!explicit) throw new Error('FIREBASE_API_KEY is required in production for REST auth fallback.');
-    return explicit;
+    throw new Error('FIREBASE_API_KEY is required in production for REST auth fallback.');
   }
-  return (
-    process.env.VITE_FIREBASE_API_KEY ||
-    process.env.FIREBASE_API_KEY ||
-    firebaseConfig.apiKey ||
-    ''
-  );
+  return firebaseConfig.apiKey || '';
 }
 
 export class InMemoryFirestoreMock {
@@ -267,12 +264,7 @@ function ensureAdminApp() {
   const clientEmail = String(process.env.FIREBASE_CLIENT_EMAIL || '').trim();
   const privateKey = String(process.env.FIREBASE_PRIVATE_KEY || '').replace(/\\n/g, '\n').trim();
 
-  if (isProduction && (!clientEmail || !privateKey)) {
-    throw new Error(
-      'Firebase Admin production credentials are incomplete: FIREBASE_CLIENT_EMAIL and FIREBASE_PRIVATE_KEY are required.'
-    );
-  }
-
+  // If explicit service account credentials are provided, use cert()
   if (clientEmail && privateKey) {
     return initializeApp({
       credential: cert({
@@ -284,17 +276,54 @@ function ensureAdminApp() {
     });
   }
 
-  // Development may still use local Google ADC when no explicit service
-  // account credentials are configured. Production never falls through here.
-  return initializeApp({ projectId });
+  // Check if running in a managed Google Cloud environment with Application Default Credentials (ADC)
+  // (Cloud Run sets K_SERVICE; Cloud Functions sets FUNCTION_TARGET; GAE sets GAE_ENV; or explicit GOOGLE_APPLICATION_CREDENTIALS)
+  const isGcpEnvironment = Boolean(
+    process.env.K_SERVICE ||
+    process.env.FUNCTION_TARGET ||
+    process.env.GAE_ENV ||
+    process.env.GOOGLE_APPLICATION_CREDENTIALS
+  );
+
+  if (isProduction && !isGcpEnvironment && (!clientEmail || !privateKey)) {
+    throw new Error(
+      'FATAL PRODUCTION CONFIGURATION ERROR: Firebase credentials missing. Production mode requires FIREBASE_CLIENT_EMAIL and FIREBASE_PRIVATE_KEY when running outside a Google Cloud managed environment (ADC).'
+    );
+  }
+
+  try {
+    // Use Application Default Credentials (ADC) on Google Cloud Run or dev environment
+    return initializeApp({
+      credential: applicationDefault(),
+      projectId: projectId || undefined
+    });
+  } catch (adcErr) {
+    if (isProduction && !isGcpEnvironment) {
+      throw new Error(`Production Firebase credentials missing. When running in production outside GCP ADC, FIREBASE_CLIENT_EMAIL and FIREBASE_PRIVATE_KEY must be provided: ${adcErr instanceof Error ? adcErr.message : String(adcErr)}`);
+    }
+    console.warn('Firebase Admin ADC initialization notice (dev fallback):', adcErr);
+    return initializeApp({
+      projectId: projectId || 'babasultan-restaurant'
+    });
+  }
 }
 
 export function getAdminDb(): any {
   if (process.env.VITEST === 'true' || process.env.NODE_ENV === 'test') {
     return inMemoryTestDb;
   }
-  ensureAdminApp();
-  return getFirestore();
+  const isProduction = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
+  try {
+    ensureAdminApp();
+    return getFirestore();
+  } catch (err) {
+    if (isProduction) {
+      console.error('FATAL PRODUCTION ERROR: In-memory fallback is strictly forbidden in production mode.', err);
+      throw new Error(`FATAL PRODUCTION ERROR: Firebase Firestore cannot be initialized in production. In-memory database fallback is rejected to prevent silent data loss: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    console.warn('Firebase Admin getFirestore fallback to in-memory store (DEVELOPMENT ONLY):', err);
+    return inMemoryTestDb;
+  }
 }
 
 export function getAdminAuth() {

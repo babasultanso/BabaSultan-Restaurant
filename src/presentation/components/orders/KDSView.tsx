@@ -15,7 +15,7 @@ import { KitchenRepositoryImpl } from '../../../data/repositories/KitchenReposit
 import { KitchenController } from '../../../controllers/KitchenController';
 import { kitchenService } from '../../../domain/services/kitchenService';
 import { kitchenAudioService, AudioState } from '../../../domain/services/kitchenAudioService';
-import { kdsDict, KitchenLang } from '../../../i18n';
+import { kdsDict, KitchenLang, formatNewOrdersQueueAlert } from '../../../i18n';
 import { translations } from '../../../i18n/translations';
 import { KitchenOrderDetailsModal } from '../kitchen/KitchenOrderDetailsModal';
 import { StationView } from '../kitchen/StationView';
@@ -104,7 +104,7 @@ export const KDSView: React.FC<KDSViewProps> = ({ orders }) => {
   const prevTicketIdsRef = React.useRef<Set<string>>(new Set());
   const isFirstLoadRef = React.useRef<boolean>(true);
 
-  const userBranch = userRecord?.branchId || (userRecord as any)?.branch;
+  const userBranch = userRecord?.branchId || userRecord?.branch;
   const userRoleStr = String(role || userRecord?.role || '').toLowerCase();
   const isHqUser = userRoleStr === 'owner' || (userRoleStr === 'admin' && (!userBranch || userBranch === 'all'));
 
@@ -160,12 +160,12 @@ export const KDSView: React.FC<KDSViewProps> = ({ orders }) => {
 
   // Filtered queue tickets
   const filteredQueueTickets = useMemo(() => {
-    const canonUserBranch = getCanonicalBranchId(userRecord?.branchId || (userRecord as any)?.branch);
+    const canonUserBranch = getCanonicalBranchId(userRecord?.branchId || userRecord?.branch);
     const isHq = role === 'Owner' || canonUserBranch === 'all' || !canonUserBranch;
 
     return activeDisplayTickets.filter((ticket) => {
       // P1-10: Strict branch-scoped display
-      const ticketBranch = getCanonicalBranchId((ticket as any).branchId);
+      const ticketBranch = getCanonicalBranchId(ticket.branchId);
       if (!isHq && canonUserBranch && ticketBranch && ticketBranch !== canonUserBranch) {
         return false;
       }
@@ -410,7 +410,7 @@ export const KDSView: React.FC<KDSViewProps> = ({ orders }) => {
                 {t.newOrderAlert}
               </p>
               <p className="text-xs text-amber-400/80">
-                {newOrderAlertCount} new order(s) arrived in the queue.
+                {formatNewOrdersQueueAlert(newOrderAlertCount, lang)}
               </p>
             </div>
           </div>
@@ -432,13 +432,13 @@ export const KDSView: React.FC<KDSViewProps> = ({ orders }) => {
             
             {/* Search input */}
             <div className="relative w-full md:w-80">
-              <Search className="w-4 h-4 absolute left-3.5 top-3.5 text-slate-500" />
+              <Search className="w-4 h-4 absolute start-3.5 top-3.5 text-slate-500" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder={t.searchPlaceholder}
-                className="w-full bg-slate-950 border border-slate-800 pl-10 pr-4 py-2.5 rounded-2xl text-xs font-medium text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 transition"
+                className="w-full bg-slate-950 border border-slate-800 ps-10 pe-4 py-2.5 rounded-2xl text-xs font-medium text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 transition"
               />
             </div>
 

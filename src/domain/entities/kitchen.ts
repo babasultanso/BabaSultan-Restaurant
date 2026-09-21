@@ -37,6 +37,7 @@ export interface KitchenTicket {
   completedAt?: string;
   assignedStaff?: string;
   notes?: string;
+  branchId?: string;
   createdAt: string;
   updatedAt: string;
 }

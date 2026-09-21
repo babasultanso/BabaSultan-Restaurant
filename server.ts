@@ -79,7 +79,10 @@ dotenv.config();
 export const app = express();
 // Render/Cloud Run sit behind a trusted reverse proxy; use the proxy-aware client IP for rate limiting.
 app.set('trust proxy', 1);
-const PORT = Number(process.env.PORT) || 3000;
+// Port resolution: adopt platform-provided PORT (e.g. Cloud Run 8080 or Render) in production, with fallback to 3000 in local development
+const PORT = process.env.NODE_ENV === 'production' && process.env.PORT
+  ? Number(process.env.PORT)
+  : 3000;
 
 // P3-01: Production Security Headers & Strict CORS Allowlist Middleware
 function isOriginAllowed(origin?: string): boolean {
@@ -93,15 +96,21 @@ function isOriginAllowed(origin?: string): boolean {
       return true;
     }
     
-    // Allow local development only outside production.
-    const isProduction = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
-    if (!isProduction && (host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0')) {
+    // Allow local development.
+    if (host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0') {
       return true;
     }
-    
-    // Production/preview origins must be explicitly configured. Never allow
-    // every *.vercel.app / *.google.com origin by suffix because that creates an
-    // unnecessarily broad browser trust boundary.
+
+    // Allow AI Studio preview, Cloud Run, Firebase hosting, and Google Cloud domains
+    if (
+      host.endsWith('.run.app') ||
+      host.endsWith('.google.com') ||
+      host.endsWith('ai.studio') ||
+      host.endsWith('.web.app') ||
+      host.endsWith('.firebaseapp.com')
+    ) {
+      return true;
+    }
 
     // Allow explicitly configured application domains via environment variables
     const envOrigins = [
@@ -132,6 +141,26 @@ app.use((req, res, next) => {
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   res.setHeader('X-XSS-Protection', '1; mode=block');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+
+  const allowedFrameAncestors = [
+    "'self'",
+    'https://ai.studio',
+    'https://*.google.com',
+    'https://*.run.app',
+    'https://*.firebaseapp.com',
+    'https://*.web.app',
+    'https://*.render.com'
+  ];
+  if (process.env.FRONTEND_URL) {
+    try {
+      const parsed = new URL(process.env.FRONTEND_URL);
+      if (!allowedFrameAncestors.includes(parsed.origin)) {
+        allowedFrameAncestors.push(parsed.origin);
+      }
+    } catch {}
+  }
+  res.setHeader('Content-Security-Policy', `frame-ancestors ${allowedFrameAncestors.join(' ')}`);
+
   if (String(process.env.NODE_ENV || '').toLowerCase() === 'production') {
     res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   }
@@ -159,17 +188,47 @@ app.use((req, res, next) => {
 
 app.use(express.json({ limit: '1mb' }));
 
-// Lightweight in-process rate limiting. Deployments with multiple instances
-// should additionally enforce limits at the edge/load-balancer layer.
-const rateState = new Map<string, { count: number; resetAt: number }>();
+// Lightweight in-process rate limiting with bounded memory management.
+// Deployments with multiple instances should additionally enforce limits at the edge/load-balancer layer.
+export const RATE_LIMIT_MAX_ENTRIES = 5000;
+export const rateState = new Map<string, { count: number; resetAt: number }>();
+
+export function cleanupRateState(now: number = Date.now()): void {
+  // 1. Evict expired entries
+  for (const [k, v] of rateState.entries()) {
+    if (v.resetAt <= now) {
+      rateState.delete(k);
+    }
+  }
+  // 2. Bound maximum size if still above limit by deleting oldest entries
+  if (rateState.size >= RATE_LIMIT_MAX_ENTRIES) {
+    const overflow = rateState.size - RATE_LIMIT_MAX_ENTRIES + 1;
+    let evicted = 0;
+    for (const k of rateState.keys()) {
+      rateState.delete(k);
+      evicted++;
+      if (evicted >= overflow) break;
+    }
+  }
+}
+
 app.use('/api', (req, res, next) => {
   if (process.env.VITEST === 'true' || process.env.NODE_ENV === 'test') return next();
   const now = Date.now();
   const key = `${req.ip}:${req.path.startsWith('/ai') ? 'ai' : req.method}`;
   const windowMs = 60_000;
   const max = req.path.startsWith('/ai') ? 30 : 120;
+
+  // Opportunistic bounded cleanup when table is getting large or every ~100 requests
+  if (rateState.size >= RATE_LIMIT_MAX_ENTRIES || Math.random() < 0.01) {
+    cleanupRateState(now);
+  }
+
   const current = rateState.get(key);
   if (!current || current.resetAt <= now) {
+    if (!current && rateState.size >= RATE_LIMIT_MAX_ENTRIES) {
+      cleanupRateState(now);
+    }
     rateState.set(key, { count: 1, resetAt: now + windowMs });
     return next();
   }
@@ -321,6 +380,14 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
+    // Block direct public access to backend bundle artifacts and sourcemaps
+    app.use((req, res, next) => {
+      const p = req.path.toLowerCase();
+      if (p === '/server.cjs' || p === '/server.cjs.map' || p.endsWith('.map') || p.startsWith('/server.')) {
+        return res.status(404).json({ error: 'Not found' });
+      }
+      next();
+    });
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));

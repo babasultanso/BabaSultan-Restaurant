@@ -25,6 +25,7 @@ import {
   FileText,
 } from 'lucide-react';
 import { downloadPDFReport, exportToExcel, printReportWindow } from '../../lib/reports';
+import { matchesBranch } from '../../lib/multiBranchService';
 
 interface ReportsViewProps {
   orders: Order[];
@@ -60,7 +61,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
   useEffect(() => {
     const userRoleStr = (userRecord?.role || role || '').toLowerCase().trim();
     const isHqUser = userRoleStr === 'owner' || (userRoleStr === 'admin' && (!userRecord?.branchId || userRecord?.branchId === 'all'));
-    const userBranch = userRecord?.branchId || (userRecord as any)?.branch;
+    const userBranch = userRecord?.branchId || userRecord?.branch;
     const isBranchScoped = !isHqUser && Boolean(userBranch) && userBranch !== 'all';
 
     const buildBranchQuery = (collectionName: string) => {
@@ -189,10 +190,15 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
   const availableBranches = useMemo(() => {
     const set = new Set<string>();
     orders.forEach((o) => {
-      if (o.branch) set.add(o.branch);
+      const b = o.branch || o.branchName || o.branchId;
+      if (b) set.add(b);
+    });
+    expenses.forEach((e) => {
+      const b = e.branch || e.branchName || e.branchId;
+      if (b) set.add(b);
     });
     return Array.from(set);
-  }, [orders]);
+  }, [orders, expenses]);
 
   const availableEmployees = useMemo(() => {
     return employees.map((e) => ({ id: e.id, name: e.name }));
@@ -219,8 +225,14 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
       if (filters.startDate && orderDate < filters.startDate) return false;
       if (filters.endDate && orderDate > filters.endDate) return false;
 
-      // Branch filter
-      if (filters.branch !== 'all' && o.branch && o.branch !== filters.branch) return false;
+      // Branch filter (canonical matching)
+      if (filters.branch !== 'all') {
+        const orderBranchId = o.branchId;
+        const orderBranchName = o.branch || o.branchName;
+        if (!matchesBranch(orderBranchId, orderBranchName, filters.branch, filters.branch)) {
+          return false;
+        }
+      }
 
       // Employee filter
       if (
@@ -254,6 +266,16 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
       const expDate = (e.createdAt || '').split('T')[0];
       if (filters.startDate && expDate < filters.startDate) return false;
       if (filters.endDate && expDate > filters.endDate) return false;
+
+      // Branch filter (canonical matching)
+      if (filters.branch !== 'all') {
+        const expBranchId = e.branchId;
+        const expBranchName = e.branch || (e as any).branchName;
+        if (!matchesBranch(expBranchId, expBranchName, filters.branch, filters.branch)) {
+          return false;
+        }
+      }
+
       return true;
     });
   }, [expenses, filters]);

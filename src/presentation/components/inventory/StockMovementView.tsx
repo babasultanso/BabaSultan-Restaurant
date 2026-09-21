@@ -153,7 +153,7 @@ export const StockMovementView: React.FC<StockMovementViewProps> = ({
       {/* Movement History Table */}
       <div className="bg-slate-900 border border-slate-800 rounded-3xl shadow-xl overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
+          <table className="w-full text-start text-xs">
             <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] font-extrabold tracking-wider border-b border-slate-800">
               <tr>
                 <th className="p-4">{translateRawUi('Type')}</th>
@@ -162,7 +162,7 @@ export const StockMovementView: React.FC<StockMovementViewProps> = ({
                 <th className="p-4 text-center">{t.legacyUi.prevNewQty}</th>
                 <th className="p-4">{t.legacyUi.reasonLocations}</th>
                 <th className="p-4">{t.legacyUi.recordedBy}</th>
-                <th className="p-4 text-right">{translateRawUi('Timestamp')}</th>
+                <th className="p-4 text-end">{translateRawUi('Timestamp')}</th>
               </tr>
             </thead>
 
@@ -245,7 +245,7 @@ export const StockMovementView: React.FC<StockMovementViewProps> = ({
                       <td className="p-4 text-slate-400 font-semibold">{m.createdBy || 'System'}</td>
 
                       {/* Timestamp */}
-                      <td className="p-4 text-right font-mono text-slate-500 text-[11px]">
+                      <td className="p-4 text-end font-mono text-slate-500 text-[11px]">
                         {new Date(m.createdAt).toLocaleString()}
                       </td>
 
@@ -292,7 +292,7 @@ export const StockMovementView: React.FC<StockMovementViewProps> = ({
                 <label className="block text-slate-400 font-bold mb-1">{t.legacyUi.movementTypeRequired}</label>
                 <select
                   value={movType}
-                  onChange={(e) => setMovType(e.target.value as any)}
+                  onChange={(e) => setMovType(e.target.value as 'stock_in' | 'stock_out' | 'adjustment' | 'transfer' | 'waste')}
                   className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-3 text-white focus:border-amber-500 focus:outline-none"
                 >
                   <option value="stock_in">{t.legacyUi.stockInPurchase}</option>

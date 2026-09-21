@@ -63,11 +63,14 @@ export class InventoryRepositoryImpl implements IInventoryRepository {
   async fetchInventoryItems(branchId?: string): Promise<InventoryItem[]> {
     try {
       const q = branchId && branchId !== 'all'
-        ? query(collection(db, COLLECTIONS.INVENTORY), where('branchId', '==', branchId), orderBy('itemName', 'asc'))
+        ? query(collection(db, COLLECTIONS.INVENTORY), where('branchId', '==', branchId))
         : query(collection(db, COLLECTIONS.INVENTORY), orderBy('itemName', 'asc'));
       const snap = await getDocs(q);
       const items: InventoryItem[] = [];
       snap.forEach((d) => items.push({ id: d.id, ...d.data() } as InventoryItem));
+      if (branchId && branchId !== 'all') {
+        items.sort((a, b) => String(a.itemName || '').localeCompare(String(b.itemName || '')));
+      }
       return items;
     } catch (err) {
       handleFirestoreError(err, OperationType.LIST, COLLECTIONS.INVENTORY);
@@ -77,13 +80,16 @@ export class InventoryRepositoryImpl implements IInventoryRepository {
 
   subscribeInventoryItems(callback: (items: InventoryItem[]) => void, branchId?: string): () => void {
     const q = branchId && branchId !== 'all'
-      ? query(collection(db, COLLECTIONS.INVENTORY), where('branchId', '==', branchId), orderBy('itemName', 'asc'))
+      ? query(collection(db, COLLECTIONS.INVENTORY), where('branchId', '==', branchId))
       : query(collection(db, COLLECTIONS.INVENTORY), orderBy('itemName', 'asc'));
     return onSnapshot(
       q,
       (snap) => {
         const items: InventoryItem[] = [];
         snap.forEach((d) => items.push({ id: d.id, ...d.data() } as InventoryItem));
+        if (branchId && branchId !== 'all') {
+          items.sort((a, b) => String(a.itemName || '').localeCompare(String(b.itemName || '')));
+        }
         callback(items);
       },
       (err) => {
@@ -187,13 +193,16 @@ export class InventoryRepositoryImpl implements IInventoryRepository {
 
   subscribeMovements(callback: (movements: InventoryMovement[]) => void, branchId?: string): () => void {
     const q = branchId && branchId !== 'all'
-      ? query(collection(db, COLLECTIONS.INVENTORY_MOVEMENTS), where('branchId', '==', branchId), orderBy('createdAt', 'desc'))
+      ? query(collection(db, COLLECTIONS.INVENTORY_MOVEMENTS), where('branchId', '==', branchId))
       : query(collection(db, COLLECTIONS.INVENTORY_MOVEMENTS), orderBy('createdAt', 'desc'));
     return onSnapshot(
       q,
       (snap) => {
         const list: InventoryMovement[] = [];
         snap.forEach((d) => list.push({ id: d.id, ...d.data() } as InventoryMovement));
+        if (branchId && branchId !== 'all') {
+          list.sort((a, b) => new Date(String(b.createdAt || 0)).getTime() - new Date(String(a.createdAt || 0)).getTime());
+        }
         callback(list);
       },
       (err) => handleFirestoreError(err, OperationType.GET, COLLECTIONS.INVENTORY_MOVEMENTS)
@@ -354,7 +363,7 @@ export class InventoryRepositoryImpl implements IInventoryRepository {
       snap.forEach((d) => {
         const data = d.data();
         const name = String(data.companyName ?? data.name ?? '').trim();
-        list.push({ id: d.id, ...data, name, companyName: name } as Supplier);
+        list.push({ id: d.id, ...data, name, companyName: name } as unknown as Supplier);
       });
       list.sort((a, b) => String(a.companyName ?? a.name ?? '').localeCompare(String(b.companyName ?? b.name ?? '')));
       return list;
@@ -375,7 +384,7 @@ export class InventoryRepositoryImpl implements IInventoryRepository {
         snap.forEach((d) => {
           const data = d.data();
           const name = String(data.companyName ?? data.name ?? '').trim();
-          list.push({ id: d.id, ...data, name, companyName: name } as Supplier);
+          list.push({ id: d.id, ...data, name, companyName: name } as unknown as Supplier);
         });
         list.sort((a, b) => String(a.companyName ?? a.name ?? '').localeCompare(String(b.companyName ?? b.name ?? '')));
         callback(list);

@@ -38,6 +38,9 @@ export function areBranchesMatching(b1?: string | null, b2?: string | null): boo
   const c2 = getCanonicalBranchId(b2);
   if (!c1 || !c2) return false;
   if (c1 === c2) return true;
+  const s1 = c1.toLowerCase().replace(/_/g, '-');
+  const s2 = c2.toLowerCase().replace(/_/g, '-');
+  if (s1 === s2) return true;
   const isHQ1 = c1 === 'branch_hq_01' || c1 === 'main_branch_01' || c1 === 'hq-mog-01';
   const isHQ2 = c2 === 'branch_hq_01' || c2 === 'main_branch_01' || c2 === 'hq-mog-01';
   if (isHQ1 && isHQ2) return true;

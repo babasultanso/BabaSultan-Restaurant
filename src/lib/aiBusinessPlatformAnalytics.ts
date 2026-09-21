@@ -1,4 +1,4 @@
-import { getMogadishuHour } from './dateUtils';
+import { getMogadishuHour, getMogadishuDateString } from './dateUtils';
 import { 
   Order, 
   Product, 
@@ -18,7 +18,6 @@ import {
   BankTransaction,
   Customer
 } from '../types';
-import { getMogadishuDateString } from './dateUtils';
 
 export interface AIPlatformDataPackage {
   orders: Order[];
@@ -75,7 +74,7 @@ export function calculateAIBusinessPlatformAnalytics(data: AIPlatformDataPackage
 
   // 1. REVENUE, PROFIT & EXPENSES
   const completedOrders = orders.filter(o => o.status === 'completed' || o.prepStatus === 'delivered');
-  const todayOrders = orders.filter(o => o.createdAt && o.createdAt.startsWith(todayStr));
+  const todayOrders = orders.filter(o => o.createdAt && (getMogadishuDateString(o.createdAt) === todayStr || o.createdAt.startsWith(todayStr)));
   const todayCompleted = todayOrders.filter(o => o.status === 'completed' || o.prepStatus === 'delivered');
 
   const totalRevenue = completedOrders.reduce((sum, o) => sum + o.totalAmount, 0);
@@ -85,7 +84,7 @@ export function calculateAIBusinessPlatformAnalytics(data: AIPlatformDataPackage
   const todayCOGS = todayCompleted.reduce((sum, o) => sum + (o.cogs || 0), 0);
 
   const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0) + salaries.reduce((sum, s) => sum + s.amount, 0);
-  const todayExpenses = expenses.filter(e => e.createdAt && e.createdAt.startsWith(todayStr)).reduce((sum, e) => sum + e.amount, 0);
+  const todayExpenses = expenses.filter(e => e.createdAt && (getMogadishuDateString(e.createdAt) === todayStr || e.createdAt.startsWith(todayStr))).reduce((sum, e) => sum + e.amount, 0);
 
   const grossProfit = totalRevenue - totalCOGS;
   const netProfit = grossProfit - totalExpenses;
@@ -278,7 +277,7 @@ export function calculateAIBusinessPlatformAnalytics(data: AIPlatformDataPackage
     });
   }
 
-  if (expenses.some(e => e.createdAt && e.createdAt.startsWith(todayStr) && e.amount > 300)) {
+  if (expenses.some(e => e.createdAt && (getMogadishuDateString(e.createdAt) === todayStr || e.createdAt.startsWith(todayStr)) && e.amount > 300)) {
     alerts.push({
       id: 'alt_exp_spike',
       type: 'expense_increase',

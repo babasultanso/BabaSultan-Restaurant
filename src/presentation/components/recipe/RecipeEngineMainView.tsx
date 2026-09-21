@@ -46,7 +46,7 @@ export const RecipeEngineMainView: React.FC<RecipeEngineMainViewProps> = ({
 }) => {
   const { language, setLanguage, userRecord, role } = useAuth();
   const effectiveRole = String(role || userRecord?.role || '').toLowerCase().trim();
-  const rawUserBranch = userRecord?.branchId || (userRecord as any)?.branch;
+  const rawUserBranch = userRecord?.branchId || userRecord?.branch;
   const isHqUser = effectiveRole === 'owner' || (effectiveRole === 'admin' && (!rawUserBranch || rawUserBranch === 'all'));
   const effectiveBranchId = isHqUser ? undefined : rawUserBranch;
 
@@ -131,7 +131,7 @@ export const RecipeEngineMainView: React.FC<RecipeEngineMainViewProps> = ({
           <div>
             <div className="flex items-center gap-2 mb-1">
               <span className="px-3 py-1 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[10px] font-black tracking-widest uppercase">
-                {translateRawUi('PHASE 16 ENGINE')}
+                {translateRawUi('RECIPE ENGINE')}
               </span>
               <span className="px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-black uppercase">
                 {translateRawUi('AUTO DEDUCTION ACTIVE')}

@@ -85,7 +85,11 @@ export interface Recipe {
   foodCostPercentage: number; // (costPerPortion / sellingPrice) * 100
   grossProfit: number; // sellingPrice - costPerPortion
   grossProfitMargin: number; // (grossProfit / sellingPrice) * 100
-  netProfit: number;
+  estimatedOverhead?: number; // Operational heuristic estimate (15% of gross profit for menu engineering)
+  estimatedProfit?: number; // Estimated profit after heuristic overhead
+  estimatedNetProfit?: number; // Explicit menu engineering margin estimate: grossProfit - estimatedOverhead
+  overheadRateEstimated?: number; // Operational heuristic rate used (e.g. 0.15); not GAAP/IFRS accounting profit
+  netProfit: number; // Compatibility field: equals estimatedNetProfit (menu engineering heuristic)
   notes?: string;
   isActive: boolean;
   createdBy: string;

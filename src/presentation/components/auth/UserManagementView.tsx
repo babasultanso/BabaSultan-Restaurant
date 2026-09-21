@@ -1,10 +1,10 @@
 import { translateRawUi } from '../../../i18n/rawUi';
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { collection, onSnapshot, doc, setDoc, updateDoc } from 'firebase/firestore';
+import { collection, onSnapshot, doc, setDoc, updateDoc, getDoc } from 'firebase/firestore';
 import { db, COLLECTIONS, logActivityFirestore, updateUserRoleFirestore, updateUserStatusFirestore, getAuthToken, getApiUrl } from '../../../lib/firebase';
 import { USER_ROLES, UserRole } from '../../../constants';
-import { UserRecord, ActivityLog } from '../../../types';
+import { UserRecord, ActivityLog, Branch } from '../../../types';
 import { Users, UserPlus, Shield, Search, Filter, Mail, KeyRound, RefreshCw, CheckCircle2, AlertTriangle, UserCheck, Clock, Edit2 } from 'lucide-react';
 
 export const UserManagementView: React.FC = () => {
@@ -12,6 +12,7 @@ export const UserManagementView: React.FC = () => {
 
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
+  const [branches, setBranches] = useState<Branch[]>([]);
   const [activeTab, setActiveTab] = useState<'users' | 'activity'>('users');
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -44,6 +45,15 @@ export const UserManagementView: React.FC = () => {
         console.warn('Users listener error:', err);
       });
 
+      const unsubBranches = onSnapshot(collection(db, COLLECTIONS.BRANCHES), (snapshot) => {
+        const list = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Branch));
+        list.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+        setBranches(list);
+        setNewBranch((current) => current || list[0]?.id || '');
+      }, (err) => {
+        console.warn('Branches listener error:', err);
+      });
+
       const unsubLogs = onSnapshot(collection(db, COLLECTIONS.ACTIVITY_LOGS), (snapshot) => {
         const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ActivityLog));
         if (list.length > 0) {
@@ -54,6 +64,7 @@ export const UserManagementView: React.FC = () => {
 
       return () => {
         unsubUsers();
+        unsubBranches();
         unsubLogs();
       };
     } catch (e) {
@@ -106,6 +117,30 @@ export const UserManagementView: React.FC = () => {
     try {
       await updateUserRoleFirestore(selectedUser.uid, editRole, currentUser?.uid || 'admin');
       await updateUserStatusFirestore(selectedUser.uid, editStatus, currentUser?.uid || 'admin');
+
+      // Keep the branch master record synchronized with the user's Manager role.
+      // This fixes the live Branch card showing "Manager: Unassigned" after a Manager is provisioned.
+      const assignedBranchId = String(selectedUser.branchId || selectedUser.branch || '').trim();
+      if (assignedBranchId) {
+        const branchRef = doc(db, COLLECTIONS.BRANCHES, assignedBranchId);
+        const branchSnap = await getDoc(branchRef);
+        if (branchSnap.exists()) {
+          const branchData = branchSnap.data() || {};
+          if (String(editRole).toLowerCase() === 'manager') {
+            await updateDoc(branchRef, {
+              managerId: selectedUser.uid,
+              managerName: selectedUser.displayName || selectedUser.email || selectedUser.uid,
+              updatedAt: new Date().toISOString()
+            });
+          } else if (branchData.managerId === selectedUser.uid) {
+            await updateDoc(branchRef, {
+              managerId: null,
+              managerName: '',
+              updatedAt: new Date().toISOString()
+            });
+          }
+        }
+      }
       
       setSelectedUser(null);
       setToastMsg(t.userManagement.userUpdated);
@@ -202,13 +237,13 @@ export const UserManagementView: React.FC = () => {
           {/* Controls Bar */}
           <div className="bg-slate-900/80 border border-slate-800 p-4 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-3">
             <div className="relative w-full md:w-72">
-              <Search className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
+              <Search className="w-4 h-4 text-slate-500 absolute start-3 top-3" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder={t.userManagement.searchUsers}
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500/50"
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl ps-9 pe-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500/50"
               />
             </div>
 
@@ -244,7 +279,7 @@ export const UserManagementView: React.FC = () => {
           {/* Table */}
           <div className="bg-slate-900/80 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs text-slate-300">
+              <table className="w-full text-start text-xs text-slate-300">
                 <thead className="bg-slate-950 text-slate-400 font-bold uppercase tracking-wider text-[10px] border-b border-slate-800">
                   <tr>
                     <th className="p-4">{t.userManagement.userName}</th>
@@ -252,7 +287,7 @@ export const UserManagementView: React.FC = () => {
                     <th className="p-4">{t.userManagement.branchOffice}</th>
                     <th className="p-4">{t.userManagement.accountStatus}</th>
                     <th className="p-4">{t.userManagement.lastLogin}</th>
-                    <th className="p-4 text-right">{t.userManagement.actions}</th>
+                    <th className="p-4 text-end">{t.userManagement.actions}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60">
@@ -303,7 +338,7 @@ export const UserManagementView: React.FC = () => {
                           {u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleDateString() : 'Never'}
                         </td>
 
-                        <td className="p-4 text-right space-x-2">
+                        <td className="p-4 text-end space-x-2 rtl:space-x-reverse">
                           <button
                             onClick={() => {
                               setSelectedUser(u);
@@ -341,7 +376,7 @@ export const UserManagementView: React.FC = () => {
           </h2>
 
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs text-slate-300">
+            <table className="w-full text-start text-xs text-slate-300">
               <thead className="bg-slate-950 text-slate-400 font-bold uppercase tracking-wider text-[10px] border-b border-slate-800">
                 <tr>
                   <th className="p-3">{t.activityLogs.timestamp}</th>
@@ -452,13 +487,19 @@ export const UserManagementView: React.FC = () => {
                 <label className="block text-xs font-semibold text-slate-300 mb-1">
                   {t.userManagement.branchOffice}
                 </label>
-                <input
-                  type="text"
+                <select
                   value={newBranch}
                   onChange={(e) => setNewBranch(e.target.value)}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500/50"
                   required
-                />
+                >
+                  <option value="">{translateRawUi('Select Branch')}</option>
+                  {branches.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name} ({b.code})
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-2">
@@ -533,7 +574,7 @@ export const UserManagementView: React.FC = () => {
                 </label>
                 <select
                   value={editStatus}
-                  onChange={(e) => setEditStatus(e.target.value as any)}
+                  onChange={(e) => setEditStatus(e.target.value as 'active' | 'suspended' | 'pending')}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
                 >
                   <option value="active">{translateRawUi('Active')}</option>

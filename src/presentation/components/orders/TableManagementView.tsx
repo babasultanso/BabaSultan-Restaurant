@@ -46,15 +46,33 @@ export const TableManagementView: React.FC<TableManagementViewProps> = ({
   }, [currentBranchId]);
 
   const sections = ['all', 'indoor', 'terrace', 'vip', 'patio'];
+  const sectionLabelKeys: Record<string, string> = {
+    all: 'All',
+    indoor: 'Indoor',
+    terrace: 'Terrace',
+    vip: 'VIP',
+    patio: 'Patio'
+  };
 
   const filteredTables = tables.filter(
     t => selectedSection === 'all' || (t.section || '').toLowerCase() === (selectedSection || '').toLowerCase()
   );
 
   const handleToggleStatus = async (table: DiningTable) => {
-    const nextStatus = table.status === 'available' ? 'occupied' : 'available';
+    // Check if table has an active uncompleted order
+    const linkedOrder = orders.find(
+      o => (o.id === table.currentOrderId || o.tableNumber === table.tableNumber) &&
+           o.status !== 'completed' && o.status !== 'cancelled'
+    );
+
+    if (table.status === 'occupied' && linkedOrder && linkedOrder.paymentStatus !== 'paid') {
+      alert(`${translateRawUi('Cannot release or change table status while order')} #${linkedOrder.orderNumber} ${translateRawUi('is active and unpaid.')}`);
+      return;
+    }
+
+    const nextStatus = table.status === 'occupied' ? 'available' : 'occupied';
     try {
-      await updateTableStatusFirestore(table.tableNumber, nextStatus, undefined, currentBranchId);
+      await updateTableStatusFirestore(table.tableNumber, nextStatus, nextStatus === 'occupied' ? table.currentOrderId : undefined, currentBranchId);
       loadTables();
     } catch (err: any) {
       alert(`Failed to update table status: ${err.message}`);
@@ -88,7 +106,7 @@ export const TableManagementView: React.FC<TableManagementViewProps> = ({
                   : 'text-slate-400 hover:text-white'
               }`}
             >
-              {sec}
+              {translateRawUi(sectionLabelKeys[sec] || sec)}
             </button>
           ))}
         </div>
@@ -118,7 +136,7 @@ export const TableManagementView: React.FC<TableManagementViewProps> = ({
                 <div>
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-slate-800 text-slate-300">
-                      {tbl.section}
+                      {translateRawUi(sectionLabelKeys[tbl.section?.toLowerCase()] || tbl.section)}
                     </span>
                     <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${
                       isOccupied
@@ -127,7 +145,7 @@ export const TableManagementView: React.FC<TableManagementViewProps> = ({
                         ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
                         : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
                     }`}>
-                      {tbl.status}
+                      {translateRawUi(tbl.status)}
                     </span>
                   </div>
 
@@ -135,13 +153,13 @@ export const TableManagementView: React.FC<TableManagementViewProps> = ({
                     <h4 className="text-xl font-extrabold text-white">{tbl.tableNumber}</h4>
                     <div className="flex items-center justify-center gap-1 text-[11px] text-slate-400">
                       <Users className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>{tbl.capacity} Seats</span>
+                      <span>{tbl.capacity} {translateRawUi('Seats')}</span>
                     </div>
                   </div>
 
                   {linkedOrder && (
                     <div className="mt-2 bg-slate-950 p-2 rounded-2xl border border-slate-800 text-center text-xs">
-                      <span className="text-slate-400 text-[10px] block">Order #{linkedOrder.orderNumber}</span>
+                      <span className="text-slate-400 text-[10px] block">{translateRawUi('Order')} #{linkedOrder.orderNumber}</span>
                       <span className="font-extrabold text-emerald-400">${(linkedOrder.totalAmount || 0).toFixed(2)}</span>
                     </div>
                   )}
@@ -156,7 +174,7 @@ export const TableManagementView: React.FC<TableManagementViewProps> = ({
                         : 'bg-slate-800 hover:bg-slate-700 text-slate-200'
                     }`}
                   >
-                    {isOccupied ? 'Release Table' : 'Mark Occupied'}
+                    {isOccupied ? translateRawUi('Release Table') : translateRawUi('Mark Occupied')}
                   </button>
 
                   {isOccupied && linkedOrder && (
@@ -181,7 +199,7 @@ export const TableManagementView: React.FC<TableManagementViewProps> = ({
           <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-sm w-full p-6 space-y-4 shadow-2xl relative text-slate-100">
             <button
               onClick={() => setSplitModalTable(null)}
-              className="absolute right-4 top-4 text-slate-400 hover:text-white p-1 cursor-pointer"
+              className="absolute end-4 top-4 text-slate-400 hover:text-white p-1 cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
@@ -191,7 +209,7 @@ export const TableManagementView: React.FC<TableManagementViewProps> = ({
                 <Split className="w-5 h-5" />
               </div>
               <div>
-                <h4 className="text-base font-bold text-white">Split Bill — Table {splitModalTable.tableNumber}</h4>
+                <h4 className="text-base font-bold text-white">{translateRawUi('Split Bill')} — {translateRawUi('Table')} {splitModalTable.tableNumber}</h4>
                 <p className="text-xs text-slate-400">{t.legacyUi.calculateEqualGuestPayments}</p>
               </div>
             </div>
@@ -218,7 +236,7 @@ export const TableManagementView: React.FC<TableManagementViewProps> = ({
                         -
                       </button>
                       <span className="flex-1 text-center font-extrabold text-emerald-400 text-sm bg-slate-950 py-2 rounded-xl border border-slate-800">
-                        {splitCount} Guests
+                        {splitCount} {translateRawUi('Guests')}
                       </span>
                       <button
                         onClick={() => setSplitCount(c => c + 1)}

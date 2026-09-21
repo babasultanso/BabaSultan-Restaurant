@@ -3,6 +3,42 @@ import autoTableFunc from 'jspdf-autotable';
 import { Order, Expense, Product, Ingredient, Employee, Purchase, Supplier, CPAMetrics, CustomerRefund, BankTransaction, SalaryPayment } from '../types';
 
 import { employeeMonthlyPayrollEquivalent } from './payroll';
+export function getEmployeePayrollStatus(
+  employee: Employee,
+  salaries?: SalaryPayment[],
+  period?: string
+): 'PAID' | 'PARTIAL' | 'UNPAID' {
+  if (!salaries || salaries.length === 0) return 'UNPAID';
+
+  const currentPeriod = (period || new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })).trim().toLowerCase();
+
+  // Match employee by id or name
+  const matching = salaries.filter(s =>
+    Boolean((s.employeeId && employee.id && s.employeeId === employee.id) ||
+    (s.employeeName && employee.name && s.employeeName.trim().toLowerCase() === employee.name.trim().toLowerCase()))
+  );
+
+  if (matching.length === 0) return 'UNPAID';
+
+  // If there are records for the specific period, prioritize them; otherwise use matching records
+  const periodSpecific = matching.filter(s => s.period && s.period.trim().toLowerCase() === currentPeriod);
+  const relevantRecords = periodSpecific.length > 0 ? periodSpecific : matching;
+
+  const paidRecords = relevantRecords.filter(s => s.status === 'paid');
+  if (paidRecords.length === 0) return 'UNPAID';
+
+  const totalPaid = paidRecords.reduce((acc, s) => acc + (Number(s.amount) || 0), 0);
+  const expectedSalary = Number(employee.salary || 0);
+
+  if (expectedSalary > 0) {
+    if (totalPaid >= expectedSalary) return 'PAID';
+    if (totalPaid > 0) return 'PARTIAL';
+    return 'UNPAID';
+  }
+
+  return totalPaid > 0 ? 'PAID' : 'UNPAID';
+}
+
 export function downloadPDFReport(title: string, subtitle: string, dataSections: Array<{ heading: string; columns: string[]; rows: (string | number)[][] }>) {
   const doc = new jsPDF();
 
@@ -317,6 +353,7 @@ export function generateCPAReport(
     title = 'PAYROLL & SALARY REPORT';
     subtitle = 'Staff Remuneration & Disbursements';
 
+    const currentPeriod = new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
     sections.push({
       heading: 'Employee Salary Payments',
       columns: ['Employee Name', 'Role', 'Salary / Cycle ($)', 'Monthly Payroll Equivalent ($)', 'Period', 'Status'],
@@ -325,8 +362,8 @@ export function generateCPAReport(
         e.role,
         `$${Number(e.salary || 0).toFixed(2)} / ${(e.payFrequency || 'monthly').toUpperCase()}`,
         `$${employeeMonthlyPayrollEquivalent(e).toFixed(2)}`,
-        new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
-        'PAID'
+        currentPeriod,
+        getEmployeePayrollStatus(e, raw.salaries, currentPeriod)
       ])
     });
   } else if (type === 'tax') {

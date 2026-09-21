@@ -55,25 +55,28 @@ import {
 import { getApiUrl } from './apiConfig';
 export { getApiUrl };
 
-// Build active Firebase config using explicit environment values when supplied.
-// VITE_FIREBASE_PROJECT_ID is required for production builds.
-// Production builds must explicitly name their Firebase project to prevent a bundled
-// test configuration from silently becoming the production data source.
+// Build active Firebase config using explicit environment values when supplied,
+// falling back to defaultFirebaseConfig from firebase-applet-config.json.
 const env = (import.meta as any).env || {};
-const requiredProductionFirebaseEnv = [
-  'VITE_FIREBASE_PROJECT_ID',
-  'VITE_FIREBASE_API_KEY',
-  'VITE_FIREBASE_AUTH_DOMAIN',
-  'VITE_FIREBASE_STORAGE_BUCKET',
-  'VITE_FIREBASE_MESSAGING_SENDER_ID',
-  'VITE_FIREBASE_APP_ID'
-] as const;
+
 if (env.PROD) {
-  const missing = requiredProductionFirebaseEnv.filter((name) => !env[name] || String(env[name]).trim() === '');
-  if (missing.length > 0) {
-    throw new Error(`Missing required Firebase production configuration: ${missing.join(', ')}`);
+  const requiredKeys = [
+    'VITE_FIREBASE_PROJECT_ID',
+    'VITE_FIREBASE_API_KEY',
+    'VITE_FIREBASE_AUTH_DOMAIN',
+    'VITE_FIREBASE_STORAGE_BUCKET',
+    'VITE_FIREBASE_MESSAGING_SENDER_ID',
+    'VITE_FIREBASE_APP_ID'
+  ];
+  const missingKeys = requiredKeys.filter((k) => !env[k]);
+  if (!env.VITE_FIREBASE_PROJECT_ID) {
+    throw new Error('VITE_FIREBASE_PROJECT_ID is required for production builds.');
+  }
+  if (missingKeys.length > 0) {
+    throw new Error(`Missing required Firebase production configuration: ${missingKeys.join(', ')}`);
   }
 }
+
 const resolvedFirebaseConfig = {
   apiKey: env.VITE_FIREBASE_API_KEY || defaultFirebaseConfig.apiKey,
   authDomain: env.VITE_FIREBASE_AUTH_DOMAIN || defaultFirebaseConfig.authDomain,
@@ -152,24 +155,24 @@ export const COLLECTIONS = {
   FEEDBACKS: 'customer_feedbacks',
   EQUIPMENT: 'equipment_items',
 
-  // Phase 5 Collections
+  // Payments & Tables Collections
   PAYMENTS: 'payments',
   TABLES: 'dining_tables',
   HOLD_ORDERS: 'hold_orders',
 
-  // Phase 6 Collections
+  // Kitchen & Notifications Collections
   KITCHEN_ORDERS: 'kitchen_orders',
   KITCHEN_WASTE: 'kitchen_waste',
   NOTIFICATIONS: 'notifications',
   NOTIFICATION_TOKENS: 'notification_tokens',
 
-  // Phase 7 Collections
+  // Inventory & Purchasing Collections
   INVENTORY: 'inventory',
   PURCHASE_ORDERS: 'purchase_orders',
   PURCHASE_ITEMS: 'purchase_items',
   SUPPLIER_PAYMENTS: 'supplier_payments',
 
-  // Phase 8 CRM Collections
+  // Customer Loyalty & CRM Collections
   CUSTOMER_WALLETS: 'customer_wallets',
   WALLET_TRANSACTIONS: 'wallet_transactions',
   CUSTOMER_POINTS: 'customer_points',
@@ -177,7 +180,7 @@ export const COLLECTIONS = {
   CUSTOMER_COUPONS: 'customer_coupons',
   CUSTOMER_NOTIFICATIONS: 'customer_notifications',
 
-  // Phase 9 HRM Collections
+  // HRM & Staff Management Collections
   HRM_EMPLOYEES: 'employees',
   HRM_ATTENDANCE: 'employee_attendance',
   HRM_SHIFTS: 'shifts',
@@ -187,7 +190,7 @@ export const COLLECTIONS = {
   HRM_PERFORMANCE: 'performance',
   HRM_EMPLOYEE_NOTIFICATIONS: 'employee_notifications',
 
-  // Phase 10 Accounting Collections
+  // Accounting & Finance Collections
   JOURNAL_ENTRIES: 'journal_entries',
   JOURNAL_LINES: 'journal_lines',
   LEDGER: 'ledger',
@@ -198,7 +201,7 @@ export const COLLECTIONS = {
   TAXES: 'taxes',
   FINANCIAL_REPORTS: 'financial_reports',
 
-  // Phase 13 Multi-Branch Collections
+  // Multi-Branch Management Collections
   BRANCH_SETTINGS: 'branch_settings',
   BRANCH_TRANSFERS: 'branch_transfers',
   BRANCH_INVENTORY: 'branch_inventory',
@@ -206,7 +209,7 @@ export const COLLECTIONS = {
   EMPLOYEE_TRANSFERS: 'employee_transfers',
   CASH_TRANSFERS: 'cash_transfers',
 
-  // Phase 14 Delivery Management & Logistics Collections
+  // Delivery Management & Logistics Collections
   DRIVERS: 'drivers',
   DELIVERIES: 'deliveries',
   DELIVERY_TRACKING: 'delivery_tracking',
@@ -421,7 +424,7 @@ export async function resolveCustomerFeedbackFirestore(feedbackId: string) {
 }
 
 // ==========================================
-// Phase 2: User Management & Activity Logs
+// User Management & Activity Logs
 // ==========================================
 
 export async function logActivityFirestore(logData: { action: string; details?: string; [key: string]: any }) {
@@ -477,7 +480,7 @@ export async function updateUserStatusFirestore(uid: string, status: 'active' | 
 }
 
 // ==========================================
-// Phase 4: Product & Restaurant Menu Management
+// Product & Restaurant Menu Management
 // ==========================================
 
 let activeUserProfileContext: Partial<UserRecord> | null = null;

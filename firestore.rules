@@ -169,6 +169,11 @@ service cloud.firestore {
       allow write: if false; // Server-authoritative only via /api/bank-transactions
     }
 
+    match /transactions/{transactionId} {
+      allow read: if isManagementOrAccountant() && isUserBranch(resource.data.get('branchId', ''));
+      allow write: if false; // Server-authoritative only via trusted financial backend
+    }
+
     match /accounts/{accountId} {
       allow read: if isManagementOrAccountant() && (resource.data.get('branchId', '') == '' || isHQOrOwner() || isUserBranch(resource.data.get('branchId', '')));
       allow write: if false; // Server-authoritative only via trusted financial backend
@@ -401,6 +406,12 @@ service cloud.firestore {
     }
 
     match /dining_tables/{tableId} {
+      allow read: if isSignedIn() && isUserBranch(resource.data.get('branchId', ''));
+      allow create, update: if isPOSStaff() && isUserBranch(request.resource.data.get('branchId', ''));
+      allow delete: if isManagement() && isUserBranch(resource.data.get('branchId', ''));
+    }
+
+    match /tables/{tableId} {
       allow read: if isSignedIn() && isUserBranch(resource.data.get('branchId', ''));
       allow create, update: if isPOSStaff() && isUserBranch(request.resource.data.get('branchId', ''));
       allow delete: if isManagement() && isUserBranch(resource.data.get('branchId', ''));

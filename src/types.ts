@@ -84,6 +84,7 @@ export interface Order {
   notes?: string;
   branch?: string;
   branchId?: string;
+  branchName?: string;
   createdAt: string; // ISO String
   updatedAt?: string;
   completedAt?: string;
@@ -94,6 +95,11 @@ export interface Order {
   targetPrepTimeMinutes?: number;
   assignedChef?: string;
   assignedDriver?: string;
+  driverId?: string;
+  deliveryOrder?: {
+    driverId?: string;
+    status?: DeliveryStatus | 'in_transit' | string;
+  };
   deliveryTimeMinutes?: number;
   deliveryStatus?: DeliveryStatus | 'in_transit';
   rating?: number;
@@ -334,7 +340,11 @@ export interface Recipe {
   foodCostPercentage: number;
   grossProfit: number;
   grossProfitMargin: number;
-  netProfit: number;
+  estimatedOverhead?: number; // Operational heuristic estimate (15% of gross profit for menu engineering)
+  estimatedProfit?: number; // Estimated profit after heuristic overhead
+  estimatedNetProfit?: number; // Explicit menu engineering margin estimate: grossProfit - estimatedOverhead
+  overheadRateEstimated?: number; // Operational heuristic rate used (e.g. 0.15); not GAAP/IFRS accounting profit
+  netProfit: number; // Compatibility field: equals estimatedNetProfit (menu engineering heuristic)
   notes?: string;
   isActive: boolean;
   createdBy: string;
@@ -445,6 +455,7 @@ export interface Expense {
   description?: string;
   branchId?: string;
   branch?: string;
+  branchName?: string;
   createdBy: string;
   createdAt: string;
 }
@@ -461,6 +472,7 @@ export interface Purchase {
   status: 'completed' | 'pending' | 'overdue';
   branchId?: string;
   branch?: string;
+  branchName?: string;
   dueDate?: string;
   createdAt: string;
 }
@@ -536,6 +548,8 @@ export interface FinancialAccount {
   name: string;
   type: 'cash' | 'bank';
   balance: number;
+  code?: string;
+  accountType?: string;
   accountNumber?: string;
   updatedAt: string;
 }
@@ -639,11 +653,11 @@ export interface ActivityLog {
   userAgent?: string;
 }
 
-// Re-export Phase 7 Inventory Entities & Phase 8 Customer Entities
+// Inventory Entities & Customer Entities
 export * from './domain/entities/inventory';
 export * from './domain/entities/customer';
 
-// Phase 13 Multi-Branch Management Interfaces
+// Multi-Branch Management Interfaces
 export type BranchStatus = 'active' | 'inactive' | 'maintenance' | 'closed';
 export type BranchHierarchyType = 'head_office' | 'flagship' | 'standard' | 'express';
 
@@ -751,7 +765,7 @@ export interface BranchReportData {
   generatedAt: string;
 }
 
-// Phase 14 Delivery Management & Logistics Interfaces
+// Delivery Management & Logistics Interfaces
 
 export interface DeliveryOrder {
   id: string;
