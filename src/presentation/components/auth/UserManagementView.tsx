@@ -1,14 +1,23 @@
 import { translateRawUi } from '../../../i18n/rawUi';
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { collection, onSnapshot, doc, setDoc, updateDoc, getDoc } from 'firebase/firestore';
-import { db, COLLECTIONS, logActivityFirestore, updateUserRoleFirestore, updateUserStatusFirestore, getAuthToken, getApiUrl } from '../../../lib/firebase';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import { db, COLLECTIONS, getAuthToken, getApiUrl } from '../../../lib/firebase';
 import { USER_ROLES, UserRole } from '../../../constants';
 import { UserRecord, ActivityLog, Branch } from '../../../types';
 import { Users, UserPlus, Shield, Search, Filter, Mail, KeyRound, RefreshCw, CheckCircle2, AlertTriangle, UserCheck, Clock, Edit2 } from 'lucide-react';
 
 export const UserManagementView: React.FC = () => {
-  const { user: currentUser, role: currentRole, t, sendPasswordReset } = useAuth();
+  const { user: currentUser, userRecord, role: currentRole, t, sendPasswordReset } = useAuth();
+  const normalizedRole = String(currentRole || '').toLowerCase();
+  const isOwnerUser = normalizedRole === 'owner';
+  const isHqUser = isOwnerUser || (normalizedRole === 'admin' && (userRecord?.isHQ === true || userRecord?.branchId === 'all'));
+  const currentBranchId = String(userRecord?.branchId || userRecord?.branch || '').trim();
+  const assignableRoles: UserRole[] = isOwnerUser
+    ? ['Owner', 'Admin', 'Manager', 'Accountant', 'Cashier', 'Kitchen', 'Waiter', 'Delivery Driver']
+    : isHqUser
+      ? ['Manager', 'Accountant', 'Cashier', 'Kitchen', 'Waiter', 'Delivery Driver']
+      : ['Manager', 'Accountant', 'Cashier', 'Kitchen', 'Waiter', 'Delivery Driver'];
 
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
@@ -36,41 +45,39 @@ export const UserManagementView: React.FC = () => {
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
   useEffect(() => {
-    // Listen to live users from Firestore
     try {
-      const unsubUsers = onSnapshot(collection(db, COLLECTIONS.USERS), (snapshot) => {
+      const usersQuery = currentBranchId && !isHqUser
+        ? query(collection(db, COLLECTIONS.USERS), where('branchId', '==', currentBranchId))
+        : collection(db, COLLECTIONS.USERS);
+      const logsQuery = currentBranchId && !isHqUser
+        ? query(collection(db, COLLECTIONS.ACTIVITY_LOGS), where('branchId', '==', currentBranchId))
+        : collection(db, COLLECTIONS.ACTIVITY_LOGS);
+
+      const unsubUsers = onSnapshot(usersQuery, (snapshot) => {
         const list = snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserRecord));
         setUsers(list);
-      }, (err) => {
-        console.warn('Users listener error:', err);
-      });
+      }, (err) => console.warn('Users listener error:', err));
 
       const unsubBranches = onSnapshot(collection(db, COLLECTIONS.BRANCHES), (snapshot) => {
-        const list = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Branch));
-        list.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+        const list = snapshot.docs
+          .map(d => ({ id: d.id, ...d.data() } as Branch))
+          .filter((b) => isHqUser || b.id === currentBranchId)
+          .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
         setBranches(list);
         setNewBranch((current) => current || list[0]?.id || '');
-      }, (err) => {
-        console.warn('Branches listener error:', err);
-      });
+      }, (err) => console.warn('Branches listener error:', err));
 
-      const unsubLogs = onSnapshot(collection(db, COLLECTIONS.ACTIVITY_LOGS), (snapshot) => {
+      const unsubLogs = onSnapshot(logsQuery, (snapshot) => {
         const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ActivityLog));
-        if (list.length > 0) {
-          list.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-          setActivityLogs(list);
-        }
+        list.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+        setActivityLogs(list);
       }, (err) => console.warn('Activity logs listener error:', err));
 
-      return () => {
-        unsubUsers();
-        unsubBranches();
-        unsubLogs();
-      };
+      return () => { unsubUsers(); unsubBranches(); unsubLogs(); };
     } catch (e) {
       console.warn('UserManagement listeners error:', e);
     }
-  }, []);
+  }, [currentBranchId, isHqUser]);
 
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -101,7 +108,13 @@ export const UserManagementView: React.FC = () => {
       setShowAddUserModal(false);
       setNewName('');
       setNewEmail('');
-      setToastMsg(t.userManagement.userCreated);
+      try {
+        await sendPasswordReset(newEmail.trim());
+        setToastMsg(t.userManagement.userCreated);
+      } catch (resetErr: any) {
+        setToastMsg(`${t.userManagement.userCreated}. ${translateRawUi('Password reset email could not be sent; trigger it from the user row.')}`);
+        console.warn('Post-provision password reset warning:', resetErr);
+      }
       setTimeout(() => setToastMsg(null), 4000);
     } catch (err: any) {
       alert(err.message || 'Failed to create user');
@@ -112,36 +125,27 @@ export const UserManagementView: React.FC = () => {
 
   const handleUpdateUser = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedUser) return;
+    if (!selectedUser || selectedUser.uid === currentUser?.uid) return;
     setUpdatingUser(true);
     try {
-      await updateUserRoleFirestore(selectedUser.uid, editRole, currentUser?.uid || 'admin');
-      await updateUserStatusFirestore(selectedUser.uid, editStatus, currentUser?.uid || 'admin');
-
-      // Keep the branch master record synchronized with the user's Manager role.
-      // This fixes the live Branch card showing "Manager: Unassigned" after a Manager is provisioned.
-      const assignedBranchId = String(selectedUser.branchId || selectedUser.branch || '').trim();
-      if (assignedBranchId) {
-        const branchRef = doc(db, COLLECTIONS.BRANCHES, assignedBranchId);
-        const branchSnap = await getDoc(branchRef);
-        if (branchSnap.exists()) {
-          const branchData = branchSnap.data() || {};
-          if (String(editRole).toLowerCase() === 'manager') {
-            await updateDoc(branchRef, {
-              managerId: selectedUser.uid,
-              managerName: selectedUser.displayName || selectedUser.email || selectedUser.uid,
-              updatedAt: new Date().toISOString()
-            });
-          } else if (branchData.managerId === selectedUser.uid) {
-            await updateDoc(branchRef, {
-              managerId: null,
-              managerName: '',
-              updatedAt: new Date().toISOString()
-            });
-          }
-        }
-      }
-      
+      const token = await getAuthToken();
+      const idempotencyKey = `admin-user-update-${selectedUser.uid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const res = await fetch(getApiUrl('/api/users/admin-update'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': idempotencyKey,
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({
+          uid: selectedUser.uid,
+          role: editRole,
+          status: editStatus,
+          idempotencyKey
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `Failed to update user: HTTP ${res.status}`);
       setSelectedUser(null);
       setToastMsg(t.userManagement.userUpdated);
       setTimeout(() => setToastMsg(null), 4000);
@@ -196,6 +200,7 @@ export const UserManagementView: React.FC = () => {
         <div className="flex items-center gap-2">
           <button
             onClick={() => setShowAddUserModal(true)}
+            disabled={!isOwnerUser && !isHqUser}
             className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-4 py-2.5 rounded-xl text-xs transition flex items-center gap-2 shadow-lg shadow-emerald-950/40 cursor-pointer"
           >
             <UserPlus className="w-4 h-4" />
@@ -257,7 +262,7 @@ export const UserManagementView: React.FC = () => {
                 className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-300 focus:outline-none"
               >
                 <option value="all">{t.legacyUi.allRoles}</option>
-                {Object.values(USER_ROLES).map(r => (
+                {assignableRoles.map(r => (
                   <option key={r} value={r}>{t.roles[r as keyof typeof t.roles] || r}</option>
                 ))}
               </select>
@@ -477,7 +482,7 @@ export const UserManagementView: React.FC = () => {
                   onChange={(e) => setNewRole(e.target.value as UserRole)}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
                 >
-                  {Object.values(USER_ROLES).map(r => (
+                  {assignableRoles.map(r => (
                     <option key={r} value={r}>{t.roles[r as keyof typeof t.roles] || r}</option>
                   ))}
                 </select>
@@ -512,7 +517,7 @@ export const UserManagementView: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  disabled={creatingUser}
+                  disabled={creatingUser || (!isOwnerUser && !isHqUser)}
                   className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold flex items-center gap-2 cursor-pointer"
                 >
                   {creatingUser ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : t.actions.save}
@@ -562,7 +567,7 @@ export const UserManagementView: React.FC = () => {
                   onChange={(e) => setEditRole(e.target.value as UserRole)}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
                 >
-                  {Object.values(USER_ROLES).map(r => (
+                  {assignableRoles.map(r => (
                     <option key={r} value={r}>{t.roles[r as keyof typeof t.roles] || r}</option>
                   ))}
                 </select>

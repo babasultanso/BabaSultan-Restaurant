@@ -96,7 +96,7 @@ function ERPAppContent() {
   // 1. Subscribe to Firestore Collections in Real-Time
   useEffect(() => {
     const userRoleStr = (userRecord?.role || '').toLowerCase().trim();
-    const isHqUser = userRoleStr === 'owner' || (userRoleStr === 'admin' && (!userRecord?.branchId || userRecord?.branchId === 'all'));
+    const isHqUser = userRoleStr === 'owner' || (userRoleStr === 'admin' && (userRecord?.isHQ === true || !userRecord?.branchId || userRecord?.branchId === 'all'));
     const userBranch = userRecord?.branchId || userRecord?.branch;
     const isBranchScoped = !isHqUser && Boolean(userBranch) && userBranch !== 'all';
 

@@ -66,6 +66,7 @@ import {
   handleUpdateCoupon,
   handleDeleteCoupon,
   handleAdminCreateUser,
+  handleAdminUpdateUser,
   handleInitialSetup,
   handleGetBranchSettings,
   handleUpdateBranchSettings,
@@ -105,7 +106,7 @@ function isOriginAllowed(origin?: string): boolean {
     if (
       host.endsWith('.run.app') ||
       host.endsWith('.google.com') ||
-      host.endsWith('ai.studio') ||
+      host === 'ai.studio' || host.endsWith('.ai.studio') ||
       host.endsWith('.web.app') ||
       host.endsWith('.firebaseapp.com')
     ) {
@@ -332,6 +333,7 @@ app.delete('/api/crm/coupons/:id', handleDeleteCoupon);
 
 // User Management API Routes
 app.post('/api/users/admin-create', handleAdminCreateUser);
+app.post('/api/users/admin-update', handleAdminUpdateUser);
 app.post('/api/setup/initial', handleInitialSetup);
 app.get('/api/settings/branch', handleGetBranchSettings);
 app.put('/api/settings/branch', handleUpdateBranchSettings);

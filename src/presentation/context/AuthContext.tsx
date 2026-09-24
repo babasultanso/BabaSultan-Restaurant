@@ -18,7 +18,7 @@ import {
   signInAnonymously
 } from 'firebase/auth';
 import { collection, doc, getDoc, getDocs, setDoc } from 'firebase/firestore';
-import { auth, db, COLLECTIONS, logActivityFirestore, upsertUserRecordFirestore, setActiveUserProfileContext } from '../../lib/firebase';
+import { auth, db, COLLECTIONS, logActivityFirestore, setActiveUserProfileContext } from '../../lib/firebase';
 import { UserRole, ROLE_PERMISSIONS, RolePermission, SupportedLanguage, LANGUAGES } from '../../constants';
 import { translations, TranslationDictionary } from '../../i18n/translations';
 import { UserRecord, ActivityLog } from '../../types';
@@ -171,8 +171,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       emailVerified: firebaseUser.emailVerified
     };
 
+    // Only write non-security session metadata from the client. Branch assignment
+    // is security-sensitive and remains server/admin controlled.
     await setDoc(userDocRef, {
-      branchId: resolvedBranchId,
       lastLoginAt: updatedRecord.lastLoginAt,
       emailVerified: firebaseUser.emailVerified
     }, { merge: true });

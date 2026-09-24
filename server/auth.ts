@@ -205,7 +205,7 @@ export async function authenticateTrustedUser(
 export function isHQRoleOrClaim(user: { role: string; branchId?: string; isOwner?: boolean; isHQ?: boolean; isAdmin?: boolean }): boolean {
   const normRole = (user.role || '').trim();
   const isOwner = ['Owner', 'owner'].includes(normRole) || user.isOwner === true;
-  const isHQAdmin = (['Admin', 'admin'].includes(normRole) || user.isAdmin === true) && user.isHQ === true;
+  const isHQAdmin = (['Admin', 'admin'].includes(normRole) || user.isAdmin === true) && (user.isHQ === true || user.branchId === 'all');
   return isOwner || isHQAdmin;
 }
 

@@ -7,7 +7,7 @@ import {
   where,
   orderBy
 } from 'firebase/firestore';
-import { db, COLLECTIONS, addExpenseFirestore, getAuthToken, getEffectiveBranchId } from '../../lib/firebase';
+import { db, COLLECTIONS, addExpenseFirestore, getAuthToken, getEffectiveBranchId, getEffectiveBranchScope } from '../../lib/firebase';
 import { getMogadishuDateString } from '../../lib/dateUtils';
 import {
   Account,
@@ -56,7 +56,7 @@ export class AccountingRepositoryImpl implements IAccountingRepository {
   // --- CHART OF ACCOUNTS ---
   async getAccounts(): Promise<Account[]> {
     try {
-      const branchId = getEffectiveBranchId();
+      const branchId = getEffectiveBranchScope();
       const q = branchId === 'all'
         ? collection(db, COLLECTIONS.ACCOUNTS)
         : query(collection(db, COLLECTIONS.ACCOUNTS), where('branchId', '==', branchId));
@@ -88,8 +88,9 @@ export class AccountingRepositoryImpl implements IAccountingRepository {
   // --- JOURNAL ENTRIES & LEDGER ---
   async getJournalEntries(branchId?: string): Promise<JournalEntry[]> {
     try {
-      const q = branchId && branchId !== 'all'
-        ? query(collection(db, COLLECTIONS.JOURNAL_ENTRIES), where('branchId', '==', branchId))
+      const effectiveBranch = branchId || getEffectiveBranchScope();
+      const q = effectiveBranch && effectiveBranch !== 'all'
+        ? query(collection(db, COLLECTIONS.JOURNAL_ENTRIES), where('branchId', '==', effectiveBranch))
         : query(collection(db, COLLECTIONS.JOURNAL_ENTRIES));
       const snap = await getDocs(q);
       return snap.docs.map(d => ({ id: d.id, ...d.data() } as JournalEntry));
@@ -108,8 +109,9 @@ export class AccountingRepositoryImpl implements IAccountingRepository {
 
   async getLedger(accountId?: string, startDate?: string, endDate?: string, branchId?: string): Promise<LedgerEntry[]> {
     try {
-      const q = branchId && branchId !== 'all'
-        ? query(collection(db, COLLECTIONS.LEDGER), where('branchId', '==', branchId))
+      const effectiveBranch = branchId || getEffectiveBranchScope();
+      const q = effectiveBranch && effectiveBranch !== 'all'
+        ? query(collection(db, COLLECTIONS.LEDGER), where('branchId', '==', effectiveBranch))
         : query(collection(db, COLLECTIONS.LEDGER));
       const snap = await getDocs(q);
       let entries = snap.docs.map(d => ({ id: d.id, ...d.data() } as LedgerEntry));
@@ -134,8 +136,9 @@ export class AccountingRepositoryImpl implements IAccountingRepository {
   // --- EXPENSES ---
   async getExpenses(branchId?: string): Promise<AccountingExpense[]> {
     try {
-      const q = branchId && branchId !== 'all'
-        ? query(collection(db, COLLECTIONS.EXPENSES), where('branchId', '==', branchId))
+      const effectiveBranch = branchId || getEffectiveBranchScope();
+      const q = effectiveBranch && effectiveBranch !== 'all'
+        ? query(collection(db, COLLECTIONS.EXPENSES), where('branchId', '==', effectiveBranch))
         : query(collection(db, COLLECTIONS.EXPENSES));
       const snap = await getDocs(q);
       return snap.docs.map(d => ({ id: d.id, ...d.data() } as AccountingExpense));
@@ -162,8 +165,9 @@ export class AccountingRepositoryImpl implements IAccountingRepository {
   // --- REVENUES ---
   async getRevenues(branchId?: string): Promise<AccountingRevenue[]> {
     try {
-      const q = branchId && branchId !== 'all'
-        ? query(collection(db, COLLECTIONS.REVENUES), where('branchId', '==', branchId))
+      const effectiveBranch = branchId || getEffectiveBranchScope();
+      const q = effectiveBranch && effectiveBranch !== 'all'
+        ? query(collection(db, COLLECTIONS.REVENUES), where('branchId', '==', effectiveBranch))
         : query(collection(db, COLLECTIONS.REVENUES));
       const snap = await getDocs(q);
       return snap.docs.map(d => ({ id: d.id, ...d.data() } as AccountingRevenue));
@@ -183,8 +187,9 @@ export class AccountingRepositoryImpl implements IAccountingRepository {
   // --- ACCOUNTS RECEIVABLE ---
   async getReceivables(branchId?: string): Promise<ReceivableItem[]> {
     try {
-      const q = branchId && branchId !== 'all'
-        ? query(collection(db, COLLECTIONS.RECEIVABLES), where('branchId', '==', branchId))
+      const effectiveBranch = branchId || getEffectiveBranchScope();
+      const q = effectiveBranch && effectiveBranch !== 'all'
+        ? query(collection(db, COLLECTIONS.RECEIVABLES), where('branchId', '==', effectiveBranch))
         : query(collection(db, COLLECTIONS.RECEIVABLES));
       const snap = await getDocs(q);
       return snap.docs.map(d => ({ id: d.id, ...d.data() } as ReceivableItem));
@@ -211,8 +216,9 @@ export class AccountingRepositoryImpl implements IAccountingRepository {
   // --- ACCOUNTS PAYABLE ---
   async getPayables(branchId?: string): Promise<PayableItem[]> {
     try {
-      const q = branchId && branchId !== 'all'
-        ? query(collection(db, COLLECTIONS.PAYABLES), where('branchId', '==', branchId))
+      const effectiveBranch = branchId || getEffectiveBranchScope();
+      const q = effectiveBranch && effectiveBranch !== 'all'
+        ? query(collection(db, COLLECTIONS.PAYABLES), where('branchId', '==', effectiveBranch))
         : query(collection(db, COLLECTIONS.PAYABLES));
       const snap = await getDocs(q);
       return snap.docs.map(d => ({ id: d.id, ...d.data() } as PayableItem));
@@ -239,8 +245,9 @@ export class AccountingRepositoryImpl implements IAccountingRepository {
   // --- CASH & BANK ---
   async getCashRegisters(branchId?: string): Promise<CashRegister[]> {
     try {
-      const q = branchId && branchId !== 'all'
-        ? query(collection(db, COLLECTIONS.CASH_REGISTERS), where('branchId', '==', branchId))
+      const effectiveBranch = branchId || getEffectiveBranchScope();
+      const q = effectiveBranch && effectiveBranch !== 'all'
+        ? query(collection(db, COLLECTIONS.CASH_REGISTERS), where('branchId', '==', effectiveBranch))
         : query(collection(db, COLLECTIONS.CASH_REGISTERS));
       const snap = await getDocs(q);
       return snap.docs.map(d => ({ id: d.id, ...d.data() } as CashRegister));
@@ -266,7 +273,7 @@ export class AccountingRepositoryImpl implements IAccountingRepository {
 
   async getBankAccounts(): Promise<BankAccount[]> {
     try {
-      const branchId = getEffectiveBranchId();
+      const branchId = getEffectiveBranchScope();
       const q = branchId === 'all'
         ? collection(db, COLLECTIONS.BANK_ACCOUNTS)
         : query(collection(db, COLLECTIONS.BANK_ACCOUNTS), where('branchId', '==', branchId));
@@ -338,8 +345,10 @@ export class AccountingRepositoryImpl implements IAccountingRepository {
   // --- TAX ---
   async getTaxes(branchId?: string): Promise<TaxConfig[]> {
     try {
-      if (!branchId || branchId === 'all') return [];
-      const q = query(collection(db, COLLECTIONS.TAXES), where('branchId', '==', branchId));
+      const effectiveBranch = branchId || getEffectiveBranchScope();
+      const q = effectiveBranch === 'all'
+        ? query(collection(db, COLLECTIONS.TAXES))
+        : query(collection(db, COLLECTIONS.TAXES), where('branchId', '==', effectiveBranch));
       const snap = await getDocs(q);
       if (snap.empty) {
         return [];
@@ -368,8 +377,9 @@ export class AccountingRepositoryImpl implements IAccountingRepository {
   // --- FINANCIAL STATEMENTS ---
   async getFinancialStatements(startDate?: string, endDate?: string, branchId?: string): Promise<FinancialStatements> {
     const accounts = await this.getAccounts();
-    const linesQuery = branchId && branchId !== 'all'
-      ? query(collection(db, COLLECTIONS.JOURNAL_LINES), where('branchId', '==', branchId))
+    const effectiveBranch = branchId || getEffectiveBranchScope();
+    const linesQuery = effectiveBranch !== 'all'
+      ? query(collection(db, COLLECTIONS.JOURNAL_LINES), where('branchId', '==', effectiveBranch))
       : query(collection(db, COLLECTIONS.JOURNAL_LINES));
     const linesSnap = await getDocs(linesQuery);
     const allLines = linesSnap.docs.map(d => ({ id: d.id, ...d.data() } as any));

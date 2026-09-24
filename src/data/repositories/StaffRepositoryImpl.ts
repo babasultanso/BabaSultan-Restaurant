@@ -1,5 +1,5 @@
 import { collection, addDoc, getDocs, query, where } from 'firebase/firestore';
-import { db, COLLECTIONS, addSalaryFirestore, getEffectiveBranchId } from '../../lib/firebase';
+import { db, COLLECTIONS, addSalaryFirestore, getEffectiveBranchId, getEffectiveBranchScope } from '../../lib/firebase';
 import { getMogadishuDateString } from '../../lib/dateUtils';
 import { IStaffRepository } from '../../domain/repositories/IStaffRepository';
 import { NewEmployeePayload, NewSupplierPayload, SalaryPaymentPayload } from '../../domain/entities/staff';
@@ -8,7 +8,7 @@ import { Employee, Supplier, Salary } from '../../types';
 export class StaffRepositoryImpl implements IStaffRepository {
   async fetchEmployees(branchId?: string): Promise<Employee[]> {
     try {
-      const effectiveBranch = branchId && branchId !== 'all' ? branchId : getEffectiveBranchId();
+      const effectiveBranch = branchId && branchId !== 'all' ? branchId : getEffectiveBranchScope();
       const q = effectiveBranch === 'all'
         ? collection(db, COLLECTIONS.EMPLOYEES)
         : query(collection(db, COLLECTIONS.EMPLOYEES), where('branchId', '==', effectiveBranch));
@@ -54,7 +54,7 @@ export class StaffRepositoryImpl implements IStaffRepository {
 
   async fetchSuppliers(): Promise<Supplier[]> {
     try {
-      const branchId = getEffectiveBranchId();
+      const branchId = getEffectiveBranchScope();
       const suppliersQuery = branchId === 'all'
         ? collection(db, COLLECTIONS.SUPPLIERS)
         : query(collection(db, COLLECTIONS.SUPPLIERS), where('branchId', '==', branchId));
@@ -84,7 +84,7 @@ export class StaffRepositoryImpl implements IStaffRepository {
 
   async fetchSalaries(branchId?: string): Promise<Salary[]> {
     try {
-      const effectiveBranch = branchId || getEffectiveBranchId();
+      const effectiveBranch = branchId || getEffectiveBranchScope();
       const q = effectiveBranch === 'all'
         ? collection(db, COLLECTIONS.SALARIES)
         : query(collection(db, COLLECTIONS.SALARIES), where('branchId', '==', effectiveBranch));

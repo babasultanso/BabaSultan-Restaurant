@@ -16,6 +16,10 @@ service firebase.storage {
         : {};
     }
 
+    function isActiveUser() {
+      return hasUserData() && getUserData().get('status', 'active') == 'active';
+    }
+
     function getUserRole() {
       return getUserData().get('role', '');
     }
@@ -25,7 +29,7 @@ service firebase.storage {
     }
 
     function isHQ() {
-      return isSignedIn() && hasUserData() && (
+      return isActiveUser() && (
         getUserRole() in ['Owner', 'owner'] ||
         getUserData().get('isOwner', false) == true ||
         (getUserRole() in ['Admin', 'admin'] && getUserData().get('isHQ', false) == true)
@@ -33,7 +37,7 @@ service firebase.storage {
     }
 
     function isManagement() {
-      return isSignedIn() && hasUserData() && (
+      return isActiveUser() && (
         getUserRole() in ['Owner', 'owner', 'Admin', 'admin', 'Manager', 'manager'] ||
         getUserData().get('isAdmin', false) == true ||
         getUserData().get('isOwner', false) == true
@@ -41,7 +45,7 @@ service firebase.storage {
     }
 
     function isManagementOrAccountant() {
-      return isSignedIn() && hasUserData() && (
+      return isActiveUser() && (
         getUserRole() in ['Owner', 'owner', 'Admin', 'admin', 'Manager', 'manager', 'Accountant', 'accountant'] ||
         getUserData().get('isAdmin', false) == true ||
         getUserData().get('isOwner', false) == true
@@ -49,14 +53,14 @@ service firebase.storage {
     }
 
     function isBranchAuthorized(branchId) {
-      return isSignedIn() && hasUserData() && branchId != null && branchId != '' && (
+      return isActiveUser() && branchId != null && branchId != '' && (
         isHQ() || getUserBranch() == branchId
       );
     }
 
     // Public Assets: Product and menu images (management only can upload)
     match /products/{imageId} {
-      allow read: if isSignedIn();
+      allow read: if isActiveUser();
       allow write: if isManagement() 
                    && request.resource.size < 5 * 1024 * 1024 
                    && request.resource.contentType.matches('image/(jpeg|png|webp|gif|svg\\+xml|jpg)');
@@ -88,8 +92,8 @@ service firebase.storage {
 
     // Protected employee and HRM documents (root path restricted to HQ or document owner)
     match /employee_documents/{docId} {
-      allow read: if isSignedIn() && (isHQ() || request.auth.uid == docId);
-      allow write: if isSignedIn() && (isHQ() || request.auth.uid == docId) 
+      allow read: if isActiveUser() && (isHQ() || request.auth.uid == docId);
+      allow write: if isActiveUser() && (isHQ() || request.auth.uid == docId) 
                    && request.resource.size < 10 * 1024 * 1024
                    && request.resource.contentType.matches('(image/.*|application/pdf|application/msword|application/vnd.openxmlformats-officedocument.wordprocessingml.document)');
     }

@@ -117,7 +117,7 @@ export const AICEOView: React.FC<Props> = ({ language: initialLanguage }) => {
     setIsLoading(true);
 
     const userRoleStr = (userRecord?.role || role || '').toLowerCase().trim();
-    const isHqUser = userRoleStr === 'owner' || (userRoleStr === 'admin' && (!userRecord?.branchId || userRecord?.branchId === 'all'));
+    const isHqUser = userRoleStr === 'owner' || (userRoleStr === 'admin' && (userRecord?.isHQ === true || !userRecord?.branchId || userRecord?.branchId === 'all'));
     const userBranch = userRecord?.branchId || (userRecord as any)?.branch;
     const isBranchScoped = !isHqUser && Boolean(userBranch) && userBranch !== 'all';
 

@@ -67,7 +67,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   // Branch isolation
   const userRoleStr = String(role || userRecord?.role || '').toLowerCase().trim();
   const userBranch = userRecord?.branchId || (userRecord as any)?.branch;
-  const isHqUser = userRoleStr === 'owner' || (userRoleStr === 'admin' && (!userBranch || userBranch === 'all'));
+  const isHqUser = userRoleStr === 'owner' || (userRoleStr === 'admin' && (userRecord?.isHQ === true || !userBranch || userBranch === 'all'));
   const isBranchScoped = !isHqUser && Boolean(userBranch) && userBranch !== 'all';
 
   // 1. Subscribe to Kitchen Orders in Real-Time (Authoritative Kitchen Status)

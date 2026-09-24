@@ -1,5 +1,5 @@
 import { collection, addDoc, doc, updateDoc, getDocs, setDoc, query, where } from 'firebase/firestore';
-import { db, COLLECTIONS, getAuthToken, getEffectiveBranchId } from '../../lib/firebase';
+import { db, COLLECTIONS, getAuthToken, getEffectiveBranchId, getEffectiveBranchScope } from '../../lib/firebase';
 import { getApiUrl } from '../../lib/apiConfig';
 import { IAdminRepository } from '../../domain/repositories/IAdminRepository';
 import { Category, Customer, Branch, Revenue, AISetting, UserPermission } from '../../domain/entities/admin';
@@ -8,8 +8,10 @@ import { handleFirestoreError, OperationType } from '../../infrastructure/fireba
 export class AdminRepositoryImpl implements IAdminRepository {
   async fetchCategories(): Promise<Category[]> {
     try {
-      const branchId = getEffectiveBranchId();
-      const snap = await getDocs(query(collection(db, COLLECTIONS.CATEGORIES), where('branchId', '==', branchId)));
+      const branchScope = getEffectiveBranchScope();
+      const snap = await getDocs(branchScope === 'all'
+        ? collection(db, COLLECTIONS.CATEGORIES)
+        : query(collection(db, COLLECTIONS.CATEGORIES), where('branchId', '==', branchScope)));
       const list: Category[] = [];
       snap.forEach(d => list.push({ id: d.id, ...d.data() } as Category));
       return list;
@@ -42,8 +44,10 @@ export class AdminRepositoryImpl implements IAdminRepository {
 
   async fetchCustomers(): Promise<Customer[]> {
     try {
-      const branchId = getEffectiveBranchId();
-      const snap = await getDocs(query(collection(db, COLLECTIONS.CUSTOMERS), where('branchId', '==', branchId)));
+      const branchScope = getEffectiveBranchScope();
+      const snap = await getDocs(branchScope === 'all'
+        ? collection(db, COLLECTIONS.CUSTOMERS)
+        : query(collection(db, COLLECTIONS.CUSTOMERS), where('branchId', '==', branchScope)));
       const list: Customer[] = [];
       snap.forEach(d => list.push({ id: d.id, ...d.data() } as Customer));
       return list;
@@ -101,7 +105,7 @@ export class AdminRepositoryImpl implements IAdminRepository {
 
   async fetchRevenues(): Promise<Revenue[]> {
     try {
-      const branchId = getEffectiveBranchId();
+      const branchId = getEffectiveBranchScope();
       const q = branchId === 'all'
         ? collection(db, COLLECTIONS.REVENUES)
         : query(collection(db, COLLECTIONS.REVENUES), where('branchId', '==', branchId));

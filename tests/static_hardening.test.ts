@@ -244,3 +244,33 @@ it('includes composite indexes for production query patterns in firestore.indexe
   expect(groups).toContain('notifications');
 });
 
+
+
+it('keeps admin user creation atomic and prevents silent profile overwrite', () => {
+  const backend = readFileSync(new URL('../server/trustedFinancialBackend.ts', import.meta.url), 'utf8');
+  expect(backend).toContain("const allowedRoles = ['Owner', 'Admin', 'Manager', 'Accountant', 'Cashier', 'Kitchen', 'Waiter', 'Delivery Driver'];");
+  expect(backend).toContain('existingUserSnap');
+  expect(backend).toContain('statusCode: 409');
+  expect(backend).toContain('transaction.create(userDocRef');
+});
+
+it('has active-account Firestore gate for operational access', () => {
+  const rules = readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
+  expect(rules).toContain('function isActiveUser()');
+  expect(rules).toContain("getUserData().get('status', 'active') == 'active'");
+  expect(rules).toContain('allow read: if isSignedIn() && (request.auth.uid == userId ||');
+});
+
+it('removed direct client privilege writers', () => {
+  const firebaseLibrary = readFileSync(new URL('../src/lib/firebase.ts', import.meta.url), 'utf8');
+  const authRepo = readFileSync(new URL('../src/data/repositories/AuthRepositoryImpl.ts', import.meta.url), 'utf8');
+  const authInterface = readFileSync(new URL('../src/domain/repositories/IAuthRepository.ts', import.meta.url), 'utf8');
+  const authContext = readFileSync(new URL('../src/presentation/context/AuthContext.tsx', import.meta.url), 'utf8');
+  const userView = readFileSync(new URL('../src/presentation/components/auth/UserManagementView.tsx', import.meta.url), 'utf8');
+  expect(firebaseLibrary).not.toContain('updateUserRoleFirestore');
+  expect(firebaseLibrary).not.toContain('updateUserStatusFirestore');
+  expect(authRepo).not.toContain('updateDoc(');
+  expect(authInterface).not.toContain('updateUserRole');
+  expect(userView).toContain('/api/users/admin-update');
+  expect(authContext).toContain('// Only write non-security session metadata from the client.');
+});

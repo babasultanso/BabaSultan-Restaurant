@@ -11,7 +11,7 @@ import {
   orderBy,
   deleteDoc
 } from 'firebase/firestore';
-import { db, COLLECTIONS, getAuthToken, getEffectiveBranchId } from '../../lib/firebase';
+import { db, COLLECTIONS, getAuthToken, getEffectiveBranchId, getEffectiveBranchScope } from '../../lib/firebase';
 import { getApiUrl } from '../../lib/apiConfig';
 import { getMogadishuDateString } from '../../lib/dateUtils';
 import { IHRMRepository } from '../../domain/repositories/IHRMRepository';
@@ -35,7 +35,7 @@ export class HRMRepositoryImpl implements IHRMRepository {
 
   async getAllEmployees(branchId?: string): Promise<Employee[]> {
     try {
-      const effectiveBranch = branchId && branchId !== 'all' ? branchId : getEffectiveBranchId();
+      const effectiveBranch = branchId && branchId !== 'all' ? branchId : getEffectiveBranchScope();
       const q = effectiveBranch === 'all'
         ? collection(db, COLLECTIONS.EMPLOYEES)
         : query(collection(db, COLLECTIONS.EMPLOYEES), where('branchId', '==', effectiveBranch));
@@ -171,7 +171,7 @@ export class HRMRepositoryImpl implements IHRMRepository {
   // ==========================================
 
   async getAttendanceRecords(filter?: { employeeId?: string; date?: string; month?: string; branchId?: string }): Promise<AttendanceRecord[]> {
-    const effectiveBranch = filter?.branchId && filter.branchId !== 'all' ? filter.branchId : getEffectiveBranchId();
+    const effectiveBranch = filter?.branchId && filter.branchId !== 'all' ? filter.branchId : getEffectiveBranchScope();
     const q = effectiveBranch === 'all'
       ? collection(db, COLLECTIONS.HRM_ATTENDANCE)
       : query(collection(db, COLLECTIONS.HRM_ATTENDANCE), where('branchId', '==', effectiveBranch));
@@ -219,7 +219,7 @@ export class HRMRepositoryImpl implements IHRMRepository {
   }
 
   async getAllShifts(): Promise<Shift[]> {
-    const branchId = getEffectiveBranchId();
+    const branchId = getEffectiveBranchScope();
     const shiftsQuery = branchId === 'all'
       ? query(collection(db, COLLECTIONS.HRM_SHIFTS))
       : query(collection(db, COLLECTIONS.HRM_SHIFTS), where('branchId', '==', branchId));
@@ -262,7 +262,7 @@ export class HRMRepositoryImpl implements IHRMRepository {
   // ==========================================
 
   async getPayrollRecords(filter?: { month?: string; employeeId?: string; status?: string }): Promise<PayrollRecord[]> {
-    const branchId = getEffectiveBranchId();
+    const branchId = getEffectiveBranchScope();
     const payrollQuery = branchId === 'all'
       ? query(collection(db, COLLECTIONS.HRM_PAYROLL))
       : query(collection(db, COLLECTIONS.HRM_PAYROLL), where('branchId', '==', branchId));
@@ -362,7 +362,7 @@ export class HRMRepositoryImpl implements IHRMRepository {
   // ==========================================
 
   async getLeaveRequests(filter?: { employeeId?: string; status?: string }): Promise<LeaveRequest[]> {
-    const branchId = getEffectiveBranchId();
+    const branchId = getEffectiveBranchScope();
     const leaveConstraints = branchId !== 'all' ? [where('branchId', '==', branchId)] : [];
     if (filter?.employeeId) leaveConstraints.push(where('employeeId', '==', filter.employeeId));
     const leaveQuery = query(collection(db, COLLECTIONS.HRM_LEAVE_REQUESTS), ...leaveConstraints);
@@ -470,7 +470,7 @@ export class HRMRepositoryImpl implements IHRMRepository {
   // ==========================================
 
   async getPerformanceRecords(filter?: { employeeId?: string; period?: string }): Promise<PerformanceRecord[]> {
-    const branchId = getEffectiveBranchId();
+    const branchId = getEffectiveBranchScope();
     const performanceConstraints = branchId !== 'all' ? [where('branchId', '==', branchId)] : [];
     if (filter?.employeeId) performanceConstraints.push(where('employeeId', '==', filter.employeeId));
     const performanceQuery = query(collection(db, COLLECTIONS.HRM_PERFORMANCE), ...performanceConstraints);
@@ -513,7 +513,7 @@ export class HRMRepositoryImpl implements IHRMRepository {
   // ==========================================
 
   async getEmployeeDocuments(employeeId: string): Promise<EmployeeDocument[]> {
-    const branchId = getEffectiveBranchId();
+    const branchId = getEffectiveBranchScope();
     const constraints = branchId !== 'all' ? [where('branchId', '==', branchId)] : [];
     constraints.push(where('employeeId', '==', employeeId));
     const snap = await getDocs(query(collection(db, COLLECTIONS.HRM_EMPLOYEE_DOCUMENTS), ...constraints));
@@ -550,7 +550,7 @@ export class HRMRepositoryImpl implements IHRMRepository {
   // ==========================================
 
   async getNotifications(employeeId?: string): Promise<HRNotification[]> {
-    const branchId = getEffectiveBranchId();
+    const branchId = getEffectiveBranchScope();
     const notificationConstraints = branchId !== 'all' ? [where('branchId', '==', branchId)] : [];
     if (employeeId) notificationConstraints.push(where('employeeId', '==', employeeId));
     const notificationsQuery = query(collection(db, COLLECTIONS.HRM_EMPLOYEE_NOTIFICATIONS), ...notificationConstraints);

@@ -216,7 +216,7 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
   const isHqUser = useMemo(() => {
     const userRoleStr = (userRecord?.role || role || '').toLowerCase();
     const userBranch = userRecord?.branchId || userRecord?.branch;
-    return userRoleStr === 'owner' || (userRoleStr === 'admin' && (userBranch === 'all' || !userBranch));
+    return userRoleStr === 'owner' || (userRoleStr === 'admin' && (userRecord?.isHQ === true || userBranch === 'all' || !userBranch));
   }, [userRecord, role]);
 
   const canAssignDelivery = (del?: DeliveryOrder | null) => {
@@ -387,8 +387,12 @@ export const DeliveryManagementView: React.FC<DeliveryManagementViewProps> = ({
       }
     );
 
+    const notificationsQuery = isBranchScoped && userBranch
+      ? query(collection(db, COLLECTIONS.DELIVERY_NOTIFICATIONS), where('branchId', '==', userBranch))
+      : query(collection(db, COLLECTIONS.DELIVERY_NOTIFICATIONS));
+
     const unsubNotifs = onSnapshot(
-      query(collection(db, COLLECTIONS.DELIVERY_NOTIFICATIONS)),
+      notificationsQuery,
       (snap) => {
         const list: DeliveryNotification[] = [];
         snap.forEach((d) => list.push({ id: d.id, ...d.data() } as DeliveryNotification));

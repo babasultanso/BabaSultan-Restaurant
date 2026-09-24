@@ -150,7 +150,7 @@ export const AccountingManagementView: React.FC = () => {
   const [closeActualCash, setCloseActualCash] = useState<number>(0);
 
   const userRole = (userRecord?.role || '').toLowerCase().trim();
-  const isHqUser = userRole === 'owner' || (userRole === 'admin' && (!userRecord?.branchId || userRecord?.branchId === 'all'));
+  const isHqUser = userRole === 'owner' || (userRole === 'admin' && (userRecord?.isHQ === true || !userRecord?.branchId || userRecord?.branchId === 'all'));
   const effectiveBranchId = isHqUser ? undefined : userRecord?.branchId;
 
   // Load Data

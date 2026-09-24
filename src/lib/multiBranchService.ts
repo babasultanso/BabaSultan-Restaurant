@@ -98,7 +98,7 @@ export async function deleteBranch(branchId: string): Promise<void> {
 
 // Branch Inter-Transfer Actions (Server-Authoritative via API endpoints)
 export async function createBranchTransfer(
-  transferData: Omit<BranchTransfer, 'id' | 'transferNumber' | 'createdAt' | 'status'>
+  transferData: Omit<BranchTransfer, 'id' | 'transferNumber' | 'createdAt' | 'status' | 'requestedBy' | 'approvedBy' | 'completedAt' | 'rejectionReason'>
 ): Promise<string> {
   const sourceBranchId = String(transferData.sourceBranchId || '').trim();
   const destinationBranchId = String(transferData.destinationBranchId || '').trim();

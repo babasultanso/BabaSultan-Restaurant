@@ -10,7 +10,7 @@ import {
   where,
   addDoc
 } from 'firebase/firestore';
-import { db, auth, COLLECTIONS, rechargeWalletFirestore, deductWalletFirestore, refundToWalletFirestore, getEffectiveBranchId } from '../../lib/firebase';
+import { db, auth, COLLECTIONS, rechargeWalletFirestore, deductWalletFirestore, refundToWalletFirestore, getEffectiveBranchId, getEffectiveBranchScope } from '../../lib/firebase';
 import { getApiUrl } from '../../lib/apiConfig';
 import { ICustomerRepository } from '../../domain/repositories/ICustomerRepository';
 import {
@@ -34,8 +34,10 @@ export class CustomerRepositoryImpl implements ICustomerRepository {
 
   async fetchCustomers(): Promise<Customer[]> {
     try {
-      const branchId = getEffectiveBranchId();
-      const q = query(collection(db, COLLECTIONS.CUSTOMERS), where('branchId', '==', branchId), orderBy('createdAt', 'desc'));
+      const branchScope = getEffectiveBranchScope();
+      const q = branchScope === 'all'
+        ? query(collection(db, COLLECTIONS.CUSTOMERS), orderBy('createdAt', 'desc'))
+        : query(collection(db, COLLECTIONS.CUSTOMERS), where('branchId', '==', branchScope), orderBy('createdAt', 'desc'));
       const snap = await getDocs(q);
       const list = snap.docs.map(docSnap => {
         const data = docSnap.data();
@@ -123,7 +125,7 @@ export class CustomerRepositoryImpl implements ICustomerRepository {
 
   async fetchCustomerWallets(): Promise<CustomerWallet[]> {
     try {
-      const branchId = getEffectiveBranchId();
+      const branchId = getEffectiveBranchScope();
       const q = branchId === 'all'
         ? collection(db, COLLECTIONS.CUSTOMER_WALLETS)
         : query(collection(db, COLLECTIONS.CUSTOMER_WALLETS), where('branchId', '==', branchId));
@@ -138,7 +140,7 @@ export class CustomerRepositoryImpl implements ICustomerRepository {
 
   async fetchCustomerWallet(customerId: string): Promise<CustomerWallet | null> {
     try {
-      const branchId = getEffectiveBranchId();
+      const branchId = getEffectiveBranchScope();
       const q = branchId === 'all'
         ? query(collection(db, COLLECTIONS.CUSTOMER_WALLETS), where('customerId', '==', customerId))
         : query(collection(db, COLLECTIONS.CUSTOMER_WALLETS), where('customerId', '==', customerId), where('branchId', '==', branchId));
@@ -259,9 +261,14 @@ export class CustomerRepositoryImpl implements ICustomerRepository {
 
   async fetchWalletTransactions(customerId?: string): Promise<WalletTransaction[]> {
     try {
-      let q = query(collection(db, COLLECTIONS.WALLET_TRANSACTIONS), orderBy('createdAt', 'desc'));
+      let q;
       if (customerId) {
         q = query(collection(db, COLLECTIONS.WALLET_TRANSACTIONS), where('customerId', '==', customerId), orderBy('createdAt', 'desc'));
+      } else {
+        const branchScope = getEffectiveBranchScope();
+        q = branchScope === 'all'
+          ? query(collection(db, COLLECTIONS.WALLET_TRANSACTIONS), orderBy('createdAt', 'desc'))
+          : query(collection(db, COLLECTIONS.WALLET_TRANSACTIONS), where('branchId', '==', branchScope), orderBy('createdAt', 'desc'));
       }
       const snap = await getDocs(q);
       const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as WalletTransaction));
@@ -278,7 +285,7 @@ export class CustomerRepositoryImpl implements ICustomerRepository {
 
   async fetchCustomerPointsList(): Promise<CustomerPoints[]> {
     try {
-      const branchId = getEffectiveBranchId();
+      const branchId = getEffectiveBranchScope();
       const q = branchId === 'all'
         ? collection(db, COLLECTIONS.CUSTOMER_POINTS)
         : query(collection(db, COLLECTIONS.CUSTOMER_POINTS), where('branchId', '==', branchId));
@@ -293,7 +300,7 @@ export class CustomerRepositoryImpl implements ICustomerRepository {
 
   async fetchCustomerPoints(customerId: string): Promise<CustomerPoints | null> {
     try {
-      const branchId = getEffectiveBranchId();
+      const branchId = getEffectiveBranchScope();
       const q = branchId === 'all'
         ? query(collection(db, COLLECTIONS.CUSTOMER_POINTS), where('customerId', '==', customerId))
         : query(collection(db, COLLECTIONS.CUSTOMER_POINTS), where('customerId', '==', customerId), where('branchId', '==', branchId));
@@ -343,7 +350,7 @@ export class CustomerRepositoryImpl implements ICustomerRepository {
 
   async fetchRewards(): Promise<CustomerReward[]> {
     try {
-      const branchId = getEffectiveBranchId();
+      const branchId = getEffectiveBranchScope();
       const q = branchId === 'all'
         ? query(collection(db, COLLECTIONS.CUSTOMER_REWARDS), orderBy('pointsRequired', 'asc'))
         : query(collection(db, COLLECTIONS.CUSTOMER_REWARDS), where('branchId', 'in', [branchId, 'all']), orderBy('pointsRequired', 'asc'));
@@ -423,7 +430,7 @@ export class CustomerRepositoryImpl implements ICustomerRepository {
 
   async fetchCoupons(): Promise<CustomerCoupon[]> {
     try {
-      const branchId = getEffectiveBranchId();
+      const branchId = getEffectiveBranchScope();
       const q = branchId === 'all'
         ? query(collection(db, COLLECTIONS.CUSTOMER_COUPONS), orderBy('createdAt', 'desc'))
         : query(collection(db, COLLECTIONS.CUSTOMER_COUPONS), where('branchId', 'in', [branchId, 'all']), orderBy('createdAt', 'desc'));
@@ -537,9 +544,14 @@ export class CustomerRepositoryImpl implements ICustomerRepository {
 
   async fetchNotifications(customerId?: string): Promise<CustomerNotification[]> {
     try {
-      let q = query(collection(db, COLLECTIONS.CUSTOMER_NOTIFICATIONS), orderBy('createdAt', 'desc'));
+      let q;
       if (customerId) {
         q = query(collection(db, COLLECTIONS.CUSTOMER_NOTIFICATIONS), where('customerId', '==', customerId), orderBy('createdAt', 'desc'));
+      } else {
+        const branchScope = getEffectiveBranchScope();
+        q = branchScope === 'all'
+          ? query(collection(db, COLLECTIONS.CUSTOMER_NOTIFICATIONS), orderBy('createdAt', 'desc'))
+          : query(collection(db, COLLECTIONS.CUSTOMER_NOTIFICATIONS), where('branchId', '==', branchScope), orderBy('createdAt', 'desc'));
       }
       const snap = await getDocs(q);
       const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as CustomerNotification));

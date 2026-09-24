@@ -60,7 +60,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
   // Subscribe to real-time collections with branch isolation
   useEffect(() => {
     const userRoleStr = (userRecord?.role || role || '').toLowerCase().trim();
-    const isHqUser = userRoleStr === 'owner' || (userRoleStr === 'admin' && (!userRecord?.branchId || userRecord?.branchId === 'all'));
+    const isHqUser = userRoleStr === 'owner' || (userRoleStr === 'admin' && (userRecord?.isHQ === true || !userRecord?.branchId || userRecord?.branchId === 'all'));
     const userBranch = userRecord?.branchId || userRecord?.branch;
     const isBranchScoped = !isHqUser && Boolean(userBranch) && userBranch !== 'all';
 
@@ -75,7 +75,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
       (snap) => {
         const list: Order[] = [];
         snap.forEach((d) => list.push({ id: d.id, ...d.data() } as Order));
-        if (list.length > 0) setOrders(list);
+        setOrders(list);
       },
       (err) => console.warn('ReportsView orders sync warning:', err)
     );
@@ -85,7 +85,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
       (snap) => {
         const list: Product[] = [];
         snap.forEach((d) => list.push({ id: d.id, ...d.data() } as Product));
-        if (list.length > 0) setProducts(list);
+        setProducts(list);
       },
       (err) => console.warn('ReportsView products sync warning:', err)
     );
@@ -95,7 +95,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
       (snap) => {
         const list: Ingredient[] = [];
         snap.forEach((d) => list.push({ id: d.id, ...d.data() } as Ingredient));
-        if (list.length > 0) setIngredients(list);
+        setIngredients(list);
       },
       (err) => console.warn('ReportsView ingredients sync warning:', err)
     );
@@ -105,7 +105,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
       (snap) => {
         const list: Expense[] = [];
         snap.forEach((d) => list.push({ id: d.id, ...d.data() } as Expense));
-        if (list.length > 0) setExpenses(list);
+        setExpenses(list);
       },
       (err) => console.warn('ReportsView expenses sync warning:', err)
     );
@@ -115,7 +115,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
       (snap) => {
         const list: Employee[] = [];
         snap.forEach((d) => list.push({ id: d.id, ...d.data() } as Employee));
-        if (list.length > 0) setEmployees(list);
+        setEmployees(list);
       },
       (err) => console.warn('ReportsView employees sync warning:', err)
     );
@@ -142,13 +142,14 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
 
   // Sync initial props if updated
   useEffect(() => {
-    if (initialOrders.length > 0) setOrders(initialOrders);
-    if (initialProducts.length > 0) setProducts(initialProducts);
-    if (initialIngredients.length > 0) setIngredients(initialIngredients);
-    if (initialExpenses.length > 0) setExpenses(initialExpenses);
-    if (initialEmployees.length > 0) setEmployees(initialEmployees);
-    if (initialSuppliers.length > 0) setSuppliers(initialSuppliers);
-    if (initialPurchases.length > 0) setPurchases(initialPurchases);
+    // Props are authoritative initial/current values; allow empty arrays to clear stale data.
+    setOrders(initialOrders);
+    setProducts(initialProducts);
+    setIngredients(initialIngredients);
+    setExpenses(initialExpenses);
+    setEmployees(initialEmployees);
+    setSuppliers(initialSuppliers);
+    setPurchases(initialPurchases);
   }, [
     initialOrders,
     initialProducts,

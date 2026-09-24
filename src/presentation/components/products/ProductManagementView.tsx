@@ -5,7 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import { productRepository } from '../../../infrastructure/firebase/productRepository';
 import { categoryRepository } from '../../../infrastructure/firebase/categoryRepository';
 import { productService } from '../../../domain/services/productService';
-import { collection, onSnapshot, query } from 'firebase/firestore';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { db, COLLECTIONS, logActivityFirestore } from '../../../lib/firebase';
 import { ProductFormModal } from './ProductFormModal';
 import { CategoryManagementModal } from './CategoryManagementModal';
@@ -35,7 +35,7 @@ import {
 } from 'lucide-react';
 
 export const ProductManagementView: React.FC = () => {
-  const { user, permissions, role, language, t } = useAuth();
+  const { user, userRecord, permissions, role, language, t, loading: authLoading } = useAuth();
   
   // Localized Labels
   const titleText = language === 'ar' ? 'إدارة المنتجات وقائمة الطعام' : language === 'so' ? 'Maamulka Cuntada & Menu-ga' : 'Product & Restaurant Menu Management';
@@ -76,30 +76,57 @@ export const ProductManagementView: React.FC = () => {
 
   // Subscribe to Firestore collections in real time
   useEffect(() => {
-    setLoading(true);
+    if (authLoading || !user || !userRecord) {
+      setProducts([]);
+      setCategories([]);
+      setIngredients([]);
+      setLoading(false);
+      return;
+    }
 
-    const unsubProducts = onSnapshot(query(collection(db, COLLECTIONS.PRODUCTS)), (snap) => {
+    const normalizedRole = String(userRecord.role || role || '').trim().toLowerCase();
+    const isHqUser = normalizedRole === 'owner' ||
+      (normalizedRole === 'admin' && (userRecord.isHQ === true || userRecord.branchId === 'all'));
+    const branchId = String(userRecord.branchId || userRecord.branch || '').trim();
+
+    if (!isHqUser && !branchId) {
+      setProducts([]);
+      setCategories([]);
+      setIngredients([]);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    const scopeQuery = (collectionName: string) => isHqUser
+      ? query(collection(db, collectionName))
+      : query(collection(db, collectionName), where('branchId', '==', branchId));
+
+    const unsubProducts = onSnapshot(scopeQuery(COLLECTIONS.PRODUCTS), (snap) => {
       const items = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Product));
       setProducts(items);
       setLoading(false);
     }, (err) => {
       console.warn('Products snapshot error:', err);
+      setProducts([]);
       setLoading(false);
     });
 
-    const unsubCategories = onSnapshot(query(collection(db, COLLECTIONS.CATEGORIES)), (snap) => {
+    const unsubCategories = onSnapshot(scopeQuery(COLLECTIONS.CATEGORIES), (snap) => {
       const items = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Category));
       items.sort((a, b) => (a.order || 0) - (b.order || 0));
       setCategories(items);
     }, (err) => {
       console.warn('Categories snapshot error:', err);
+      setCategories([]);
     });
 
-    const unsubIngredients = onSnapshot(query(collection(db, COLLECTIONS.INGREDIENTS)), (snap) => {
+    const unsubIngredients = onSnapshot(scopeQuery(COLLECTIONS.INGREDIENTS), (snap) => {
       const items = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Ingredient));
       setIngredients(items);
     }, (err) => {
       console.warn('Ingredients snapshot error:', err);
+      setIngredients([]);
     });
 
     return () => {
@@ -107,7 +134,7 @@ export const ProductManagementView: React.FC = () => {
       unsubCategories();
       unsubIngredients();
     };
-  }, []);
+  }, [authLoading, user?.uid, userRecord?.role, userRecord?.branchId, userRecord?.branch, userRecord?.isHQ, role]);
 
   if (!canView) {
     return (

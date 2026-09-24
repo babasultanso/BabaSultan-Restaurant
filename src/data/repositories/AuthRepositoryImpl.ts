@@ -1,8 +1,8 @@
 import { signInWithPopup, GoogleAuthProvider, signOut } from 'firebase/auth';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc } from 'firebase/firestore';
 import { auth, db, COLLECTIONS } from '../../lib/firebase';
 import { IAuthRepository } from '../../domain/repositories/IAuthRepository';
-import { UserProfile, UserRole } from '../../domain/entities/user';
+import { UserProfile } from '../../domain/entities/user';
 
 export class AuthRepositoryImpl implements IAuthRepository {
   async getCurrentUser(): Promise<UserProfile | null> {
@@ -66,10 +66,6 @@ export class AuthRepositoryImpl implements IAuthRepository {
     }
   }
 
-  async updateUserRole(uid: string, role: UserRole): Promise<void> {
-    const userRef = doc(db, COLLECTIONS.USERS, uid);
-    await updateDoc(userRef, { role });
-  }
 }
 
 

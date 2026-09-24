@@ -456,29 +456,6 @@ export async function logActivityFirestore(logData: { action: string; details?: 
   }
 }
 
-export async function upsertUserRecordFirestore(userRecord: UserRecord) {
-  const userRef = doc(db, COLLECTIONS.USERS, userRecord.uid);
-  await setDoc(userRef, userRecord, { merge: true });
-}
-
-export async function updateUserRoleFirestore(uid: string, role: any, _updatedBy?: string) {
-  const userRef = doc(db, COLLECTIONS.USERS, uid);
-  await updateDoc(userRef, { role });
-  await logActivityFirestore({
-    action: 'UPDATE_ROLE',
-    details: `Updated role for user ${uid} to ${role}`
-  });
-}
-
-export async function updateUserStatusFirestore(uid: string, status: 'active' | 'suspended' | 'pending', _updatedBy?: string) {
-  const userRef = doc(db, COLLECTIONS.USERS, uid);
-  await updateDoc(userRef, { status });
-  await logActivityFirestore({
-    action: 'UPDATE_STATUS',
-    details: `Updated status for user ${uid} to ${status}`
-  });
-}
-
 // ==========================================
 // Product & Restaurant Menu Management
 // ==========================================
@@ -517,6 +494,39 @@ export function getEffectiveBranchId(preferredBranchId?: string): string {
     } catch {}
   }
   throw new Error('Branch ID is required for this operation. No valid branch context found.');
+}
+
+/** Returns a concrete branch id or the explicit `all` HQ scope for read/report operations.
+ *  Mutating operations must continue using getEffectiveBranchId() so `all` can never be written as a branch.
+ */
+export function getEffectiveBranchScope(preferredBranchId?: string): string {
+  const preferred = String(preferredBranchId || '').trim();
+  if (preferred) return preferred;
+
+  const resolve = (u: any): string => {
+    const branchId = String(u?.branchId || u?.branch || '').trim();
+    const role = String(u?.role || '').trim().toLowerCase();
+    if (branchId && branchId !== 'all') return branchId;
+    if (role === 'owner' || u?.isOwner === true || (role === 'admin' && (u?.isHQ === true || branchId === 'all'))) {
+      return 'all';
+    }
+    return '';
+  };
+
+  const runtimeScope = resolve(activeUserProfileContext);
+  if (runtimeScope) return runtimeScope;
+
+  if (typeof window !== 'undefined') {
+    try {
+      const stored = localStorage.getItem('user_profile');
+      if (stored) {
+        const storedScope = resolve(JSON.parse(stored));
+        if (storedScope) return storedScope;
+      }
+    } catch {}
+  }
+
+  throw new Error('Branch scope is required for this operation. No valid branch or HQ context found.');
 }
 
 export async function addProductFirestore(data: Omit<Product, 'id'>, branchIdOverride?: string) {
@@ -1110,9 +1120,12 @@ export async function holdOrderFirestore(holdData: Omit<HoldOrder, 'id'>): Promi
   return fullHold;
 }
 
-export async function fetchHoldOrdersFirestore(): Promise<HoldOrder[]> {
+export async function fetchHoldOrdersFirestore(branchId?: string): Promise<HoldOrder[]> {
   try {
-    const q = query(collection(db, COLLECTIONS.HOLD_ORDERS), orderBy('createdAt', 'desc'));
+    const effectiveBranchScope = getEffectiveBranchScope(branchId);
+    const q = effectiveBranchScope === 'all'
+      ? query(collection(db, COLLECTIONS.HOLD_ORDERS), orderBy('createdAt', 'desc'))
+      : query(collection(db, COLLECTIONS.HOLD_ORDERS), where('branchId', '==', effectiveBranchScope), orderBy('createdAt', 'desc'));
     const snap = await getDocs(q);
     if (!snap.empty) {
       return snap.docs.map(d => ({ id: d.id, ...d.data() } as HoldOrder));
@@ -1255,7 +1268,7 @@ export async function saveInitialSetupWizardData(setupData: InitialSetupData): P
 // Dining Tables Helpers
 export async function fetchTablesFirestore(branchId?: string): Promise<DiningTable[]> {
   try {
-    const effectiveBranchId = getEffectiveBranchId(branchId);
+    const effectiveBranchId = getEffectiveBranchScope(branchId);
     const tablesQuery = effectiveBranchId === 'all'
       ? query(collection(db, COLLECTIONS.TABLES))
       : query(collection(db, COLLECTIONS.TABLES), where('branchId', '==', effectiveBranchId));

@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'http';
 
 export interface VercelRequest extends IncomingMessage {
+  method?: string;
   query: { [key: string]: string | string[] };
   cookies: { [key: string]: string };
   body: any;

@@ -11249,8 +11249,30 @@ export async function handleBranchTransferCreate(req: express.Request, res: expr
       const idem = await transaction.get(idemRef);
       if (idem.exists) return idem.data();
       const now = new Date().toISOString();
+      const sourceBranchRef = db.collection('branches').doc(source);
+      const destinationBranchRef = db.collection('branches').doc(dest);
+      const [sourceBranchSnap, destinationBranchSnap] = await Promise.all([transaction.get(sourceBranchRef), transaction.get(destinationBranchRef)]);
+      if (!sourceBranchSnap.exists) throw Object.assign(new Error(`Source branch ${source} does not exist.`), { statusCode: 404 });
+      if (!destinationBranchSnap.exists) throw Object.assign(new Error(`Destination branch ${dest} does not exist.`), { statusCode: 404 });
+      const sourceBranchData = sourceBranchSnap.data() || {};
+      const destinationBranchData = destinationBranchSnap.data() || {};
       const ref = db.collection('branch_transfers').doc();
-      const transfer = cleanUndefined({ ...data, id: ref.id, transferNumber: `TRF-${getMogadishuDateString(now).replace(/-/g,'')}-${ref.id.slice(0,6).toUpperCase()}`, sourceBranchId: source, destinationBranchId: dest, branchId: source, status: 'pending', createdBy: user.name, createdAt: now, updatedAt: now, idempotencyKey });
+      const transfer = cleanUndefined({
+        ...data,
+        id: ref.id,
+        transferNumber: `TRF-${getMogadishuDateString(now).replace(/-/g,'')}-${ref.id.slice(0,6).toUpperCase()}`,
+        sourceBranchId: source,
+        sourceBranchName: sourceBranchData.name || source,
+        destinationBranchId: dest,
+        destinationBranchName: destinationBranchData.name || dest,
+        branchId: source,
+        status: 'pending',
+        requestedBy: user.name,
+        createdBy: user.name,
+        createdAt: now,
+        updatedAt: now,
+        idempotencyKey
+      });
       transaction.create(ref, transfer);
       const out = { status:'success', id: ref.id, transfer: transfer };
       transaction.set(idemRef, cleanUndefined({ ...out, createdAt: now }));
@@ -11462,7 +11484,7 @@ export async function handleBranchTransferApproval(req: express.Request, res: ex
       } else throw Object.assign(new Error(`Unsupported transfer type: ${t.transferType}`), {statusCode:400});
 
       // ALL WRITES START HERE.
-      for (const plan of writePlan) transaction.update(plan.ref, plan.data);
+      for (const plan of writePlan) transaction.set(plan.ref, plan.data, { merge: true });
       for (const movement of movements) {
         const movementRef = db.collection('inventory_movements').doc();
         transaction.set(movementRef, cleanUndefined({ id:movementRef.id, ...movement, transferId, reason:t.reason || 'Inter-branch transfer', createdBy:user.name, createdAt:now }));
@@ -11751,6 +11773,90 @@ export async function handleInitialSetup(req: express.Request, res: express.Resp
   }
 }
 
+export async function handleAdminUpdateUser(req: express.Request, res: express.Response) {
+  const caller = await authenticateTrustedUser(req, res);
+  if (!caller) return;
+
+  const roleAuth = checkRoleAuthorization(caller, ['Owner', 'owner', 'Admin', 'admin']);
+  if (!roleAuth.authorized) return res.status(403).json({ error: roleAuth.error });
+
+  const uid = String(req.body?.uid || '').trim();
+  const requestedRole = String(req.body?.role || '').trim();
+  const requestedStatus = String(req.body?.status || '').trim().toLowerCase();
+  if (!uid || !requestedRole || !requestedStatus) {
+    return res.status(400).json({ error: 'uid, role, and status are required fields.' });
+  }
+
+  const allowedRoles = ['Owner', 'Admin', 'Manager', 'Accountant', 'Cashier', 'Kitchen', 'Waiter', 'Delivery Driver'];
+  const allowedStatuses = ['active', 'suspended', 'pending'];
+  if (!allowedRoles.includes(requestedRole)) return res.status(400).json({ error: `Unsupported role: ${requestedRole}.` });
+  if (!allowedStatuses.includes(requestedStatus)) return res.status(400).json({ error: `Unsupported status: ${requestedStatus}.` });
+  if (uid === caller.uid) return res.status(409).json({ error: 'Use the account/profile flow to modify your own account.' });
+
+  let idempotencyKey: string;
+  try { idempotencyKey = getRequiredIdempotencyKey(req, req.body?.idempotencyKey); }
+  catch (e: any) { return res.status(e?.statusCode || 400).json({ error: e?.message || 'Idempotency-Key is required.' }); }
+
+  const db = getAdminDb();
+  const idemRef = db.collection('mutation_idempotency').doc(
+    createHash('sha256').update(`admin-user-update:${caller.uid}:${uid}:${idempotencyKey}`).digest('hex')
+  );
+
+  try {
+    const result = await db.runTransaction(async (transaction) => {
+      const idemSnap = await transaction.get(idemRef);
+      if (idemSnap.exists) return idemSnap.data();
+      const userRef = db.collection('users').doc(uid);
+      const targetSnap = await transaction.get(userRef);
+      if (!targetSnap.exists) throw Object.assign(new Error('Target user account not found.'), { statusCode: 404 });
+      const targetCurrent = targetSnap.data() || {};
+      const privilegeCheck = validateUserPrivilegeUpdate(
+        caller,
+        targetCurrent,
+        { role: requestedRole, branchId: targetCurrent.branchId, branch: targetCurrent.branch }
+      );
+      if (!privilegeCheck.allowed) throw Object.assign(new Error(privilegeCheck.error || 'User privilege update denied.'), { statusCode: 403 });
+      const targetBranch = normalizeCanonicalBranchId(targetCurrent.branchId || targetCurrent.branch || '');
+      const branchCheck = checkBranchAuthorization(caller, targetBranch);
+      if (!branchCheck.authorized) throw Object.assign(new Error(branchCheck.error || 'You are not authorized for the target user branch.'), { statusCode: 403 });
+
+      let branchRef: any = null; let branchData: any = null;
+      if (targetBranch && targetBranch !== 'all') {
+        branchRef = db.collection('branches').doc(targetBranch);
+        const branchSnap = await transaction.get(branchRef);
+        if (!branchSnap.exists) throw Object.assign(new Error(`Assigned branch ${targetBranch} does not exist.`), { statusCode: 404 });
+        branchData = branchSnap.data() || {};
+      }
+      const now = new Date().toISOString();
+      transaction.update(userRef, cleanUndefined({ role: requestedRole, status: requestedStatus, updatedAt: now, updatedBy: caller.uid }));
+
+      if (branchRef && branchData) {
+        const wasManager = String(targetCurrent.role || '').toLowerCase() === 'manager';
+        const becomesManager = requestedRole.toLowerCase() === 'manager' && requestedStatus !== 'suspended';
+        if (becomesManager) {
+          transaction.set(branchRef, cleanUndefined({ managerId: uid, managerName: targetCurrent.displayName || targetCurrent.email || uid, updatedAt: now }), { merge: true });
+        } else if (wasManager && branchData.managerId === uid) {
+          transaction.set(branchRef, { managerId: null, managerName: '', updatedAt: now }, { merge: true });
+        }
+      }
+      const actRef = db.collection('activity_logs').doc();
+      transaction.set(actRef, cleanUndefined({
+        id: actRef.id, userId: caller.uid, userName: caller.name, userRole: caller.role,
+        branchId: targetBranch, action: 'UPDATE_USER_PRIVILEGES',
+        details: `Updated user ${targetCurrent.displayName || targetCurrent.email || uid}: role=${requestedRole}, status=${requestedStatus}.`,
+        timestamp: now, ip: req.ip || '127.0.0.1'
+      }));
+      const out = { status: 'success', uid, role: requestedRole, accountStatus: requestedStatus, branchId: targetBranch, idempotencyKey };
+      transaction.set(idemRef, cleanUndefined({ ...out, createdAt: now }));
+      return out;
+    });
+    return res.json(result);
+  } catch (err: any) {
+    console.error('Admin user update error:', err);
+    return res.status(err?.statusCode || 500).json({ error: err?.message || 'Failed to update user account.' });
+  }
+}
+
 export async function handleAdminCreateUser(req: express.Request, res: express.Response) {
   const caller = await authenticateTrustedUser(req, res);
   if (!caller) return;
@@ -11763,6 +11869,10 @@ export async function handleAdminCreateUser(req: express.Request, res: express.R
   const { displayName, email, role, branch, branchId, password } = req.body || {};
   if (!displayName || !email || !role) {
     return res.status(400).json({ error: 'displayName, email, and role are required fields.' });
+  }
+  const allowedRoles = ['Owner', 'Admin', 'Manager', 'Accountant', 'Cashier', 'Kitchen', 'Waiter', 'Delivery Driver'];
+  if (!allowedRoles.includes(String(role).trim())) {
+    return res.status(400).json({ error: `Unsupported role: ${String(role).trim()}.` });
   }
 
   const db = getAdminDb();
@@ -11834,44 +11944,31 @@ export async function handleAdminCreateUser(req: express.Request, res: express.R
     const now = new Date().toISOString();
     const userDocRef = db.collection('users').doc(uid);
     const userData = {
-      uid,
-      displayName,
-      email,
-      role,
-      branch: authorizedTargetBranch,
-      branchId: authorizedTargetBranch,
-      status: 'active',
-      emailVerified: false,
-      createdBy: caller.uid,
-      createdAt: now,
-      updatedAt: now
+      uid, displayName, email, role, branch: authorizedTargetBranch, branchId: authorizedTargetBranch,
+      status: 'active', emailVerified: authUser?.emailVerified === true, createdBy: caller.uid, createdAt: now, updatedAt: now
     };
 
-    await userDocRef.set(cleanUndefined(userData), { merge: true });
-
-    // A Manager provisioned onto a branch is also recorded as that branch's manager.
-    // Store the UID as the authoritative linkage and keep managerName for the UI card.
-    if (String(role).toLowerCase() === 'manager' && authorizedTargetBranch && authorizedTargetBranch !== 'all') {
-      const branchRef = db.collection('branches').doc(authorizedTargetBranch);
-      await branchRef.set(cleanUndefined({
-        managerId: uid,
-        managerName: displayName,
-        updatedAt: now
-      }), { merge: true });
-    }
-
-    // Log Activity
-    const actRef = db.collection('activity_logs').doc();
-    await actRef.set({
-      id: actRef.id,
-      userId: caller.uid,
-      userName: caller.name,
-      userRole: caller.role,
-      branchId: authorizedTargetBranch,
-      action: 'CREATE_USER',
-      details: `Provisioned authentic Firebase Auth account ${displayName} (${email}) with role "${role}" on branch "${authorizedTargetBranch}".`,
-      timestamp: now,
-      ip: req.ip || '127.0.0.1'
+    await db.runTransaction(async (transaction) => {
+      const existingUserSnap = await transaction.get(userDocRef);
+      if (existingUserSnap.exists) {
+        throw Object.assign(new Error('A user profile already exists for this Firebase account. Edit the existing account instead of provisioning a duplicate profile.'), { statusCode: 409 });
+      }
+      let branchRef: any = null;
+      if (authorizedTargetBranch && authorizedTargetBranch !== 'all') {
+        branchRef = db.collection('branches').doc(authorizedTargetBranch);
+        const branchSnap = await transaction.get(branchRef);
+        if (!branchSnap.exists) throw Object.assign(new Error(`Assigned branch ${authorizedTargetBranch} does not exist.`), { statusCode: 404 });
+      }
+      transaction.create(userDocRef, cleanUndefined(userData));
+      if (branchRef && String(role).toLowerCase() === 'manager') {
+        transaction.set(branchRef, cleanUndefined({ managerId: uid, managerName: displayName, updatedAt: now }), { merge: true });
+      }
+      const actRef = db.collection('activity_logs').doc();
+      transaction.create(actRef, cleanUndefined({
+        id: actRef.id, userId: caller.uid, userName: caller.name, userRole: caller.role, branchId: authorizedTargetBranch,
+        action: 'CREATE_USER', details: `Provisioned authentic Firebase Auth account ${displayName} (${email}) with role "${role}" on branch "${authorizedTargetBranch}".`,
+        timestamp: now, ip: req.ip || '127.0.0.1'
+      }));
     });
 
     return res.status(201).json({
@@ -11890,7 +11987,8 @@ export async function handleAdminCreateUser(req: express.Request, res: express.R
         console.error(`[Compensating Transaction Error] Failed to delete orphaned Auth user ${uid}:`, cleanupErr);
       }
     }
-    return res.status(500).json({ error: `Failed to create user account: ${err?.message || err}` });
+    const statusCode = Number(err?.statusCode || 500);
+    return res.status(statusCode >= 400 && statusCode < 600 ? statusCode : 500).json({ error: `Failed to create user account: ${err?.message || err}` });
   }
 }
 

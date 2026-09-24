@@ -51,7 +51,7 @@ export const InventoryManagementSystem: React.FC<InventoryManagementSystemProps>
 
   const effectiveRole = String(role || userRecord?.role || userRole || '').toLowerCase().trim();
   const rawUserBranch = userRecord?.branchId || userRecord?.branch || userBranch;
-  const isHqUser = effectiveRole === 'owner' || (effectiveRole === 'admin' && (!rawUserBranch || rawUserBranch === 'all'));
+  const isHqUser = effectiveRole === 'owner' || (effectiveRole === 'admin' && (userRecord?.isHQ === true || !rawUserBranch || rawUserBranch === 'all'));
   const effectiveBranchId = isHqUser ? undefined : rawUserBranch;
 
   // Language state

@@ -6,7 +6,7 @@ import { useAuth } from '../context/AuthContext';
 export const Footer: React.FC = () => {
   const { userRecord } = useAuth();
   const userRole = (userRecord?.role || '').toLowerCase().trim();
-  const isHqUser = userRole === 'owner' || (userRole === 'admin' && (!userRecord?.branchId || userRecord?.branchId === 'all'));
+  const isHqUser = userRole === 'owner' || (userRole === 'admin' && (userRecord?.isHQ === true || !userRecord?.branchId || userRecord?.branchId === 'all'));
   
   const branchLabel = isHqUser
     ? 'All Branches (HQ)'

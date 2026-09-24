@@ -47,7 +47,7 @@ export const RecipeEngineMainView: React.FC<RecipeEngineMainViewProps> = ({
   const { language, setLanguage, userRecord, role } = useAuth();
   const effectiveRole = String(role || userRecord?.role || '').toLowerCase().trim();
   const rawUserBranch = userRecord?.branchId || userRecord?.branch;
-  const isHqUser = effectiveRole === 'owner' || (effectiveRole === 'admin' && (!rawUserBranch || rawUserBranch === 'all'));
+  const isHqUser = effectiveRole === 'owner' || (effectiveRole === 'admin' && (userRecord?.isHQ === true || !rawUserBranch || rawUserBranch === 'all'));
   const effectiveBranchId = isHqUser ? undefined : rawUserBranch;
 
   const currentLang = (defaultLang || language) as RecipeLang;

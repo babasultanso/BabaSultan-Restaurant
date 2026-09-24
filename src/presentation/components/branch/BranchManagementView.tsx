@@ -107,6 +107,9 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
 }) => {
   const { userRecord, language: authLang, role, t } = useAuth();
   const isManagementRole = ['Owner', 'owner', 'Admin', 'admin', 'Manager', 'manager'].includes(role || '');
+  const canManageBranches = role === 'Owner' || role === 'owner' || userRecord?.isHQ === true || ((role === 'Admin' || role === 'admin') && userRecord?.branchId === 'all');
+  const canCreateBranchTransfer = role === 'Owner' || role === 'owner' || userRecord?.isHQ === true || ((role === 'Admin' || role === 'admin') && userRecord?.branchId === 'all');
+  const canApproveTransfers = ['Owner', 'owner', 'Admin', 'admin', 'Manager', 'manager', 'Accountant', 'accountant'].includes(role || '');
   const activeLang = (language || authLang || 'en') as Language;
   const [currentLang, setCurrentLang] = useState<Language>(activeLang);
 
@@ -166,9 +169,9 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
     gpsLocation: '',
     phone: '',
     email: '',
-    workingHours: '08:00 AM - 11:00 PM',
-    timeZone: 'Africa/Mogadishu (UTC+3)',
-    currency: 'USD',
+    workingHours: '',
+    timeZone: '',
+    currency: '',
     taxRate: 0,
     taxId: '',
     status: 'active',
@@ -185,6 +188,7 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
     reason: string;
     cashAmount: number;
     employeeName: string;
+    employeeId: string;
     isPermanentEmployeeTransfer: boolean;
     transferItemName: string;
     transferItemQty: number;
@@ -195,6 +199,7 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
     reason: '',
     cashAmount: 0,
     employeeName: '',
+    employeeId: '',
     isPermanentEmployeeTransfer: true,
     transferItemName: '',
     transferItemQty: 1
@@ -207,18 +212,18 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
 
   const normalizeBranch = (id: string, data: any): Branch => ({
     id,
-    name: data?.name || 'Unnamed Branch',
-    code: data?.code || 'BR-00',
+    name: data?.name || '',
+    code: data?.code || '',
     logo: data?.logo || '',
     address: data?.address || '',
-    city: data?.city || 'Main City',
-    country: data?.country || 'Somalia',
+    city: data?.city || '',
+    country: data?.country || '',
     gpsLocation: data?.gpsLocation || '',
     phone: data?.phone || '',
     email: data?.email || '',
-    workingHours: data?.workingHours || '08:00 AM - 10:00 PM',
-    timeZone: data?.timeZone || 'Africa/Mogadishu (UTC+3)',
-    currency: data?.currency || 'USD',
+    workingHours: data?.workingHours || '',
+    timeZone: data?.timeZone || '',
+    currency: data?.currency || '',
     taxRate: typeof data?.taxRate === 'number' ? data.taxRate : 0,
     taxId: data?.taxId || '',
     status: (data?.status as BranchStatus) || 'active',
@@ -240,7 +245,7 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
     };
 
     const userRoleStr = (userRecord?.role || role || '').toLowerCase().trim();
-    const isHqUser = userRoleStr === 'owner' || (userRoleStr === 'admin' && (!userRecord?.branchId || userRecord?.branchId === 'all'));
+    const isHqUser = userRoleStr === 'owner' || (userRoleStr === 'admin' && (userRecord?.isHQ === true || !userRecord?.branchId || userRecord?.branchId === 'all'));
     const userBranch = userRecord?.branchId || userRecord?.branch;
     const isBranchScoped = !isHqUser && Boolean(userBranch) && userBranch !== 'all';
 
@@ -272,32 +277,39 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
     const unsubOrders = onSnapshot(ordersQuery, (snap) => {
       const list: Order[] = [];
       snap.forEach((d) => list.push({ id: d.id, ...d.data() } as Order));
-      if (list.length > 0) setOrders(list);
+      setOrders(list);
     }, handleBranchErr);
 
     const unsubExpenses = onSnapshot(expensesQuery, (snap) => {
       const list: Expense[] = [];
       snap.forEach((d) => list.push({ id: d.id, ...d.data() } as Expense));
-      if (list.length > 0) setExpenses(list);
+      setExpenses(list);
     }, handleBranchErr);
 
     const unsubEmployees = onSnapshot(employeesQuery, (snap) => {
       const list: Employee[] = [];
       snap.forEach((d) => list.push({ id: d.id, ...d.data() } as Employee));
-      if (list.length > 0) setEmployees(list);
+      setEmployees(list);
     }, handleBranchErr);
 
     const unsubSalaries = onSnapshot(salariesQuery, (snap) => {
       const list: SalaryPayment[] = [];
       snap.forEach((d) => list.push({ id: d.id, ...d.data() } as SalaryPayment));
-      if (list.length > 0) setSalaries(list);
+      setSalaries(list);
     }, handleBranchErr);
 
-    const unsubTransfers = onSnapshot(query(collection(db, COLLECTIONS.BRANCH_TRANSFERS)), (snap) => {
-      const list: BranchTransfer[] = [];
-      snap.forEach((d) => list.push({ id: d.id, ...d.data() } as BranchTransfer));
-      setTransfers(list);
-    }, handleBranchErr);
+    const transferSnapshot = (snap: any, bucket: Map<string, BranchTransfer>) => {
+      snap.forEach((d: any) => bucket.set(d.id, { id: d.id, ...d.data() } as BranchTransfer));
+      setTransfers(Array.from(bucket.values()));
+    };
+    const transferBucket = new Map<string, BranchTransfer>();
+    const transferQueries = (role === 'Owner' || role === 'owner' || userRecord?.isHQ === true || ((role === 'Admin' || role === 'admin') && userRecord?.branchId === 'all'))
+      ? [query(collection(db, COLLECTIONS.BRANCH_TRANSFERS))]
+      : [
+          query(collection(db, COLLECTIONS.BRANCH_TRANSFERS), where('sourceBranchId', '==', String(userRecord?.branchId || userRecord?.branch || ''))),
+          query(collection(db, COLLECTIONS.BRANCH_TRANSFERS), where('destinationBranchId', '==', String(userRecord?.branchId || userRecord?.branch || '')))
+        ];
+    const unsubTransferFns = transferQueries.map((q) => onSnapshot(q, (snap) => transferSnapshot(snap, transferBucket), handleBranchErr));
 
     return () => {
       unsubBranches();
@@ -305,14 +317,28 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
       unsubExpenses();
       unsubEmployees();
       unsubSalaries();
-      unsubTransfers();
+      unsubTransferFns.forEach((unsub) => unsub());
     };
   }, [role, userRecord?.branchId, userRecord?.branch]);
+
+  const visibleBranches = useMemo(() => {
+    if (role === 'Owner' || role === 'owner' || userRecord?.isHQ === true || (role === 'Admin' || role === 'admin') && userRecord?.branchId === 'all') {
+      return branches;
+    }
+    const activeBranchId = String(userRecord?.branchId || userRecord?.branch || '').trim();
+    return branches.filter((b) => b.id === activeBranchId);
+  }, [branches, role, userRecord?.branchId, userRecord?.branch, userRecord?.isHQ]);
+
+  useEffect(() => {
+    if (!visibleBranches.some((b) => b.id === selectedBranchId)) {
+      setSelectedBranchId(visibleBranches[0]?.id || '');
+    }
+  }, [visibleBranches, selectedBranchId]);
 
   // Compute Consolidated Analytics
   const analytics = useMemo(() => {
     return calculateConsolidatedBranchAnalytics({
-      branches,
+      branches: visibleBranches,
       orders,
       expenses,
       employees,
@@ -322,12 +348,12 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
       transfers,
       salaries
     });
-  }, [branches, orders, expenses, employees, ingredients, products, customers, transfers, salaries]);
+  }, [visibleBranches, orders, expenses, employees, ingredients, products, customers, transfers, salaries]);
 
   // Selected Branch Data for Individual Dashboard
   const currentBranch = useMemo(() => {
-    return branches.find((b) => b.id === selectedBranchId) || branches[0];
-  }, [branches, selectedBranchId]);
+    return visibleBranches.find((b) => b.id === selectedBranchId) || visibleBranches[0];
+  }, [visibleBranches, selectedBranchId]);
 
   const currentBranchMetrics = useMemo(() => {
     if (!currentBranch) return null;
@@ -393,6 +419,11 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
     }
   };
 
+  const sourceBranchForTransfer = transferForm.sourceBranchId;
+  const sourceTransferProducts = products.filter((item) => item.branchId === sourceBranchForTransfer);
+  const sourceTransferIngredients = ingredients.filter((item) => item.branchId === sourceBranchForTransfer);
+  const sourceTransferEmployees = employees.filter((item) => item.branchId === sourceBranchForTransfer);
+
   // Handle Create Transfer
   const handleCreateTransfer = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -408,28 +439,38 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
       await createBranchTransfer({
         transferType: transferForm.transferType,
         sourceBranchId: transferForm.sourceBranchId,
-        sourceBranchName: sourceB?.name || 'Branch Source',
+        sourceBranchName: sourceB?.name || '',
         destinationBranchId: transferForm.destinationBranchId,
-        destinationBranchName: destB?.name || 'Branch Dest',
+        destinationBranchName: destB?.name || '',
         reason: transferForm.reason || 'Inter-branch Operational Allocation',
         cashAmount: transferForm.transferType === 'cash' ? transferForm.cashAmount : undefined,
         employeeName: transferForm.transferType === 'employee' ? transferForm.employeeName : undefined,
+        employeeId: transferForm.transferType === 'employee' ? transferForm.employeeId : undefined,
         isPermanentEmployeeTransfer: transferForm.isPermanentEmployeeTransfer,
         items:
           transferForm.transferType === 'inventory' || transferForm.transferType === 'product'
-            ? [
-                {
-                  itemId: 'item_' + Date.now(),
-                  itemName: transferForm.transferItemName || 'Stock Package',
+            ? (() => {
+                const sourceBranchId = transferForm.sourceBranchId;
+                const wantedName = String(transferForm.transferItemName || '').trim();
+                const sourceProduct = transferForm.transferType === 'product'
+                  ? products.find(p => p.branchId === sourceBranchId && (p.id === wantedName || p.name === wantedName))
+                  : undefined;
+                const sourceIngredient = transferForm.transferType === 'inventory'
+                  ? ingredients.find(i => i.branchId === sourceBranchId && (i.id === wantedName || i.name === wantedName))
+                  : undefined;
+                const sourceItem: any = sourceProduct || sourceIngredient;
+                if (!sourceItem?.id) throw new Error('Select a real product/ingredient from the source branch before creating a transfer.');
+                return [{
+                  itemId: sourceItem.id,
+                  itemName: sourceItem.name || wantedName,
                   type: transferForm.transferType === 'product' ? 'product' : 'ingredient',
                   quantity: transferForm.transferItemQty || 1,
-                  unit: 'units',
-                  unitCost: 15
-                }
-              ]
+                  unit: sourceItem.unit || 'units',
+                  unitCost: Number(sourceItem.costPrice ?? sourceItem.cost ?? sourceItem.costPerUnit ?? sourceItem.unitCost ?? 0)
+                }];
+              })()
             : undefined,
-        requestedBy: 'HQ Admin'
-      });
+              });
 
       showToast('Inter-branch transfer request generated successfully.');
       setShowTransferModal(false);
@@ -441,7 +482,7 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
   // Handle Approve / Reject Transfer
   const handleApproveTransfer = async (transferId: string) => {
     try {
-      await approveBranchTransfer(transferId, 'Head Office Manager');
+      await approveBranchTransfer(transferId, userRecord?.displayName || userRecord?.name || 'User');
       showToast('Transfer approved and ledger adjusted.');
     } catch (err: any) {
       // Fail closed: a transfer must never appear approved unless the server
@@ -452,7 +493,7 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
 
   const handleRejectTransfer = async (transferId: string) => {
     const reason = prompt('Enter rejection reason:') || 'Administrative decision';
-    await rejectBranchTransfer(transferId, 'Head Office Manager', reason);
+    await rejectBranchTransfer(transferId, userRecord?.displayName || userRecord?.name || 'User', reason);
     showToast('Transfer request rejected.');
   };
 
@@ -474,7 +515,7 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
   };
 
   // Filtered branches for list view
-  const filteredBranches = branches.filter((b) => {
+  const filteredBranches = visibleBranches.filter((b) => {
     const q = (searchQuery || '').toLowerCase();
     const name = (b?.name || '').toLowerCase();
     const city = (b?.city || '').toLowerCase();
@@ -517,7 +558,7 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {isManagementRole && (
+            {canManageBranches && (
               <button
                 onClick={() => {
                   setEditingBranch(null);
@@ -527,13 +568,13 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
                     logo: '',
                     address: '',
                     city: '',
-                    country: 'Somalia',
+                    country: '',
                     gpsLocation: '',
                     phone: '',
                     email: '',
-                    workingHours: '08:00 AM - 11:00 PM',
-                    timeZone: 'Africa/Mogadishu (UTC+3)',
-                    currency: 'USD',
+                    workingHours: '',
+                    timeZone: '',
+                    currency: '',
                     taxRate: 0,
                     taxId: '',
                     status: 'active',
@@ -549,7 +590,7 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
               </button>
             )}
 
-            {isManagementRole && (
+            {canCreateBranchTransfer && (
               <button
                 onClick={() => setShowTransferModal(true)}
                 className="bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold px-4 py-2.5 rounded-2xl text-xs transition flex items-center gap-2 cursor-pointer shadow-lg shadow-indigo-600/20"
@@ -892,7 +933,7 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
                     {translateRawUi('View Branch Dashboard')}
                   </button>
 
-                  {isManagementRole && (
+                  {canManageBranches && (
                     <>
                       <button
                         onClick={() => openEditModal(b)}
@@ -944,7 +985,7 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
                 onChange={(e) => setSelectedBranchId(e.target.value)}
                 className="bg-slate-950 border border-slate-800 rounded-2xl px-4 py-2 text-xs font-bold text-emerald-400 focus:outline-none focus:border-emerald-500"
               >
-                {branches.map((b) => (
+                {visibleBranches.map((b) => (
                   <option key={b.id} value={b.id}>
                     {b.name} ({b.code}) - {b.city}
                   </option>
@@ -997,7 +1038,7 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
                 <p className="text-xs text-slate-400 mt-0.5">{t.legacyUi.branchTransferHelp}</p>
               </div>
 
-              {isManagementRole && (
+              {canCreateBranchTransfer && (
                 <button
                   onClick={() => setShowTransferModal(true)}
                   className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold px-4 py-2 rounded-2xl text-xs flex items-center gap-2 cursor-pointer"
@@ -1031,7 +1072,7 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
                       <p className="text-slate-400 mt-0.5 font-sans">Reason: {t.reason}</p>
                     </div>
 
-                    {isManagementRole && (
+                    {canApproveTransfers && (
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => handleApproveTransfer(t.id)}
@@ -1247,7 +1288,7 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
                     className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-3.5 py-2.5 text-white focus:outline-none focus:border-emerald-500"
                   >
                     <option value="">{t.legacyUi.selectSource}</option>
-                    {branches.map((b) => (
+                    {visibleBranches.map((b) => (
                       <option key={b.id} value={b.id}>{b.name}</option>
                     ))}
                   </select>
@@ -1284,27 +1325,36 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
               ) : transferForm.transferType === 'employee' ? (
                 <div>
                   <label className="block text-slate-400 font-bold mb-1">{t.legacyUi.employeeName}</label>
-                  <input
-                    type="text"
+                  <select
                     required
-                    value={transferForm.employeeName}
-                    onChange={(e) => setTransferForm({ ...transferForm, employeeName: e.target.value })}
-                    placeholder={translateRawUi('e.g. Hassan Ahmed')}
+                    value={transferForm.employeeId}
+                    onChange={(e) => {
+                      const employee = sourceTransferEmployees.find((item) => item.id === e.target.value);
+                      setTransferForm({ ...transferForm, employeeId: e.target.value, employeeName: employee?.name || employee?.fullName || '' });
+                    }}
                     className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-3.5 py-2.5 text-white focus:outline-none focus:border-emerald-500"
-                  />
+                  >
+                    <option value="">{translateRawUi('Select employee from source branch')}</option>
+                    {sourceTransferEmployees.map((employee) => (
+                      <option key={employee.id} value={employee.id}>{employee.name || employee.fullName || employee.id}</option>
+                    ))}
+                  </select>
                 </div>
               ) : (
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-slate-400 font-bold mb-1">{t.legacyUi.itemDescription}</label>
-                    <input
-                      type="text"
+                    <select
                       required
                       value={transferForm.transferItemName}
                       onChange={(e) => setTransferForm({ ...transferForm, transferItemName: e.target.value })}
-                      placeholder={translateRawUi('e.g. Basmati Rice 25kg')}
                       className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-3.5 py-2.5 text-white focus:outline-none focus:border-emerald-500"
-                    />
+                    >
+                      <option value="">{translateRawUi('Select item from source branch')}</option>
+                      {(transferForm.transferType === 'product' ? sourceTransferProducts : sourceTransferIngredients).map((item) => (
+                        <option key={item.id} value={item.id}>{item.name || item.id}</option>
+                      ))}
+                    </select>
                   </div>
 
                   <div>

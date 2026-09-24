@@ -47,9 +47,9 @@ export const POSView: React.FC<POSViewProps> = ({ products, onOrderCompleted }) 
   const { user, userRecord, role, t, language, loading: authLoading } = useAuth();
 
   // Check if current user has Owner / HQ authority (where backend permits explicit or all-branch access)
-  const isHQUser = ['Owner', 'owner'].includes(role || '') || 
-                   ['Owner', 'owner'].includes(userRecord?.role || '') || 
-                   userRecord?.branchId === 'all';
+  const normalizedUserRole = String(userRecord?.role || role || '').trim().toLowerCase();
+  const isHQUser = normalizedUserRole === 'owner' ||
+                   (normalizedUserRole === 'admin' && (userRecord?.isHQ === true || userRecord?.branchId === 'all')); 
 
   const currentBranchId = userRecord?.branchId || '';
 
@@ -89,7 +89,7 @@ export const POSView: React.FC<POSViewProps> = ({ products, onOrderCompleted }) 
 
   // Refresh held orders count
   const refreshHoldCount = () => {
-    fetchHoldOrdersFirestore()
+    fetchHoldOrdersFirestore(currentBranchId)
       .then(res => setHeldOrdersCount(res.length))
       .catch(() => {});
   };
@@ -118,18 +118,25 @@ export const POSView: React.FC<POSViewProps> = ({ products, onOrderCompleted }) 
         }
 
         // Load delivery zones
-        const zonesSnap = await getDocs(query(collection(db, COLLECTIONS.DELIVERY_ZONES)));
-        if (!zonesSnap.empty && isMounted) {
+        const zonesQuery = isHQUser
+          ? query(collection(db, COLLECTIONS.DELIVERY_ZONES))
+          : effectiveBranch
+            ? query(collection(db, COLLECTIONS.DELIVERY_ZONES), where('branchId', '==', effectiveBranch))
+            : null;
+        const zonesSnap = zonesQuery ? await getDocs(zonesQuery) : null;
+        if (zonesSnap && !zonesSnap.empty && isMounted) {
           const allZones = zonesSnap.docs.map(d => ({ id: d.id, ...(d.data() as any) } as DeliveryZone));
-          const filtered = isHQUser
-            ? allZones
-            : effectiveBranch ? allZones.filter(z => areBranchesMatching(z.branchId, effectiveBranch)) : [];
+          const filtered = isHQUser ? allZones : allZones.filter(z => areBranchesMatching(z.branchId, effectiveBranch));
           setDeliveryZones(filtered);
+        } else if (isMounted) {
+          setDeliveryZones([]);
         }
       } catch (err) {
         console.warn('Could not load delivery settings in POS:', err);
       }
     };
+    setBranchDeliveryFee(null);
+    setDeliveryZones([]);
     loadDeliverySettings();
     return () => { isMounted = false; };
   }, [currentBranchId, isHQUser]);

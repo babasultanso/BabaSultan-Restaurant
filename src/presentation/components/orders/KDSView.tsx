@@ -106,7 +106,7 @@ export const KDSView: React.FC<KDSViewProps> = ({ orders }) => {
 
   const userBranch = userRecord?.branchId || userRecord?.branch;
   const userRoleStr = String(role || userRecord?.role || '').toLowerCase();
-  const isHqUser = userRoleStr === 'owner' || (userRoleStr === 'admin' && (!userBranch || userBranch === 'all'));
+  const isHqUser = userRoleStr === 'owner' || (userRoleStr === 'admin' && (userRecord?.isHQ === true || !userBranch || userBranch === 'all'));
 
   // Subscribe to Kitchen Tickets (Persistent without re-subscribing on audio toggle)
   const [subscribeTrigger, setSubscribeTrigger] = useState(0);

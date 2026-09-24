@@ -13,7 +13,7 @@ import {
   writeBatch,
   deleteDoc
 } from 'firebase/firestore';
-import { db, COLLECTIONS, recordInventoryMovementFirestore, getEffectiveBranchId, getAuthToken } from '../../lib/firebase';
+import { db, COLLECTIONS, recordInventoryMovementFirestore, getEffectiveBranchId, getEffectiveBranchScope, getAuthToken } from '../../lib/firebase';
 import { IRecipeRepository } from '../../domain/repositories/IRecipeRepository';
 import {
   Recipe,
@@ -91,8 +91,10 @@ export class RecipeRepositoryImpl implements IRecipeRepository {
 
   async getRecipeByProductId(productId: string): Promise<Recipe | null> {
     try {
-      const branchId = getEffectiveBranchId();
-      const q = query(collection(db, RECIPES_COLL), where('productId', '==', productId), where('branchId', '==', branchId));
+      const branchScope = getEffectiveBranchScope();
+      const q = branchScope === 'all'
+        ? query(collection(db, RECIPES_COLL), where('productId', '==', productId))
+        : query(collection(db, RECIPES_COLL), where('productId', '==', productId), where('branchId', '==', branchScope));
       const snap = await getDocs(q);
       if (!snap.empty) {
         const docSnap = snap.docs[0];
@@ -147,11 +149,13 @@ export class RecipeRepositoryImpl implements IRecipeRepository {
 
   async fetchRecipeHistory(recipeId: string): Promise<RecipeVersionHistory[]> {
     try {
-      const branchId = getEffectiveBranchId();
-      const q = query(
+      const branchScope = getEffectiveBranchScope();
+      const q = branchScope === 'all'
+        ? query(collection(db, RECIPE_VERSIONS_COLL), where('recipeId', '==', recipeId))
+        : query(
         collection(db, RECIPE_VERSIONS_COLL),
         where('recipeId', '==', recipeId),
-        where('branchId', '==', branchId)
+        where('branchId', '==', branchScope)
       );
       const snap = await getDocs(q);
       const list: RecipeVersionHistory[] = [];
@@ -375,13 +379,15 @@ export class RecipeRepositoryImpl implements IRecipeRepository {
   // ==========================================
   async fetchIngredientMovements(ingredientId?: string): Promise<IngredientMovement[]> {
     try {
-      const branchId = getEffectiveBranchId();
-      let q = query(collection(db, INGREDIENT_MOVEMENTS_COLL), where('branchId', '==', branchId), orderBy('createdAt', 'desc'));
+      const branchScope = getEffectiveBranchScope();
+      let q = branchScope === 'all'
+        ? query(collection(db, INGREDIENT_MOVEMENTS_COLL), orderBy('createdAt', 'desc'))
+        : query(collection(db, INGREDIENT_MOVEMENTS_COLL), where('branchId', '==', branchScope), orderBy('createdAt', 'desc'));
       if (ingredientId) {
         q = query(
           collection(db, INGREDIENT_MOVEMENTS_COLL),
           where('ingredientId', '==', ingredientId),
-          where('branchId', '==', branchId),
+          ...(branchScope === 'all' ? [] : [where('branchId', '==', branchScope)]),
           orderBy('createdAt', 'desc')
         );
       }
@@ -397,7 +403,10 @@ export class RecipeRepositoryImpl implements IRecipeRepository {
   subscribeIngredientMovements(callback: (movements: IngredientMovement[]) => void): () => void {
     let q;
     try {
-      q = query(collection(db, INGREDIENT_MOVEMENTS_COLL), where('branchId', '==', getEffectiveBranchId()), orderBy('createdAt', 'desc'));
+      const branchScope = getEffectiveBranchScope();
+      q = branchScope === 'all'
+        ? query(collection(db, INGREDIENT_MOVEMENTS_COLL), orderBy('createdAt', 'desc'))
+        : query(collection(db, INGREDIENT_MOVEMENTS_COLL), where('branchId', '==', branchScope), orderBy('createdAt', 'desc'));
     } catch {
       return () => {};
     }
@@ -496,8 +505,10 @@ export class RecipeRepositoryImpl implements IRecipeRepository {
   // ==========================================
   async fetchUnitConversions(): Promise<UnitConversion[]> {
     try {
-      const branchId = getEffectiveBranchId();
-      const q = query(collection(db, UNIT_CONVERSIONS_COLL), where('branchId', '==', branchId));
+      const branchScope = getEffectiveBranchScope();
+      const q = branchScope === 'all'
+        ? query(collection(db, UNIT_CONVERSIONS_COLL))
+        : query(collection(db, UNIT_CONVERSIONS_COLL), where('branchId', '==', branchScope));
       const snap = await getDocs(q);
       const list: UnitConversion[] = [];
       snap.forEach((d) => list.push({ id: d.id, ...d.data() } as UnitConversion));
@@ -510,7 +521,10 @@ export class RecipeRepositoryImpl implements IRecipeRepository {
   subscribeUnitConversions(callback: (conversions: UnitConversion[]) => void): () => void {
     let q;
     try {
-      q = query(collection(db, UNIT_CONVERSIONS_COLL), where('branchId', '==', getEffectiveBranchId()));
+      const branchScope = getEffectiveBranchScope();
+      q = branchScope === 'all'
+        ? query(collection(db, UNIT_CONVERSIONS_COLL))
+        : query(collection(db, UNIT_CONVERSIONS_COLL), where('branchId', '==', branchScope));
     } catch {
       return () => {};
     }
@@ -550,8 +564,10 @@ export class RecipeRepositoryImpl implements IRecipeRepository {
   // ==========================================
   async fetchStockCounts(): Promise<StockCount[]> {
     try {
-      const branchId = getEffectiveBranchId();
-      const q = query(collection(db, STOCK_COUNTS_COLL), where('branchId', '==', branchId), orderBy('createdAt', 'desc'));
+      const branchScope = getEffectiveBranchScope();
+      const q = branchScope === 'all'
+        ? query(collection(db, STOCK_COUNTS_COLL), orderBy('createdAt', 'desc'))
+        : query(collection(db, STOCK_COUNTS_COLL), where('branchId', '==', branchScope), orderBy('createdAt', 'desc'));
       const snap = await getDocs(q);
       const list: StockCount[] = [];
       snap.forEach((d) => list.push({ id: d.id, ...d.data() } as StockCount));
