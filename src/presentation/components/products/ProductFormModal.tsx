@@ -47,7 +47,15 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
 
   useEffect(() => {
     if (productToEdit) {
-      setFormData({ ...productToEdit });
+      const resolvedStock = Number(productToEdit.stock ?? productToEdit.currentStock ?? 0);
+      const resolvedMinStock = Number(productToEdit.minStockLevel ?? productToEdit.minStockAlert ?? 10);
+      setFormData({
+        ...productToEdit,
+        stock: resolvedStock,
+        currentStock: resolvedStock,
+        minStockLevel: resolvedMinStock,
+        minStockAlert: resolvedMinStock
+      });
     } else {
       setFormData({
         name: '',
@@ -70,6 +78,8 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
         sku: '',
         barcode: '',
         stock: 0,
+        currentStock: 0,
+        minStockLevel: 10,
         minStockAlert: 10,
         unit: 'Portion',
         salesCount: 0,
@@ -157,10 +167,24 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
 
     setLoading(true);
     try {
+      const resolvedMinStock = Number(formData.minStockLevel ?? formData.minStockAlert ?? 0);
       const payload: Partial<Product> = {
         ...formData,
-        name: formData.nameEn || formData.name || 'Unnamed Dish'
+        name: formData.nameEn || formData.name || 'Unnamed Dish',
+        minStockLevel: resolvedMinStock,
+        minStockAlert: resolvedMinStock
       };
+      if (productToEdit) {
+        const prevStock = Number(productToEdit.stock ?? productToEdit.currentStock ?? 0);
+        const nextStock = Number(formData.stock ?? formData.currentStock ?? prevStock);
+        if (nextStock === prevStock) {
+          delete payload.stock;
+          delete payload.currentStock;
+        } else {
+          payload.stock = nextStock;
+          payload.currentStock = nextStock;
+        }
+      }
       await onSaveProduct(payload, !!productToEdit);
       onClose();
     } catch (err: any) {
@@ -472,7 +496,23 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                    {translateRawUi('Min Stock Level (Alert)')}
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={formData.minStockLevel ?? formData.minStockAlert ?? 0}
+                    onChange={(e) => {
+                      const val = Math.max(0, parseInt(e.target.value, 10) || 0);
+                      setFormData({ ...formData, minStockLevel: val, minStockAlert: val });
+                    }}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">
                     {translateRawUi('Estimated Calories (kcal)')}

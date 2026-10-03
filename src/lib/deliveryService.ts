@@ -50,7 +50,17 @@ export async function createDriver(driverData: Omit<DeliveryDriver, 'id' | 'crea
 
 export async function updateDriver(driverId: string, updates: Partial<DeliveryDriver>): Promise<void> {
   const ref = doc(db, COLLECTIONS.DRIVERS, driverId);
-  const normalizedUpdates = { ...updates };
+  const {
+    availability: _availability,
+    activeDeliveryId: _activeDeliveryId,
+    rating: _rating,
+    totalDeliveries: _totalDeliveries,
+    completedDeliveries: _completedDeliveries,
+    failedDeliveries: _failedDeliveries,
+    currentLocation: _currentLocation,
+    ...safeProfileUpdates
+  } = updates as any;
+  const normalizedUpdates = { ...safeProfileUpdates };
   if (updates.branchId || (updates as any)?.branch) {
     normalizedUpdates.branchId = getCanonicalBranchId(updates.branchId || (updates as any)?.branch);
     normalizedUpdates.branchName = updates.branchName || getBranchDisplayName(normalizedUpdates.branchId);
@@ -64,7 +74,7 @@ export async function updateDriver(driverId: string, updates: Partial<DeliveryDr
 export async function deleteDriver(driverId: string): Promise<void> {
   await updateDriver(driverId, {
     status: 'inactive',
-    availability: 'offline',
+    isActive: false,
     isDeleted: true
   } as any);
 }

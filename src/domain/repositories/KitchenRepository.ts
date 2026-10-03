@@ -28,5 +28,5 @@ export interface KitchenRepository {
   updateStationStatus(stationId: string, status: 'normal' | 'busy' | 'overloaded', chefName?: string): Promise<void>;
   createKitchenTicketFromOrder(order: any): Promise<KitchenTicket>;
   logKitchenWaste(waste: Omit<KitchenWasteLog, 'id' | 'createdAt'>): Promise<string>;
-  fetchKitchenWasteLogs(): Promise<KitchenWasteLog[]>;
+  fetchKitchenWasteLogs(branchId?: string, isHQ?: boolean): Promise<KitchenWasteLog[]>;
 }

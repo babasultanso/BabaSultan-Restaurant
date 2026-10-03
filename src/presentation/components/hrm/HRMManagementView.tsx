@@ -18,6 +18,7 @@ import { EmployeeProfileModal } from './EmployeeProfileModal';
 import { EmployeeFormModal } from './EmployeeFormModal';
 import { useAuth } from '../../context/AuthContext';
 import { getMogadishuDateString } from '../../../lib/dateUtils';
+import { escapeHtml, sanitizeCSVCell } from '../../../lib/reports';
 import {
   Users,
   Clock,
@@ -94,6 +95,29 @@ export const HRMManagementView: React.FC = () => {
   const [newShiftStart, setNewShiftStart] = useState('09:00');
   const [newShiftEnd, setNewShiftEnd] = useState('17:00');
   const [newShiftDepartment, setNewShiftDepartment] = useState('Operations');
+  const [selectedShiftForRoster, setSelectedShiftForRoster] = useState<Shift | null>(null);
+  const [rosterEmployeeIds, setRosterEmployeeIds] = useState<string[]>([]);
+  const [isSavingRoster, setIsSavingRoster] = useState(false);
+
+  const handleOpenRosterModal = (shift: Shift) => {
+    setSelectedShiftForRoster(shift);
+    setRosterEmployeeIds(Array.isArray(shift.assignedEmployeeIds) ? [...shift.assignedEmployeeIds] : []);
+  };
+
+  const handleSaveShiftRoster = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedShiftForRoster) return;
+    setIsSavingRoster(true);
+    try {
+      await repository.assignEmployeesToShift(selectedShiftForRoster.id, rosterEmployeeIds);
+      setSelectedShiftForRoster(null);
+      await loadHRMData();
+    } catch (err: any) {
+      alert('Failed to update shift roster: ' + (err?.message || err));
+    } finally {
+      setIsSavingRoster(false);
+    }
+  };
 
   // Leave Form Modal
   const [showLeaveModal, setShowLeaveModal] = useState(false);
@@ -148,12 +172,18 @@ export const HRMManagementView: React.FC = () => {
       setNotifications(notifList);
       setAnalytics(stats);
 
-      // Check current user attendance for today
+      // Check current user attendance for today (explicit account linkage only, NO fallback to arbitrary employees)
       const today = getMogadishuDateString();
-      const meEmp = empList.find((e) => e.email === user?.email || e.fullName === userRecord?.displayName) || empList[0];
+      const meEmp = empList.find((e) => 
+        ((e as any).userId && (e as any).userId === user?.uid) ||
+        (user?.email && e.email?.toLowerCase() === user.email.toLowerCase()) ||
+        (userRecord?.displayName && (e.fullName === userRecord.displayName || e.name === userRecord.displayName))
+      );
       if (meEmp) {
         const myTodayAtt = attList.find((a) => a.employeeId === meEmp.id && a.date === today);
         setMyAttendanceToday(myTodayAtt || null);
+      } else {
+        setMyAttendanceToday(null);
       }
     } catch (e: any) {
       console.warn('Note loading HRM data:', e?.message || e);
@@ -164,7 +194,11 @@ export const HRMManagementView: React.FC = () => {
 
   // Clock In / Clock Out Handlers
   const handleClockIn = async () => {
-    const meEmp = employees.find((e) => e.email === user?.email || e.fullName === userRecord?.displayName) || employees[0];
+    const meEmp = employees.find((e) => 
+      ((e as any).userId && (e as any).userId === user?.uid) ||
+      (user?.email && e.email?.toLowerCase() === user.email.toLowerCase()) ||
+      (userRecord?.displayName && (e.fullName === userRecord.displayName || e.name === userRecord.displayName))
+    );
     if (!meEmp) {
       alert('No employee record linked to current user account.');
       return;
@@ -234,7 +268,11 @@ export const HRMManagementView: React.FC = () => {
   // Submit Leave Request Handler
   const handleSubmitLeave = async (e: React.FormEvent) => {
     e.preventDefault();
-    const meEmp = employees.find((e) => e.email === user?.email || e.fullName === userRecord?.displayName) || employees[0];
+    const meEmp = employees.find((e) => 
+      ((e as any).userId && (e as any).userId === user?.uid) ||
+      (user?.email && e.email?.toLowerCase() === user.email.toLowerCase()) ||
+      (userRecord?.displayName && (e.fullName === userRecord.displayName || e.name === userRecord.displayName))
+    );
     if (!meEmp) {
       alert('Employee profile required to submit leave.');
       return;
@@ -310,20 +348,49 @@ export const HRMManagementView: React.FC = () => {
       return;
     }
 
-    let csvContent = 'data:text/csv;charset=utf-8,';
-    csvContent += 'Payroll Number,Employee Name,Job Title,Department,Month,Basic Salary,Overtime Pay,Bonuses,Deductions,Net Salary,Payment Status\n';
+    const columns = [
+      'Payroll Number',
+      'Employee Name',
+      'Job Title',
+      'Department',
+      'Month',
+      'Basic Salary',
+      'Overtime Pay',
+      'Bonuses',
+      'Deductions',
+      'Net Salary',
+      'Payment Status'
+    ];
+
+    let csvContent = '\uFEFF';
+    csvContent += columns.map(c => sanitizeCSVCell(c)).join(',') + '\n';
 
     payroll.forEach((p) => {
-      csvContent += `"${p.payrollNumber}","${p.employeeName}","${p.jobTitle || ''}","${p.department || ''}","${p.month}",${p.basicSalary},${p.overtimePay},${p.bonuses},${p.deductions},${p.netSalary},"${p.paymentStatus}"\n`;
+      const row = [
+        p.payrollNumber,
+        p.employeeName,
+        p.jobTitle || '',
+        p.department || '',
+        p.month,
+        p.basicSalary,
+        p.overtimePay,
+        p.bonuses,
+        p.deductions,
+        p.netSalary,
+        p.paymentStatus
+      ];
+      csvContent += row.map(cell => sanitizeCSVCell(cell)).join(',') + '\n';
     });
 
-    const encodedUri = encodeURI(csvContent);
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const encodedUri = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', encodedUri);
     link.setAttribute('download', `Monthly_Payroll_${selectedMonth}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(encodedUri);
   };
 
   // Print Salary Slip PDF/Print Window
@@ -331,10 +398,18 @@ export const HRMManagementView: React.FC = () => {
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
 
+    const safeEmployeeName = escapeHtml(pay.employeeName);
+    const safeJobTitle = escapeHtml(pay.jobTitle || 'N/A');
+    const safeDepartment = escapeHtml(pay.department || 'N/A');
+    const safePayrollNumber = escapeHtml(pay.payrollNumber);
+    const safePeriod = escapeHtml(pay.periodStart || pay.month);
+    const safeFrequency = escapeHtml(pay.payFrequency ? pay.payFrequency.toUpperCase() : 'MONTHLY');
+    const safePaymentStatus = escapeHtml((pay.paymentStatus || 'PAID').toUpperCase());
+
     printWindow.document.write(`
       <html>
         <head>
-          <title>Salary Slip - ${pay.employeeName} (${pay.periodStart || pay.month})</title>
+          <title>Salary Slip - ${safeEmployeeName} (${safePeriod})</title>
           <style>
             body { font-family: sans-serif; padding: 40px; color: #000; }
             .header { text-align: center; border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 20px; }
@@ -346,30 +421,30 @@ export const HRMManagementView: React.FC = () => {
         </head>
         <body>
           <div class="header">
-            <h2>{t.legacyUi.commercialRestaurantEnterprise}</h2>
-            <h3>{translateRawUi('OFFICIAL SALARY SLIP')}</h3>
-            <p>${pay.payFrequency ? pay.payFrequency.toUpperCase() : 'MONTHLY'}: ${pay.periodStart || pay.month} | Payroll Ref: ${pay.payrollNumber}</p>
+            <h2>${escapeHtml(t.legacyUi.commercialRestaurantEnterprise)}</h2>
+            <h3>${escapeHtml(translateRawUi('OFFICIAL SALARY SLIP'))}</h3>
+            <p>${safeFrequency}: ${safePeriod} | Payroll Ref: ${safePayrollNumber}</p>
           </div>
           <div class="section">
-            <p><strong>{t.legacyUi.employeeNameColon}</strong> ${pay.employeeName}</p>
-            <p><strong>{t.legacyUi.jobTitleColon}</strong> ${pay.jobTitle || 'N/A'}</p>
-            <p><strong>{translateRawUi('Department:')}</strong> ${pay.department || 'N/A'}</p>
-            <p><strong>{translateRawUi('Payment Status:')}</strong> ${(pay.paymentStatus || 'PAID').toUpperCase()}</p>
+            <p><strong>${escapeHtml(t.legacyUi.employeeNameColon)}</strong> ${safeEmployeeName}</p>
+            <p><strong>${escapeHtml(t.legacyUi.jobTitleColon)}</strong> ${safeJobTitle}</p>
+            <p><strong>${escapeHtml(translateRawUi('Department:'))}</strong> ${safeDepartment}</p>
+            <p><strong>${escapeHtml(translateRawUi('Payment Status:'))}</strong> ${safePaymentStatus}</p>
           </div>
           <table class="table">
             <thead>
-              <tr><th>{translateRawUi('Component')}</th><th>{t.legacyUi.amountUsd}</th></tr>
+              <tr><th>${escapeHtml(translateRawUi('Component'))}</th><th>${escapeHtml(t.legacyUi.amountUsd)}</th></tr>
             </thead>
             <tbody>
-              <tr><td>{t.legacyUi.basicSalaryCycle}</td><td>$${pay.basicSalary.toLocaleString()}</td></tr>
-              <tr><td>{translateRawUi('Overtime Pay')}</td><td>+$${pay.overtimePay.toLocaleString()}</td></tr>
-              <tr><td>{translateRawUi('Bonuses')}</td><td>+$${pay.bonuses.toLocaleString()}</td></tr>
-              <tr><td>{t.legacyUi.deductionsAdvances}</td><td>-$${pay.deductions + pay.advances}</td></tr>
-              <tr class="total"><td>{translateRawUi('Net Salary Payout')}</td><td>$${pay.netSalary.toLocaleString()}</td></tr>
+              <tr><td>${escapeHtml(t.legacyUi.basicSalaryCycle)}</td><td>$${pay.basicSalary.toLocaleString()}</td></tr>
+              <tr><td>${escapeHtml(translateRawUi('Overtime Pay'))}</td><td>+$${pay.overtimePay.toLocaleString()}</td></tr>
+              <tr><td>${escapeHtml(translateRawUi('Bonuses'))}</td><td>+$${pay.bonuses.toLocaleString()}</td></tr>
+              <tr><td>${escapeHtml(t.legacyUi.deductionsAdvances)}</td><td>-$${pay.deductions + pay.advances}</td></tr>
+              <tr class="total"><td>${escapeHtml(translateRawUi('Net Salary Payout'))}</td><td>$${pay.netSalary.toLocaleString()}</td></tr>
             </tbody>
           </table>
           <br/><br/>
-          <p>{t.legacyUi.authorizedSignature}</p>
+          <p>${escapeHtml(t.legacyUi.authorizedSignature)}</p>
         </body>
       </html>
     `);
@@ -835,8 +910,8 @@ export const HRMManagementView: React.FC = () => {
                 <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-xs">
                   <span className="text-slate-400 font-semibold">{s.assignedEmployeeIds?.length || 0} Staff Assigned</span>
                   <button
-                    onClick={() => alert(`Assigned staff IDs for ${s.name}: ${s.assignedEmployeeIds.join(', ') || 'None'}`)}
-                    className="text-emerald-400 hover:underline font-bold"
+                    onClick={() => handleOpenRosterModal(s)}
+                    className="text-emerald-400 hover:underline font-bold cursor-pointer"
                   >
                     {translateRawUi('Manage Roster')}
                   </button>
@@ -1185,6 +1260,79 @@ export const HRMManagementView: React.FC = () => {
               >
                 {translateRawUi('Save Shift')}
               </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Manage Shift Roster Modal */}
+      {selectedShiftForRoster && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <form onSubmit={handleSaveShiftRoster} className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-md w-full space-y-4 shadow-2xl text-xs">
+            <div className="border-b border-slate-800 pb-3">
+              <h3 className="text-base font-bold text-white">
+                {translateRawUi('Manage Shift Roster')} — {selectedShiftForRoster.name}
+              </h3>
+              <p className="text-slate-400 mt-0.5">
+                {selectedShiftForRoster.startTime} - {selectedShiftForRoster.endTime} • {selectedShiftForRoster.department || 'Operations'}
+              </p>
+            </div>
+
+            <div className="max-h-64 overflow-y-auto space-y-2 pr-1">
+              {employees.length === 0 ? (
+                <p className="text-slate-500 py-4 text-center">{translateRawUi('No employees available to assign.')}</p>
+              ) : (
+                employees.map((emp) => {
+                  const isAssigned = rosterEmployeeIds.includes(emp.id);
+                  return (
+                    <label
+                      key={emp.id}
+                      className={`flex items-center justify-between p-3 rounded-2xl border cursor-pointer transition ${
+                        isAssigned
+                          ? 'bg-emerald-500/10 border-emerald-500/40 text-white'
+                          : 'bg-slate-950 border-slate-800 text-slate-300 hover:border-slate-700'
+                      }`}
+                    >
+                      <div>
+                        <span className="font-bold block">{emp.fullName || emp.name}</span>
+                        <span className="text-[10px] text-slate-400">{emp.jobTitle || emp.role} • {emp.department}</span>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={isAssigned}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setRosterEmployeeIds((prev) => Array.from(new Set([...prev, emp.id])));
+                          } else {
+                            setRosterEmployeeIds((prev) => prev.filter((id) => id !== emp.id));
+                          }
+                        }}
+                        className="w-4 h-4 accent-emerald-500"
+                      />
+                    </label>
+                  );
+                })
+              )}
+            </div>
+
+            <div className="flex items-center justify-between pt-2 border-t border-slate-800">
+              <span className="text-slate-400 font-bold">{rosterEmployeeIds.length} {translateRawUi('Staff Selected')}</span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSelectedShiftForRoster(null)}
+                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold"
+                >
+                  {translateRawUi('Cancel')}
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingRoster}
+                  className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold cursor-pointer"
+                >
+                  {isSavingRoster ? translateRawUi('Saving...') : translateRawUi('Save Roster')}
+                </button>
+              </div>
             </div>
           </form>
         </div>

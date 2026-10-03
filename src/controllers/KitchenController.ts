@@ -97,7 +97,7 @@ export class KitchenController {
     });
   }
 
-  public async getWasteLogs(): Promise<KitchenWasteLog[]> {
-    return await this.repository.fetchKitchenWasteLogs();
+  public async getWasteLogs(branchId?: string, isHQ?: boolean): Promise<KitchenWasteLog[]> {
+    return await this.repository.fetchKitchenWasteLogs(branchId, isHQ);
   }
 }

@@ -1,16 +1,22 @@
 steps:
-  # 1. Build the container image
+  # 1. Build the container image and tag for Artifact Registry
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['build', '-t', 'gcr.io/$PROJECT_ID/babasultan-api:$COMMIT_SHA', '-t', 'gcr.io/$PROJECT_ID/babasultan-api:latest', '.']
+    args:
+      - 'build'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/babasultan-api:$COMMIT_SHA'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/babasultan-api:latest'
+      - '.'
 
-  # 2. Push the container image to Container Registry
+  # 2. Push the container image to Artifact Registry
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', 'gcr.io/$PROJECT_ID/babasultan-api:$COMMIT_SHA']
+    args: ['push', '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/babasultan-api:$COMMIT_SHA']
 
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', 'gcr.io/$PROJECT_ID/babasultan-api:latest']
+    args: ['push', '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/babasultan-api:latest']
 
-  # 3. Deploy container image to Cloud Run
+  # 3. Deploy container image to Cloud Run (max-instances=1 aligns with process-local rate limiter unless Redis/Cloud Armor is enabled)
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: gcloud
     args:
@@ -18,19 +24,25 @@ steps:
       - 'deploy'
       - 'babasultan-api'
       - '--image'
-      - 'gcr.io/$PROJECT_ID/babasultan-api:latest'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/babasultan-api:$COMMIT_SHA'
       - '--region'
-      - 'europe-west2'
+      - '${_REGION}'
       - '--platform'
       - 'managed'
       - '--port'
       - '8080'
+      - '--max-instances'
+      - '1'
       - '--allow-unauthenticated'
       - '--service-account'
       - 'babasultan-api-sa@$PROJECT_ID.iam.gserviceaccount.com'
       - '--set-env-vars'
       - 'NODE_ENV=production,FRONTEND_URL=https://baba-sultan-restaurant.vercel.app,FIREBASE_PROJECT_ID=$PROJECT_ID'
 
+substitutions:
+  _REGION: 'europe-west2'
+  _AR_REPO: 'babasultan'
+
 images:
-  - 'gcr.io/$PROJECT_ID/babasultan-api:$COMMIT_SHA'
-  - 'gcr.io/$PROJECT_ID/babasultan-api:latest'
+  - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/babasultan-api:$COMMIT_SHA'
+  - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/babasultan-api:latest'

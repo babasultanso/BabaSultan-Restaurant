@@ -199,6 +199,7 @@ export interface HoldOrder {
   discountAmount: number;
   totalAmount: number;
   notes?: string;
+  branchId?: string;
   createdBy: string;
   createdAt: string;
 }
@@ -415,13 +416,18 @@ export interface Product {
   sku?: string;
   barcode?: string;
   stock: number;
+  currentStock?: number;
   minStockAlert: number;
+  minStockLevel?: number;
   unit: string;
   salesCount: number;
   ingredients?: RecipeIngredient[];
   calories?: number;
   notes?: string;
   options?: ProductOption[];
+  isDeleted?: boolean;
+  isArchived?: boolean;
+  status?: string;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -629,6 +635,8 @@ export interface UserRecord {
   uid: string;
   email: string;
   displayName: string;
+  name?: string;
+  isHQ?: boolean;
   role: 'Owner' | 'Admin' | 'Manager' | 'Accountant' | 'Cashier' | 'Kitchen' | 'Waiter' | 'Delivery Driver';
   branch: string;
   branchId?: string;
@@ -682,6 +690,9 @@ export interface Branch {
   status: BranchStatus;
   hierarchyType: BranchHierarchyType;
   isHeadOffice?: boolean;
+  isHeadquarters?: boolean;
+  isMain?: boolean;
+  isDeleted?: boolean;
   managerId?: string;
   managerName?: string;
   parentBranchId?: string;

@@ -26,7 +26,9 @@ export interface ProductEntity {
   sku?: string;
   barcode?: string;
   stock: number;
+  currentStock?: number;
   minStockAlert: number;
+  minStockLevel?: number;
   unit: string;
   salesCount: number;
   ingredients?: RecipeIngredient[];

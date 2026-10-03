@@ -12,6 +12,7 @@ export interface Account {
   currency: string;
   isSystem: boolean;
   description?: string;
+  branchId?: string;
   status: 'Active' | 'Inactive';
   createdAt: string;
 }
@@ -133,7 +134,7 @@ export interface ARPayment {
 export interface ReceivableItem {
   id: string;
   invoiceNumber: string;
-  customerId: string;
+  customerId?: string;
   customerName: string;
   customerPhone?: string;
   issueDate: string;
@@ -160,7 +161,7 @@ export interface APPayment {
 export interface PayableItem {
   id: string;
   billNumber: string;
-  supplierId: string;
+  supplierId?: string;
   supplierName: string;
   issueDate: string;
   dueDate: string;
@@ -267,3 +268,21 @@ export interface FinancialStatements {
   totalTrialCredit: number;
   isTrialBalanced: boolean;
 }
+
+export interface AccountingPeriod {
+  id: string;
+  name: string;
+  startDate: string;
+  endDate: string;
+  status: 'Open' | 'Closed' | 'Locked';
+  branchId?: string;
+  notes?: string;
+  closedBy?: string;
+  closedAt?: string;
+  reopenedBy?: string;
+  reopenedAt?: string;
+  createdBy?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+

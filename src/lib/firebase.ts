@@ -220,15 +220,17 @@ export const COLLECTIONS = {
 
 // Firestore Action Helpers required by user request:
 
-export async function executeAIActionFirestore(actionType: string, payload: any) {
+export async function executeAIActionFirestore(actionType: string, payload: any, idempotencyKey?: string) {
   const token = await getAuthToken();
+  const resolvedIdempotencyKey = idempotencyKey || payload?.idempotencyKey || (globalThis.crypto?.randomUUID ? `AI-${actionType}-${globalThis.crypto.randomUUID()}` : `AI-${actionType}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`);
   const response = await fetch(getApiUrl('/api/ai/execute-action'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'Idempotency-Key': resolvedIdempotencyKey,
       ...(token ? { 'Authorization': `Bearer ${token}` } : {})
     },
-    body: JSON.stringify({ actionType, payload })
+    body: JSON.stringify({ actionType, payload, idempotencyKey: resolvedIdempotencyKey })
   });
 
   if (!response.ok) {
@@ -285,7 +287,8 @@ export async function addPurchaseFirestore(data: Omit<Purchase, 'id' | 'createdA
 
 export async function addSalaryFirestore(data: Omit<SalaryPayment, 'id' | 'paidDate'>) {
   const token = await getAuthToken();
-  const idempotencyKey = (data as any).idempotencyKey || `salary:${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
+  const periodKey = String((data as any).payrollId || data.period || (data as any).month || '').trim();
+  const idempotencyKey = (data as any).idempotencyKey || (data.employeeId && periodKey ? `salary-disburse:${data.employeeId}:${periodKey}` : `salary:${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`}`);
   const response = await fetch(getApiUrl('/api/salaries'), {
     method: 'POST',
     headers: {
@@ -305,9 +308,9 @@ export async function addSalaryFirestore(data: Omit<SalaryPayment, 'id' | 'paidD
   return result.id;
 }
 
-export async function recordInventoryMovementFirestore(data: Omit<InventoryMovement, 'id' | 'createdAt'> & { itemType?: 'inventory' | 'ingredient' | 'product' }) {
+export async function recordInventoryMovementFirestore(data: Omit<InventoryMovement, 'id' | 'createdAt'> & { itemType?: 'inventory' | 'ingredient' | 'product'; idempotencyKey?: string }) {
   const token = await getAuthToken();
-  const idempotencyKey = globalThis.crypto?.randomUUID?.() || `inventory-movement:${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const idempotencyKey = (data as any).idempotencyKey || globalThis.crypto?.randomUUID?.() || `inventory-movement:${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const movementData = {
     ...data,
     itemType: data.itemType || 'inventory',
@@ -373,6 +376,8 @@ export async function addRefundFirestore(data: Omit<CustomerRefund, 'id' | 'crea
       amount: data.amount,
       reason: data.reason,
       paymentMethod: (data as any).paymentMethod,
+      bankAccountId: (data as any).bankAccountId,
+      items: (data as any).items,
       idempotencyKey
     })
   });
@@ -532,21 +537,31 @@ export function getEffectiveBranchScope(preferredBranchId?: string): string {
 export async function addProductFirestore(data: Omit<Product, 'id'>, branchIdOverride?: string) {
   const createdAt = new Date().toISOString();
   const effectiveBranchId = getEffectiveBranchId(data.branchId || branchIdOverride);
+  const requestedInitialStock = Number((data as any).stock ?? (data as any).currentStock ?? 0);
+  if (!Number.isFinite(requestedInitialStock) || requestedInitialStock < 0) {
+    throw new Error('Initial product stock must be a non-negative finite number.');
+  }
+  const resolvedMinStock = Number((data as any).minStockLevel ?? data.minStockAlert ?? 0);
+  if (!Number.isFinite(resolvedMinStock) || resolvedMinStock < 0) {
+    throw new Error('Minimum stock level must be a non-negative finite number.');
+  }
+
+  const { stock: _s, currentStock: _cs, quantityOnHand: _qoh, reservedStock: _rs, ...clientSafeData } = data as any;
   const docRef = await addDoc(collection(db, COLLECTIONS.PRODUCTS), {
-    ...data,
+    ...clientSafeData,
+    stock: 0,
+    currentStock: 0,
+    minStockLevel: resolvedMinStock,
+    minStockAlert: resolvedMinStock,
     branchId: effectiveBranchId,
     branch: data.branch || effectiveBranchId,
     availabilityStatus: data.availabilityStatus || 'enabled',
     createdAt,
     updatedAt: createdAt
   });
-  return docRef.id;
-}
 
-export async function updateProductFirestore(productId: string, data: Partial<Product>) {
-  const idempotencyKey = globalThis.crypto?.randomUUID?.() || `product-update:${productId}:${Date.now()}`;
-  const { stock, currentStock, quantityOnHand, reservedStock, salesCount, branchId, ...safeData } = data as any;
-  if (stock !== undefined) {
+  if (requestedInitialStock > 0) {
+    const idempotencyKey = globalThis.crypto?.randomUUID?.() || `product-init-stock:${docRef.id}:${Date.now()}`;
     const token = await getAuthToken();
     const res = await fetch(getApiUrl('/api/inventory/stock'), {
       method: 'POST',
@@ -555,12 +570,55 @@ export async function updateProductFirestore(productId: string, data: Partial<Pr
         'Idempotency-Key': idempotencyKey,
         ...(token ? { 'Authorization': `Bearer ${token}` } : {})
       },
-      body: JSON.stringify({ productId, newStock: Number(stock), idempotencyKey })
+      body: JSON.stringify({
+        productId: docRef.id,
+        newStock: requestedInitialStock,
+        reason: 'Initial stock upon product creation',
+        idempotencyKey
+      })
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error || `Failed to initialize product stock: HTTP ${res.status}`);
+    }
+  }
+
+  return docRef.id;
+}
+
+export async function updateProductFirestore(productId: string, data: Partial<Product>) {
+  const idempotencyKey = globalThis.crypto?.randomUUID?.() || `product-update:${productId}:${Date.now()}`;
+  const { stock, currentStock, quantityOnHand, reservedStock, salesCount, branchId, ...safeData } = data as any;
+  const targetStock = stock !== undefined ? stock : currentStock;
+
+  if (targetStock !== undefined) {
+    const parsedStock = Number(targetStock);
+    if (!Number.isFinite(parsedStock) || parsedStock < 0) {
+      throw new Error('Product stock must be a non-negative finite number.');
+    }
+    const token = await getAuthToken();
+    const res = await fetch(getApiUrl('/api/inventory/stock'), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': idempotencyKey,
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify({ productId, newStock: parsedStock, idempotencyKey })
     });
     if (!res.ok) {
       const errData = await res.json().catch(() => ({}));
       throw new Error(errData.error || `Failed to update product stock: HTTP ${res.status}`);
     }
+  }
+
+  if (safeData.minStockLevel !== undefined || safeData.minStockAlert !== undefined) {
+    const resolvedMin = Number(safeData.minStockLevel ?? safeData.minStockAlert ?? 0);
+    if (!Number.isFinite(resolvedMin) || resolvedMin < 0) {
+      throw new Error('Minimum stock level must be a non-negative finite number.');
+    }
+    safeData.minStockLevel = resolvedMin;
+    safeData.minStockAlert = resolvedMin;
   }
 
   if (Object.keys(safeData).length > 0) {
@@ -575,10 +633,13 @@ export async function updateProductFirestore(productId: string, data: Partial<Pr
 export async function deleteProductFirestore(productId: string) {
   const productRef = doc(db, COLLECTIONS.PRODUCTS, productId);
   await updateDoc(productRef, {
+    isDeleted: true,
+    status: 'deleted',
     isActive: false,
     isArchived: true,
     deletedAt: new Date().toISOString(),
-    availabilityStatus: 'disabled'
+    availabilityStatus: 'disabled',
+    updatedAt: new Date().toISOString()
   });
 }
 
@@ -610,10 +671,14 @@ export async function updateCategoryFirestore(categoryId: string, data: Partial<
 
 export async function deleteCategoryFirestore(categoryId: string) {
   const catRef = doc(db, COLLECTIONS.CATEGORIES, categoryId);
+  const now = new Date().toISOString();
   await updateDoc(catRef, {
+    isDeleted: true,
     isActive: false,
     isArchived: true,
-    deletedAt: new Date().toISOString()
+    status: 'deleted',
+    deletedAt: now,
+    updatedAt: now
   });
 }
 
@@ -644,16 +709,30 @@ export async function deleteRecipeFirestore(recipeId: string) {
 }
 
 export async function addIngredientFirestore(ingredient: Omit<Ingredient, 'id'>, branchIdOverride?: string) {
-  const createdAt = new Date().toISOString();
+  const token = await getAuthToken();
+  const idempotencyKey = globalThis.crypto?.randomUUID?.() || `ingredient-create:${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const effectiveBranchId = getEffectiveBranchId(ingredient.branchId || branchIdOverride);
-  const docRef = await addDoc(collection(db, COLLECTIONS.INGREDIENTS), {
-    ...ingredient,
-    branchId: effectiveBranchId,
-    branch: ingredient.branch || effectiveBranchId,
-    createdAt,
-    updatedAt: createdAt
+  const response = await fetch(getApiUrl('/api/recipes/ingredients'), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Idempotency-Key': idempotencyKey,
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+    },
+    body: JSON.stringify({
+      ingredientData: {
+        ...ingredient,
+        branchId: effectiveBranchId,
+        branch: ingredient.branch || effectiveBranchId,
+        idempotencyKey
+      }
+    })
   });
-  return docRef.id;
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data.error || `Ingredient creation failed (HTTP ${response.status})`);
+  }
+  return data.ingredient || data;
 }
 
 export async function updateIngredientFirestore(ingredientId: string, data: Partial<Ingredient>) {
@@ -678,19 +757,56 @@ export async function updateIngredientFirestore(ingredientId: string, data: Part
     }
   }
   if (Object.keys(safeData).length > 0) {
-    const ingredientRef = doc(db, COLLECTIONS.INGREDIENTS, ingredientId);
-    await updateDoc(ingredientRef, { ...safeData, updatedAt: new Date().toISOString() });
+    const token = await getAuthToken();
+    const idempotencyKey = globalThis.crypto?.randomUUID?.() || `ingredient-update:${ingredientId}:${Date.now()}`;
+    const res = await fetch(getApiUrl(`/api/recipes/ingredients/${encodeURIComponent(ingredientId)}/update`), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': idempotencyKey,
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify({ ingredientData: safeData, idempotencyKey })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `Failed to update ingredient: HTTP ${res.status}`);
+    }
   }
 }
 
 export async function deleteIngredientFirestore(ingredientId: string) {
-  const ingRef = doc(db, COLLECTIONS.INGREDIENTS, ingredientId);
-  await updateDoc(ingRef, {
-    isActive: false,
-    isArchived: true,
-    deletedAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
+  const token = await getAuthToken();
+  const idempotencyKey = globalThis.crypto?.randomUUID?.() || `ingredient-delete:${ingredientId}:${Date.now()}`;
+  const res = await fetch(getApiUrl(`/api/recipes/ingredients/${encodeURIComponent(ingredientId)}`), {
+    method: 'DELETE',
+    headers: {
+      'Content-Type': 'application/json',
+      'Idempotency-Key': idempotencyKey,
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+    },
+    body: JSON.stringify({ idempotencyKey })
   });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Failed to delete ingredient: HTTP ${res.status}`);
+  }
+}
+
+export async function pingSystemDiagnosticsFirestore() {
+  const token = await getAuthToken();
+  const res = await fetch(getApiUrl('/api/diagnostics/ping'), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+    }
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.error || `Diagnostics ping failed (HTTP ${res.status})`);
+  }
+  return data;
 }
 
 // Equipment Operations
@@ -954,13 +1070,15 @@ export async function updateOrderStatusFirestore(orderId: string, status: OrderS
 
 export async function updateKitchenStatusFirestore(ticketId: string, status: string): Promise<void> {
   const token = await getAuthToken();
+  const idempotencyKey = `kitchen-status:${ticketId}:${status}:${Date.now()}`;
   const response = await fetch(getApiUrl(`/api/kitchen/${ticketId}/status`), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'Idempotency-Key': idempotencyKey,
       ...(token ? { 'Authorization': `Bearer ${token}` } : {})
     },
-    body: JSON.stringify({ status })
+    body: JSON.stringify({ status, idempotencyKey })
   });
 
   if (!response.ok) {
@@ -971,13 +1089,15 @@ export async function updateKitchenStatusFirestore(ticketId: string, status: str
 
 export async function updateKitchenTicketFirestore(ticketId: string, updates: Record<string, any>): Promise<void> {
   const token = await getAuthToken();
+  const idempotencyKey = `kitchen-ticket:${ticketId}:${Date.now()}`;
   const response = await fetch(getApiUrl(`/api/kitchen/${ticketId}/update`), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'Idempotency-Key': idempotencyKey,
       ...(token ? { 'Authorization': `Bearer ${token}` } : {})
     },
-    body: JSON.stringify(updates)
+    body: JSON.stringify({ ...updates, idempotencyKey })
   });
 
   if (!response.ok) {
@@ -988,13 +1108,15 @@ export async function updateKitchenTicketFirestore(ticketId: string, updates: Re
 
 export async function updateStationStatusFirestore(stationId: string, status: 'normal' | 'busy' | 'overloaded', chefName?: string): Promise<void> {
   const token = await getAuthToken();
+  const idempotencyKey = `station-status:${stationId}:${status}:${Date.now()}`;
   const response = await fetch(getApiUrl(`/api/kitchen/stations/${stationId}/status`), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'Idempotency-Key': idempotencyKey,
       ...(token ? { 'Authorization': `Bearer ${token}` } : {})
     },
-    body: JSON.stringify({ status, chefName })
+    body: JSON.stringify({ status, chefName, idempotencyKey })
   });
 
   if (!response.ok) {
@@ -1065,13 +1187,15 @@ export async function refundToWalletFirestore(payload: { customerId: string; amo
 
 export async function updateDeliveryStatusFirestore(deliveryId: string, status: string, driverId?: string, failureReason?: string): Promise<void> {
   const token = await getAuthToken();
+  const idempotencyKey = `delivery-status:${deliveryId}:${status}:${Date.now()}`;
   const response = await fetch(getApiUrl(`/api/deliveries/${deliveryId}/status`), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'Idempotency-Key': idempotencyKey,
       ...(token ? { 'Authorization': `Bearer ${token}` } : {})
     },
-    body: JSON.stringify({ status, driverId, failureReason })
+    body: JSON.stringify({ status, driverId, failureReason, idempotencyKey })
   });
 
   if (!response.ok) {
@@ -1082,13 +1206,15 @@ export async function updateDeliveryStatusFirestore(deliveryId: string, status: 
 
 export async function assignDeliveryDriverFirestore(deliveryId: string, driverId: string, driverName?: string, driverPhone?: string): Promise<void> {
   const token = await getAuthToken();
+  const idempotencyKey = `delivery-assign:${deliveryId}:${driverId}:${Date.now()}`;
   const response = await fetch(getApiUrl(`/api/deliveries/${deliveryId}/assign`), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'Idempotency-Key': idempotencyKey,
       ...(token ? { 'Authorization': `Bearer ${token}` } : {})
     },
-    body: JSON.stringify({ driverId, driverName, driverPhone })
+    body: JSON.stringify({ driverId, driverName, driverPhone, idempotencyKey })
   });
 
   if (!response.ok) {
@@ -1105,19 +1231,21 @@ export async function deleteOrderFirestore(orderId: string, reason?: string): Pr
 
 // Hold Orders
 export async function holdOrderFirestore(holdData: Omit<HoldOrder, 'id'>): Promise<HoldOrder> {
+  const effectiveBranchId = getEffectiveBranchId((holdData as any).branchId);
   const newRef = doc(collection(db, COLLECTIONS.HOLD_ORDERS));
   const fullHold: HoldOrder = {
     ...holdData,
+    branchId: effectiveBranchId,
     id: newRef.id
   };
 
   try {
     await setDoc(newRef, cleanUndefined(fullHold));
-  } catch (err) {
-    console.warn('Firestore holdOrder notice:', err);
+    return fullHold;
+  } catch (err: any) {
+    console.error('Firestore holdOrder failure:', err);
+    throw new Error(`Failed to hold order: ${err?.message || 'Permission denied or network failure'}`);
   }
-
-  return fullHold;
 }
 
 export async function fetchHoldOrdersFirestore(branchId?: string): Promise<HoldOrder[]> {
@@ -1130,18 +1258,23 @@ export async function fetchHoldOrdersFirestore(branchId?: string): Promise<HoldO
     if (!snap.empty) {
       return snap.docs.map(d => ({ id: d.id, ...d.data() } as HoldOrder));
     }
-  } catch (err) {
-    console.warn('Firestore fetchHoldOrders notice:', err);
+    return [];
+  } catch (err: any) {
+    console.error('Firestore fetchHoldOrders failure:', err);
+    if (err?.code === 'permission-denied') {
+      throw new Error(`Permission denied fetching hold orders for branch.`);
+    }
+    throw err;
   }
-  return [];
 }
 
 export async function deleteHoldOrderFirestore(holdId: string): Promise<void> {
   try {
     const holdRef = doc(db, COLLECTIONS.HOLD_ORDERS, holdId);
     await deleteDoc(holdRef);
-  } catch (err) {
-    console.warn('Firestore deleteHoldOrder notice:', err);
+  } catch (err: any) {
+    console.error('Firestore deleteHoldOrder failure:', err);
+    throw new Error(`Failed to delete hold order '${holdId}': ${err?.message || 'Permission denied'}`);
   }
 }
 
@@ -1288,7 +1421,7 @@ export async function updateTableStatusFirestore(tableNumber: string, status: st
     const docRef = snap.docs[0].ref;
     await updateDoc(docRef, {
       status,
-      ...(orderId ? { currentOrderId: orderId } : {}),
+      currentOrderId: orderId !== undefined ? orderId : (status === 'available' ? null : snap.docs[0].data()?.currentOrderId ?? null),
       updatedAt: new Date().toISOString()
     });
   } else {
@@ -1310,9 +1443,17 @@ export async function updateTableStatusFirestore(tableNumber: string, status: st
 // Customers Helpers
 export async function fetchCustomersFirestore(): Promise<Customer[]> {
   try {
-    const branchId = getEffectiveBranchId();
-    const snap = await getDocs(query(collection(db, COLLECTIONS.CUSTOMERS), where('branchId', '==', branchId)));
-    return snap.docs.map(d => ({ id: d.id, ...d.data() } as Customer));
+    const branchScope = getEffectiveBranchScope();
+    const q = branchScope === 'all'
+      ? collection(db, COLLECTIONS.CUSTOMERS)
+      : query(collection(db, COLLECTIONS.CUSTOMERS), where('branchId', '==', branchScope));
+    const snap = await getDocs(q);
+    return snap.docs
+      .filter(d => {
+        const data = d.data() as any;
+        return !data.isDeleted && !data.isArchived && data.status !== 'deleted' && data.status !== 'archived';
+      })
+      .map(d => ({ id: d.id, ...d.data() } as Customer));
   } catch (err) {
     console.error('Error fetching customers from Firestore:', err);
     return [];
@@ -1322,10 +1463,35 @@ export async function fetchCustomersFirestore(): Promise<Customer[]> {
 export async function addCustomerFirestore(data: Omit<Customer, 'id'>): Promise<Customer> {
   const newRef = doc(collection(db, COLLECTIONS.CUSTOMERS));
   const branchId = getEffectiveBranchId(data.branchId || (data as any).branch);
+  const now = new Date().toISOString();
+  const {
+    totalSpending: _ts1,
+    totalSpent: _ts2,
+    totalOrders: _to,
+    averageOrderValue: _aov,
+    cancelledOrders: _co,
+    refundHistoryCount: _rhc,
+    membershipLevel: _ml,
+    loyaltyPoints: _lp,
+    favoriteProducts: _fp,
+    lastOrderDate: _lod,
+    ...safeData
+  } = data as any;
   const customer: Customer = {
-    ...data,
+    ...safeData,
     branchId,
-    id: newRef.id
+    id: newRef.id,
+    loyaltyPoints: 0,
+    totalOrders: 0,
+    totalSpending: 0,
+    totalSpent: 0,
+    averageOrderValue: 0,
+    cancelledOrders: 0,
+    refundHistoryCount: 0,
+    membershipLevel: 'Bronze',
+    favoriteProducts: [],
+    lastOrderDate: '',
+    createdAt: data.createdAt || now
   };
   await setDoc(newRef, customer);
   return customer;

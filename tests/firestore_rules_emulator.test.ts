@@ -465,4 +465,142 @@ describe.skipIf(!process.env.FIRESTORE_EMULATOR_HOST)('FIRESTORE SECURITY RULES 
     await assertSucceeds(getDoc(doc(owner, 'customer_coupons', 'coupon_branch_b')));
   });
 
+  it('17. Rejects hard deleteDoc on ingredients while allowing soft-delete rollback, and blocks direct client writes to product_options', async () => {
+    const managerADb = testEnv.authenticatedContext('manager_a').firestore();
+    await assertSucceeds(setDoc(doc(managerADb, 'ingredients', 'ing_rollback_test'), {
+      id: 'ing_rollback_test',
+      branchId: 'BR-001',
+      name: 'Rollback Test Ingredient',
+      stock: 0,
+      currentStock: 0,
+      currentQuantity: 0,
+      isDeleted: false,
+      isActive: true
+    }));
+
+    // Hard delete is strictly forbidden by firestore.rules
+    await assertFails(deleteDoc(doc(managerADb, 'ingredients', 'ing_rollback_test')));
+
+    // Soft-delete rollback preserving zero stock fields succeeds
+    await assertSucceeds(updateDoc(doc(managerADb, 'ingredients', 'ing_rollback_test'), {
+      isDeleted: true,
+      isArchived: true,
+      isActive: false,
+      status: 'deleted'
+    }));
+
+    // Direct client write to product_options is strictly forbidden
+    await assertFails(setDoc(doc(managerADb, 'product_options', 'opt_direct_client'), {
+      id: 'opt_direct_client',
+      branchId: 'BR-001',
+      name: 'Extra Cheese'
+    }));
+  });
+
+  it('18. Enforces branchId immutability and blocks cross-branch update hijacking on operational collections', async () => {
+    const cashierADb = testEnv.authenticatedContext('cashier_a').firestore();
+    const managerADb = testEnv.authenticatedContext('manager_a').firestore();
+
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const db = context.firestore();
+      await setDoc(doc(db, 'dining_tables', 'tbl_br2'), {
+        id: 'tbl_br2',
+        branchId: 'BR-002',
+        tableNumber: 'T-02',
+        status: 'available'
+      });
+      await setDoc(doc(db, 'reservations', 'res_br2'), {
+        id: 'res_br2',
+        branchId: 'BR-002',
+        customerName: 'Guest B',
+        status: 'confirmed'
+      });
+      await setDoc(doc(db, 'kitchen_stations', 'sta_br2'), {
+        id: 'sta_br2',
+        branchId: 'BR-002',
+        name: 'Grill B'
+      });
+      await setDoc(doc(db, 'employee_notifications', 'emp_notif_a'), {
+        id: 'emp_notif_a',
+        branchId: 'BR-001',
+        employeeId: 'cashier_a',
+        title: 'Schedule Update',
+        isRead: false
+      });
+    });
+
+    // Branch A user cannot overwrite Branch B table, reservation, or kitchen station by injecting BR-001
+    await assertFails(updateDoc(doc(cashierADb, 'dining_tables', 'tbl_br2'), {
+      branchId: 'BR-001',
+      status: 'occupied'
+    }));
+    await assertFails(updateDoc(doc(cashierADb, 'reservations', 'res_br2'), {
+      branchId: 'BR-001',
+      status: 'cancelled'
+    }));
+    await assertFails(updateDoc(doc(managerADb, 'kitchen_stations', 'sta_br2'), {
+      branchId: 'BR-001',
+      name: 'Hijacked Station'
+    }));
+
+    // Employee can mark their own employee_notification as read, but cannot alter title or branchId
+    await assertFails(updateDoc(doc(cashierADb, 'employee_notifications', 'emp_notif_a'), {
+      isRead: true,
+      title: 'Forged Title'
+    }));
+    await assertSucceeds(updateDoc(doc(cashierADb, 'employee_notifications', 'emp_notif_a'), {
+      isRead: true
+    }));
+  });
+
+  it('19. Strictly denies direct client writes (create/update/delete) to reservations, stock_counts, and server-only collections', async () => {
+    const managerADb = testEnv.authenticatedContext('manager_a').firestore();
+    const cashierADb = testEnv.authenticatedContext('cashier_a').firestore();
+
+    // 1. Reservations direct writes denied
+    await assertFails(setDoc(doc(cashierADb, 'reservations', 'res_direct_client'), {
+      branchId: 'BR-001',
+      customerName: 'Direct Client',
+      status: 'confirmed'
+    }));
+
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const db = context.firestore();
+      await setDoc(doc(db, 'reservations', 'res_seeded_001'), {
+        id: 'res_seeded_001',
+        branchId: 'BR-001',
+        customerName: 'Seeded Reservation',
+        status: 'confirmed'
+      });
+      await setDoc(doc(db, 'stock_counts', 'sc_seeded_001'), {
+        id: 'sc_seeded_001',
+        branchId: 'BR-001',
+        status: 'draft',
+        items: []
+      });
+      await setDoc(doc(db, 'accounting_periods', 'ap_seeded_001'), {
+        id: 'ap_seeded_001',
+        branchId: 'BR-001',
+        status: 'open'
+      });
+    });
+
+    await assertFails(updateDoc(doc(managerADb, 'reservations', 'res_seeded_001'), { status: 'cancelled' }));
+    await assertFails(deleteDoc(doc(managerADb, 'reservations', 'res_seeded_001')));
+
+    // 2. Stock counts direct writes denied
+    await assertFails(setDoc(doc(managerADb, 'stock_counts', 'sc_direct_client'), {
+      branchId: 'BR-001',
+      status: 'draft'
+    }));
+    await assertFails(updateDoc(doc(managerADb, 'stock_counts', 'sc_seeded_001'), { status: 'approved' }));
+    await assertFails(deleteDoc(doc(managerADb, 'stock_counts', 'sc_seeded_001')));
+
+    // 3. Server-only collections write denied
+    await assertFails(setDoc(doc(managerADb, 'accounting_periods', 'ap_client_forged'), { branchId: 'BR-001', status: 'closed' }));
+    await assertFails(updateDoc(doc(managerADb, 'accounting_periods', 'ap_seeded_001'), { status: 'closed' }));
+    await assertFails(setDoc(doc(managerADb, 'purchase_returns', 'pr_client_forged'), { branchId: 'BR-001', amount: 500 }));
+    await assertFails(setDoc(doc(managerADb, 'mutation_idempotency', 'idem_forged'), { hash: '123' }));
+  });
+
 });

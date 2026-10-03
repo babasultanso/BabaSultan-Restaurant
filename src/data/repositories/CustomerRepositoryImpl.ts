@@ -39,7 +39,12 @@ export class CustomerRepositoryImpl implements ICustomerRepository {
         ? query(collection(db, COLLECTIONS.CUSTOMERS), orderBy('createdAt', 'desc'))
         : query(collection(db, COLLECTIONS.CUSTOMERS), where('branchId', '==', branchScope), orderBy('createdAt', 'desc'));
       const snap = await getDocs(q);
-      const list = snap.docs.map(docSnap => {
+      const list = snap.docs
+        .filter(docSnap => {
+          const data = docSnap.data();
+          return !data.isDeleted && !data.isArchived && data.status !== 'deleted' && data.status !== 'archived';
+        })
+        .map(docSnap => {
         const data = docSnap.data();
         return {
           id: docSnap.id,
@@ -71,8 +76,8 @@ export class CustomerRepositoryImpl implements ICustomerRepository {
       });
       return list;
     } catch (error: any) {
-      console.warn('Note fetching customers from Firestore:', error?.message || error);
-      return [];
+      console.error('Firestore fetchCustomers error:', error?.message || error);
+      throw error;
     }
   }
 
@@ -80,8 +85,22 @@ export class CustomerRepositoryImpl implements ICustomerRepository {
     const newRef = doc(collection(db, COLLECTIONS.CUSTOMERS));
     const now = new Date().toISOString();
     const effectiveBranchId = getEffectiveBranchId(customerData.branchId || (customerData as any).branch);
+    const {
+      totalSpending: _ts1,
+      totalSpent: _ts2,
+      totalOrders: _to,
+      averageOrderValue: _aov,
+      cancelledOrders: _co,
+      refundHistoryCount: _rhc,
+      membershipLevel: _ml,
+      loyaltyPoints: _lp,
+      favoriteProducts: _fp,
+      lastOrderDate: _lod,
+      ...safeCustomerData
+    } = customerData as any;
+
     const fullCustomer: Customer = {
-      ...customerData,
+      ...safeCustomerData,
       branchId: effectiveBranchId,
       id: newRef.id,
       fullName: customerData.fullName || customerData.name || 'Unnamed Customer',
@@ -89,13 +108,15 @@ export class CustomerRepositoryImpl implements ICustomerRepository {
       registrationDate: customerData.registrationDate || now,
       createdAt: customerData.createdAt || now,
       status: customerData.status || 'active',
-      membershipLevel: customerData.membershipLevel || 'Bronze',
-      totalOrders: customerData.totalOrders || 0,
-      totalSpending: customerData.totalSpending || 0,
-      totalSpent: customerData.totalSpent || 0,
-      averageOrderValue: customerData.averageOrderValue || 0,
+      membershipLevel: 'Bronze',
+      totalOrders: 0,
+      totalSpending: 0,
+      totalSpent: 0,
+      averageOrderValue: 0,
       cancelledOrders: 0,
-      refundHistoryCount: 0
+      refundHistoryCount: 0,
+      favoriteProducts: [],
+      lastOrderDate: ''
     };
 
     await setDoc(newRef, fullCustomer);
@@ -104,18 +125,36 @@ export class CustomerRepositoryImpl implements ICustomerRepository {
 
   async updateCustomer(id: string, data: Partial<Customer>): Promise<void> {
     const custRef = doc(db, COLLECTIONS.CUSTOMERS, id);
+    const {
+      totalSpending: _ts1,
+      totalSpent: _ts2,
+      totalOrders: _to,
+      averageOrderValue: _aov,
+      cancelledOrders: _co,
+      refundHistoryCount: _rhc,
+      membershipLevel: _ml,
+      loyaltyPoints: _lp,
+      favoriteProducts: _fp,
+      lastOrderDate: _lod,
+      branchId: _branchId,
+      ...safeUpdateData
+    } = data as any;
     await updateDoc(custRef, {
-      ...data,
+      ...safeUpdateData,
       updatedAt: new Date().toISOString()
     });
   }
 
   async deleteCustomer(id: string): Promise<void> {
     const custRef = doc(db, COLLECTIONS.CUSTOMERS, id);
+    const now = new Date().toISOString();
     await updateDoc(custRef, {
       status: 'archived',
       isDeleted: true,
-      updatedAt: new Date().toISOString()
+      isArchived: true,
+      isActive: false,
+      deletedAt: now,
+      updatedAt: now
     });
   }
 
@@ -133,8 +172,8 @@ export class CustomerRepositoryImpl implements ICustomerRepository {
       const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as CustomerWallet));
       return list;
     } catch (error: any) {
-      console.warn('Note fetching customer wallets from Firestore:', error?.message || error);
-      return [];
+      console.error('Firestore fetchCustomerWallets error:', error?.message || error);
+      throw error;
     }
   }
 
@@ -165,8 +204,8 @@ export class CustomerRepositoryImpl implements ICustomerRepository {
       };
       return defaultWallet;
     } catch (error: any) {
-      console.warn('Failed to fetch customer wallet for ID:', customerId, error?.message || error);
-      return null;
+      console.error('Failed to fetch customer wallet for ID:', customerId, error?.message || error);
+      throw error;
     }
   }
 
@@ -261,21 +300,23 @@ export class CustomerRepositoryImpl implements ICustomerRepository {
 
   async fetchWalletTransactions(customerId?: string): Promise<WalletTransaction[]> {
     try {
+      const branchScope = getEffectiveBranchScope();
       let q;
       if (customerId) {
-        q = query(collection(db, COLLECTIONS.WALLET_TRANSACTIONS), where('customerId', '==', customerId), orderBy('createdAt', 'desc'));
+        q = branchScope === 'all'
+          ? query(collection(db, COLLECTIONS.WALLET_TRANSACTIONS), where('customerId', '==', customerId), orderBy('createdAt', 'desc'))
+          : query(collection(db, COLLECTIONS.WALLET_TRANSACTIONS), where('customerId', '==', customerId), where('branchId', '==', branchScope), orderBy('createdAt', 'desc'));
       } else {
-        const branchScope = getEffectiveBranchScope();
         q = branchScope === 'all'
           ? query(collection(db, COLLECTIONS.WALLET_TRANSACTIONS), orderBy('createdAt', 'desc'))
           : query(collection(db, COLLECTIONS.WALLET_TRANSACTIONS), where('branchId', '==', branchScope), orderBy('createdAt', 'desc'));
       }
       const snap = await getDocs(q);
-      const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as WalletTransaction));
+      const list = snap.docs.map(d => ({ id: d.id, ...(d.data() as Record<string, any>) } as WalletTransaction));
       return list;
     } catch (error: any) {
-      console.warn('Note fetching wallet transactions from Firestore:', error?.message || error);
-      return [];
+      console.error('Firestore fetchWalletTransactions error:', error?.message || error);
+      throw error;
     }
   }
 
@@ -293,8 +334,8 @@ export class CustomerRepositoryImpl implements ICustomerRepository {
       const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as CustomerPoints));
       return list;
     } catch (error: any) {
-      console.warn('Note fetching customer points from Firestore:', error?.message || error);
-      return [];
+      console.error('Firestore fetchCustomerPointsList error:', error?.message || error);
+      throw error;
     }
   }
 
@@ -313,8 +354,8 @@ export class CustomerRepositoryImpl implements ICustomerRepository {
       }
       return null;
     } catch (error: any) {
-      console.warn('Note fetching customer points for ID:', customerId, error?.message || error);
-      return null;
+      console.error('Firestore fetchCustomerPoints error for ID:', customerId, error?.message || error);
+      throw error;
     }
   }
 
@@ -355,10 +396,19 @@ export class CustomerRepositoryImpl implements ICustomerRepository {
         ? query(collection(db, COLLECTIONS.CUSTOMER_REWARDS), orderBy('pointsRequired', 'asc'))
         : query(collection(db, COLLECTIONS.CUSTOMER_REWARDS), where('branchId', 'in', [branchId, 'all']), orderBy('pointsRequired', 'asc'));
       const snap = await getDocs(q);
-      return snap.docs.map(d => ({ id: d.id, ...d.data() } as CustomerReward));
+      return snap.docs
+        .filter(d => {
+          const data = d.data() as any;
+          return !data.isDeleted && !data.isArchived && data.status !== 'deleted' && data.status !== 'archived';
+        })
+        .map(d => ({ id: d.id, ...d.data() } as CustomerReward));
     } catch (error: any) {
-      console.warn('Note fetching customer rewards from Firestore:', error?.message || error);
-      return [];
+      const message = String(error?.message || error);
+      if (/Branch (ID|scope) is required/i.test(message)) {
+        return [];
+      }
+      console.error('Failed to fetch customer rewards from Firestore:', error);
+      throw error;
     }
   }
 
@@ -435,10 +485,15 @@ export class CustomerRepositoryImpl implements ICustomerRepository {
         ? query(collection(db, COLLECTIONS.CUSTOMER_COUPONS), orderBy('createdAt', 'desc'))
         : query(collection(db, COLLECTIONS.CUSTOMER_COUPONS), where('branchId', 'in', [branchId, 'all']), orderBy('createdAt', 'desc'));
       const snap = await getDocs(q);
-      return snap.docs.map(d => ({ id: d.id, ...d.data() } as CustomerCoupon));
+      return snap.docs
+        .filter(d => {
+          const data = d.data() as any;
+          return !data.isDeleted && !data.isArchived && data.status !== 'deleted' && data.status !== 'archived';
+        })
+        .map(d => ({ id: d.id, ...d.data() } as CustomerCoupon));
     } catch (error: any) {
       const message = String(error?.message || error);
-      if (/Branch ID is required for this operation/i.test(message)) {
+      if (/Branch (ID|scope) is required/i.test(message)) {
         return [];
       }
       console.error('Failed to fetch customer coupons from Firestore:', error);
@@ -520,6 +575,7 @@ export class CustomerRepositoryImpl implements ICustomerRepository {
   async sendCustomerNotification(data: Omit<CustomerNotification, 'id' | 'createdAt'>): Promise<CustomerNotification> {
     const newRef = doc(collection(db, COLLECTIONS.CUSTOMER_NOTIFICATIONS));
     const now = new Date().toISOString();
+    const effectiveBranchId = getEffectiveBranchId((data as any).branchId || (data as any).branch);
 
     const dispatchResult = CustomerService.dispatchChannelNotification(
       data.channel,
@@ -529,11 +585,12 @@ export class CustomerRepositoryImpl implements ICustomerRepository {
 
     const notification: CustomerNotification = {
       ...data,
+      branchId: effectiveBranchId,
       id: newRef.id,
       status: dispatchResult.status === 'sent' ? 'sent' : 'failed',
-      sentAt: dispatchResult.status === 'sent' ? now : undefined,
+      ...(dispatchResult.status === 'sent' ? { sentAt: now } : {}),
       createdAt: now
-    };
+    } as CustomerNotification;
 
     await setDoc(newRef, notification);
     if (dispatchResult.status === 'failed') {
@@ -544,22 +601,23 @@ export class CustomerRepositoryImpl implements ICustomerRepository {
 
   async fetchNotifications(customerId?: string): Promise<CustomerNotification[]> {
     try {
+      const branchScope = getEffectiveBranchScope();
       let q;
       if (customerId) {
-        q = query(collection(db, COLLECTIONS.CUSTOMER_NOTIFICATIONS), where('customerId', '==', customerId), orderBy('createdAt', 'desc'));
+        q = branchScope === 'all'
+          ? query(collection(db, COLLECTIONS.CUSTOMER_NOTIFICATIONS), where('customerId', '==', customerId), orderBy('createdAt', 'desc'))
+          : query(collection(db, COLLECTIONS.CUSTOMER_NOTIFICATIONS), where('customerId', '==', customerId), where('branchId', '==', branchScope), orderBy('createdAt', 'desc'));
       } else {
-        const branchScope = getEffectiveBranchScope();
         q = branchScope === 'all'
           ? query(collection(db, COLLECTIONS.CUSTOMER_NOTIFICATIONS), orderBy('createdAt', 'desc'))
           : query(collection(db, COLLECTIONS.CUSTOMER_NOTIFICATIONS), where('branchId', '==', branchScope), orderBy('createdAt', 'desc'));
       }
       const snap = await getDocs(q);
-      const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as CustomerNotification));
-      if (list.length > 0) return list;
+      return snap.docs.map(d => ({ id: d.id, ...(d.data() as Record<string, any>) } as CustomerNotification));
     } catch (error: any) {
-      console.warn('Note fetching customer notifications from Firestore:', error?.message || error);
+      console.error('Firestore fetchNotifications error:', error?.message || error);
+      throw error;
     }
-    return [];
   }
 
   // ==========================================

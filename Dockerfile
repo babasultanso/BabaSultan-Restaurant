@@ -1,10 +1,21 @@
 FROM node:22-bookworm-slim
 WORKDIR /app
 COPY package*.json ./
-RUN npm install --no-audit --no-fund
+RUN npm ci --no-audit --no-fund
 COPY . .
-RUN npm run build && npm prune --omit=dev --no-audit --no-fund
+ARG VITE_FIREBASE_API_KEY
+ARG VITE_FIREBASE_AUTH_DOMAIN
+ARG VITE_FIREBASE_PROJECT_ID
+ARG VITE_FIREBASE_STORAGE_BUCKET
+ARG VITE_FIREBASE_MESSAGING_SENDER_ID
+ARG VITE_FIREBASE_APP_ID
+ARG VITE_FIREBASE_MEASUREMENT_ID
+ARG VITE_API_BASE_URL
+ARG VITE_DEFAULT_LANGUAGE=ar
+ARG VITE_ENABLE_RTL=true
+RUN npm run build && npm prune --omit=dev --no-audit --no-fund && npm cache clean --force
 ENV NODE_ENV=production
 ENV PORT=8080
+USER node
 EXPOSE 8080
 CMD ["node", "dist/server.cjs"]

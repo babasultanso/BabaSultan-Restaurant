@@ -60,33 +60,42 @@ export const OwnerView: React.FC<OwnerViewProps> = ({
   const { t } = useAuth();
   const d: Record<string, any> = t.dashboard || {};
 
-  // 1. Financial Calculations
+  // 1. Financial Calculations (strictly completed/delivered orders)
   const todayIso = getMogadishuDateString();
+  const completedOrders = orders.filter(o => {
+    const st = String(o.status || '').toLowerCase();
+    const prep = String(o.prepStatus || '').toLowerCase();
+    return st === 'completed' || st === 'delivered' || prep === 'delivered';
+  });
 
-  const totalSales = orders.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
+  const totalSales = completedOrders.reduce((sum, o) => sum + (Number(o.totalAmount) || 0), 0);
   
-  const todayOrders = orders.filter(o => o.createdAt && o.createdAt.startsWith(todayIso));
-  const todayRevenue = todayOrders.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
+  const todayOrders = completedOrders.filter(o => o.createdAt && getMogadishuDateString(o.createdAt) === todayIso);
+  const todayRevenue = todayOrders.reduce((sum, o) => sum + (Number(o.totalAmount) || 0), 0);
   
-  const todayCogs = todayOrders.reduce((sum, o) => sum + (o.cogs || 0), 0);
+  const todayCogs = todayOrders.reduce((sum, o) => sum + (Number(o.cogs ?? (o as any).costOfGoodsSold) || 0), 0);
   const todayExpenses = expenses
-    .filter(e => e.createdAt && e.createdAt.startsWith(todayIso))
-    .reduce((sum, e) => sum + (e.amount || 0), 0);
+    .filter(e => e.createdAt && getMogadishuDateString(e.createdAt) === todayIso)
+    .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
   const todayProfit = todayRevenue - todayCogs - todayExpenses;
 
-  const totalExpenses = expenses.reduce((sum, e) => sum + (e.amount || 0), 0);
-  const totalCogs = orders.reduce((sum, o) => sum + (o.cogs || 0), 0);
+  const totalExpenses = expenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+  const totalCogs = completedOrders.reduce((sum, o) => sum + (Number(o.cogs ?? (o as any).costOfGoodsSold) || 0), 0);
   const monthlyProfit = totalSales - totalCogs - totalExpenses;
 
-  // Liquidity & Cash Flow
-  const cashAccount = accounts.find(a => String(a.type || '').toLowerCase() === 'cash' || String(a.accountType || '').toLowerCase() === 'cash' || String(a.code || '').startsWith('101'))?.balance ?? 0;
-  const bankAccount = accounts.find(a => String(a.type || '').toLowerCase() === 'bank' || String(a.accountType || '').toLowerCase() === 'bank' || String(a.code || '').startsWith('102'))?.balance ?? 0;
+  // Liquidity & Cash Flow (sum all cash and bank accounts)
+  const cashAccount = accounts
+    .filter(a => String(a.type || '').toLowerCase() === 'cash' || String(a.accountType || '').toLowerCase() === 'cash' || String(a.code || '').startsWith('101'))
+    .reduce((sum, a) => sum + (Number(a.balance) || 0), 0);
+  const bankAccount = accounts
+    .filter(a => String(a.type || '').toLowerCase() === 'bank' || String(a.accountType || '').toLowerCase() === 'bank' || String(a.code || '').startsWith('102'))
+    .reduce((sum, a) => sum + (Number(a.balance) || 0), 0);
   const totalCashFlow = cashAccount + bankAccount;
 
   // Metrics
-  const totalOrdersCount = orders.filter(o => String(o.status || '').toLowerCase() === 'completed' || String(o.prepStatus || '').toLowerCase() === 'delivered').length;
-  const lowStockIngredients = ingredients.filter(i => i.stock <= i.minStockAlert);
-  const lowStockProducts = products.filter(p => p.stock <= p.minStockAlert);
+  const totalOrdersCount = completedOrders.length;
+  const lowStockIngredients = ingredients.filter(i => (Number(i.currentStockUsageUnit ?? i.stock) || 0) <= (Number(i.minStockAlert) || 0));
+  const lowStockProducts = products.filter(p => (Number(p.stock) || 0) <= (Number(p.minStockAlert) || 0));
   const totalLowStock = lowStockIngredients.length + lowStockProducts.length;
 
   // Business Health Index (0 - 100)
@@ -100,14 +109,19 @@ export const OwnerView: React.FC<OwnerViewProps> = ({
   const employeePerformance = [...employees].sort((a, b) => (b.totalSales || 0) - (a.totalSales || 0));
   const current30Start = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
   const prior30Start = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
-  const current30Profit = orders.filter(o => { const d = new Date(o.createdAt || ''); return d >= current30Start && d <= new Date(); }).reduce((s,o)=>s + (Number(o.profit)||0),0);
-  const current30Revenue = orders.filter(o => { const d = new Date(o.createdAt || ''); return d >= current30Start && d <= new Date(); }).reduce((s,o)=>s + (Number(o.totalAmount)||0),0);
-  const prior30Revenue = orders.filter(o => { const d = new Date(o.createdAt || ''); return d >= prior30Start && d < current30Start; }).reduce((s,o)=>s + (Number(o.totalAmount)||0),0);
+  const orderProfit = (o: Order) => {
+    const amt = Number(o.totalAmount) || 0;
+    const cogs = Number(o.cogs ?? (o as any).costOfGoodsSold) || 0;
+    return typeof o.profit === 'number' && !Number.isNaN(o.profit) ? o.profit : (amt - cogs);
+  };
+  const current30Profit = completedOrders.filter(o => { const d = new Date(o.createdAt || ''); return d >= current30Start && d <= new Date(); }).reduce((s,o)=>s + orderProfit(o),0);
+  const current30Revenue = completedOrders.filter(o => { const d = new Date(o.createdAt || ''); return d >= current30Start && d <= new Date(); }).reduce((s,o)=>s + (Number(o.totalAmount)||0),0);
+  const prior30Revenue = completedOrders.filter(o => { const d = new Date(o.createdAt || ''); return d >= prior30Start && d < current30Start; }).reduce((s,o)=>s + (Number(o.totalAmount)||0),0);
   const revenueGrowth30 = prior30Revenue > 0 ? ((current30Revenue - prior30Revenue) / prior30Revenue) * 100 : null;
-  const current30Customers = new Set(orders.filter(o => { const d = new Date(o.createdAt || ''); return d >= current30Start && d <= new Date(); }).map(o => String(o.customerId || o.customerName || '').trim()).filter(Boolean));
-  const prior30Customers = new Set(orders.filter(o => { const d = new Date(o.createdAt || ''); return d >= prior30Start && d < current30Start; }).map(o => String(o.customerId || o.customerName || '').trim()).filter(Boolean));
+  const current30Customers = new Set(completedOrders.filter(o => { const d = new Date(o.createdAt || ''); return d >= current30Start && d <= new Date(); }).map(o => String(o.customerId || o.customerName || '').trim()).filter(Boolean));
+  const prior30Customers = new Set(completedOrders.filter(o => { const d = new Date(o.createdAt || ''); return d >= prior30Start && d < current30Start; }).map(o => String(o.customerId || o.customerName || '').trim()).filter(Boolean));
   const customerGrowth30 = prior30Customers.size > 0 ? ((current30Customers.size - prior30Customers.size) / prior30Customers.size) * 100 : null;
-  const prior30Profit = orders.filter(o => { const d = new Date(o.createdAt || ''); return d >= prior30Start && d < current30Start; }).reduce((s,o)=>s + (Number(o.profit)||0),0);
+  const prior30Profit = completedOrders.filter(o => { const d = new Date(o.createdAt || ''); return d >= prior30Start && d < current30Start; }).reduce((s,o)=>s + orderProfit(o),0);
   const monthlyProfitChange30 = prior30Profit > 0 ? ((current30Profit - prior30Profit) / prior30Profit) * 100 : null;
 
 

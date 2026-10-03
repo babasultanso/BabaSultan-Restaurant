@@ -148,6 +148,7 @@ export interface Supplier {
   name?: string;
   companyName: string;
   contactPerson: string;
+  contactName?: string;
   phone: string;
   email: string;
   branchId?: string;
@@ -166,6 +167,7 @@ export interface SupplierPayment {
   id: string;
   supplierId: string;
   supplierName: string;
+  branchId?: string;
   purchaseOrderId?: string;
   amount: number;
   paymentMethod: 'bank_transfer' | 'cash' | 'check' | 'card' | 'evc_plus';
@@ -206,4 +208,26 @@ export interface InventoryValuationReport {
     itemCount: number;
     totalValuation: number;
   }[];
+}
+
+export interface PurchaseReturn {
+  id: string;
+  returnNumber: string;
+  poId?: string;
+  supplierId?: string;
+  supplierName: string;
+  itemId: string;
+  itemName: string;
+  itemCode?: string;
+  quantity: number;
+  unit: string;
+  unitCost: number;
+  totalCost: number;
+  reason: string;
+  status: 'completed' | 'cancelled';
+  movementId?: string;
+  branchId?: string;
+  date: string;
+  createdBy: string;
+  createdAt: string;
 }

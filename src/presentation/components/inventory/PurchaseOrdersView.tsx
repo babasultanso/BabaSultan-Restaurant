@@ -5,7 +5,8 @@ import {
   PurchaseOrder,
   Supplier,
   InventoryItem,
-  PurchaseOrderItem
+  PurchaseOrderItem,
+  PurchaseReturn
 } from '../../../domain/entities/inventory';
 import { InventoryLang, inventoryDict } from '../../../i18n';
 import { getMogadishuDateString } from '../../../lib/dateUtils';
@@ -21,11 +22,13 @@ import {
   ChevronRight,
   Trash2,
   X,
-  AlertCircle
+  AlertCircle,
+  RotateCcw
 } from 'lucide-react';
 
 interface PurchaseOrdersViewProps {
   purchaseOrders: PurchaseOrder[];
+  purchaseReturns?: PurchaseReturn[];
   suppliers: Supplier[];
   inventoryItems: InventoryItem[];
   lang: InventoryLang;
@@ -33,17 +36,28 @@ interface PurchaseOrdersViewProps {
   onCreatePO: (po: Omit<PurchaseOrder, 'id' | 'createdAt' | 'updatedAt'>) => Promise<void>;
   onApprovePO: (id: string, approvedBy: string) => Promise<void>;
   onNavigateToReceiving: (poId: string) => void;
+  onCreatePurchaseReturn?: (data: {
+    itemId: string;
+    supplierId?: string;
+    supplierName?: string;
+    poId?: string;
+    quantity: number;
+    unitCost?: number;
+    reason: string;
+  }) => Promise<void>;
 }
 
 export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
   purchaseOrders,
+  purchaseReturns = [],
   suppliers,
   inventoryItems,
   lang,
   userRole,
   onCreatePO,
   onApprovePO,
-  onNavigateToReceiving
+  onNavigateToReceiving,
+  onCreatePurchaseReturn
 }) => {
   const t = { ...(inventoryDict[lang] || inventoryDict.en), legacyUi: translations[lang].legacyUi };
   const isReadOnly = userRole === 'Kitchen' || userRole === 'Cashier';
@@ -52,6 +66,54 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
   // State
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isReturnModalOpen, setIsReturnModalOpen] = useState(false);
+
+  // Return Form State
+  const [retSupplierId, setRetSupplierId] = useState<string>(suppliers[0]?.id || '');
+  const [retPoId, setRetPoId] = useState<string>('');
+  const [retItemId, setRetItemId] = useState<string>(inventoryItems[0]?.id || '');
+  const [retQty, setRetQty] = useState<number>(1);
+  const [retUnitCost, setRetUnitCost] = useState<number>(inventoryItems[0]?.purchaseCost || 0);
+  const [retReason, setRetReason] = useState<string>('Damaged or defective supplier goods returned');
+  const [isSubmittingReturn, setIsSubmittingReturn] = useState<boolean>(false);
+
+  const handleOpenReturnModal = (po?: PurchaseOrder) => {
+    const defaultItem = inventoryItems[0];
+    setRetSupplierId(po?.supplierId || suppliers[0]?.id || '');
+    setRetPoId(po?.id || '');
+    setRetItemId(po?.items?.[0]?.itemId || defaultItem?.id || '');
+    setRetQty(1);
+    setRetUnitCost(po?.items?.[0]?.unitPrice ?? defaultItem?.purchaseCost ?? 0);
+    setRetReason('Damaged or defective supplier goods returned');
+    setIsReturnModalOpen(true);
+  };
+
+  const handleSubmitPurchaseReturn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!onCreatePurchaseReturn) return;
+    if (!retItemId || retQty <= 0) {
+      alert('Please select an inventory item and enter a valid positive return quantity.');
+      return;
+    }
+    setIsSubmittingReturn(true);
+    try {
+      const sup = suppliers.find((s) => s.id === retSupplierId);
+      await onCreatePurchaseReturn({
+        itemId: retItemId,
+        supplierId: retSupplierId || undefined,
+        supplierName: sup?.companyName,
+        poId: retPoId || undefined,
+        quantity: Number(retQty),
+        unitCost: Number(retUnitCost),
+        reason: retReason.trim() || 'Damaged or defective supplier goods returned'
+      });
+      setIsReturnModalOpen(false);
+    } catch (err: any) {
+      alert(err?.message || 'Failed to record purchase return.');
+    } finally {
+      setIsSubmittingReturn(false);
+    }
+  };
 
   // Form
   const [selectedSupplierId, setSelectedSupplierId] = useState<string>(suppliers[0]?.id || '');
@@ -163,12 +225,22 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
           </select>
 
           {!isReadOnly && (
-            <button
-              onClick={handleOpenCreate}
-              className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold px-4 py-2.5 rounded-2xl transition cursor-pointer text-xs flex items-center gap-1.5 shadow-lg shadow-amber-500/20"
-            >
-              <Plus className="w-4 h-4" /> {t.createPO}
-            </button>
+            <div className="flex items-center gap-2">
+              {onCreatePurchaseReturn && (
+                <button
+                  onClick={() => handleOpenReturnModal()}
+                  className="bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-rose-300 font-extrabold px-3.5 py-2.5 rounded-2xl transition cursor-pointer text-xs flex items-center gap-1.5"
+                >
+                  <RotateCcw className="w-4 h-4" /> {translateRawUi('Record Supplier Return')}
+                </button>
+              )}
+              <button
+                onClick={handleOpenCreate}
+                className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold px-4 py-2.5 rounded-2xl transition cursor-pointer text-xs flex items-center gap-1.5 shadow-lg shadow-amber-500/20"
+              >
+                <Plus className="w-4 h-4" /> {t.createPO}
+              </button>
+            </div>
           )}
         </div>
       </div>
@@ -270,9 +342,19 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
                   )}
 
                   {isCompleted && (
-                    <span className="text-center w-full text-[11px] text-emerald-400 font-bold flex items-center justify-center gap-1">
-                      <CheckCircle2 className="w-4 h-4" /> {translateRawUi('Goods Fully Received')}
-                    </span>
+                    <div className="w-full flex items-center justify-between gap-2">
+                      <span className="text-[11px] text-emerald-400 font-bold flex items-center gap-1">
+                        <CheckCircle2 className="w-4 h-4" /> {translateRawUi('Goods Fully Received')}
+                      </span>
+                      {!isReadOnly && onCreatePurchaseReturn && (
+                        <button
+                          onClick={() => handleOpenReturnModal(po)}
+                          className="px-2.5 py-1.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-rose-300 font-bold text-[10px] flex items-center gap-1 cursor-pointer"
+                        >
+                          <RotateCcw className="w-3 h-3" /> {translateRawUi('Return Goods')}
+                        </button>
+                      )}
+                    </div>
                   )}
 
                 </div>
@@ -282,6 +364,197 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
           })
         )}
       </div>
+
+      {/* Purchase Returns & Vendor Debit Notes Ledger */}
+      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
+          <div>
+            <h4 className="text-sm font-extrabold text-white flex items-center gap-2">
+              <RotateCcw className="w-4 h-4 text-rose-400" />
+              {translateRawUi('Purchase Returns & Vendor Debit Notes (Inventory + AP + GL)')}
+            </h4>
+            <p className="text-xs text-slate-400">
+              {translateRawUi('Authoritative supplier returns automatically deduct stock, reduce vendor payable balances, and post GL Debit Notes.')}
+            </p>
+          </div>
+          <span className="px-3 py-1 rounded-full bg-rose-500/10 border border-rose-500/20 text-rose-300 font-mono font-bold text-xs">
+            {purchaseReturns.length} {translateRawUi('Return Note(s)')}
+          </span>
+        </div>
+
+        {purchaseReturns.length === 0 ? (
+          <div className="py-8 text-center text-xs text-slate-500">
+            {translateRawUi('No supplier purchase returns recorded yet.')}
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs text-slate-300">
+              <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] font-bold border-b border-slate-800">
+                <tr>
+                  <th className="py-3 px-4">{translateRawUi('Debit Note #')}</th>
+                  <th className="py-3 px-4">{translateRawUi('Date')}</th>
+                  <th className="py-3 px-4">{translateRawUi('Supplier')}</th>
+                  <th className="py-3 px-4">{translateRawUi('Returned Item')}</th>
+                  <th className="py-3 px-4 text-right">{translateRawUi('Qty Returned')}</th>
+                  <th className="py-3 px-4 text-right">{translateRawUi('Credit Value')}</th>
+                  <th className="py-3 px-4">{translateRawUi('Reason')}</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60">
+                {purchaseReturns.map((pr) => (
+                  <tr key={pr.id} className="hover:bg-slate-800/40 transition">
+                    <td className="py-3 px-4 font-mono font-bold text-rose-400">{pr.returnNumber}</td>
+                    <td className="py-3 px-4 font-mono text-slate-400">{pr.date}</td>
+                    <td className="py-3 px-4 font-bold text-white">{pr.supplierName}</td>
+                    <td className="py-3 px-4 text-slate-200">{pr.itemName}</td>
+                    <td className="py-3 px-4 text-right font-mono font-bold text-rose-300">
+                      -{pr.quantity} {pr.unit}
+                    </td>
+                    <td className="py-3 px-4 text-right font-mono font-black text-emerald-400">
+                      ${Number(pr.totalCost || 0).toFixed(2)}
+                    </td>
+                    <td className="py-3 px-4 text-slate-400">{pr.reason}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* MODAL: Record Supplier Purchase Return / Debit Note */}
+      {isReturnModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 w-full max-w-lg shadow-2xl space-y-5">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <RotateCcw className="w-5 h-5 text-rose-400" />
+                <h3 className="text-base font-extrabold text-white">{translateRawUi('Record Supplier Purchase Return (Debit Note)')}</h3>
+              </div>
+              <button onClick={() => setIsReturnModalOpen(false)} className="text-slate-400 hover:text-white">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmitPurchaseReturn} className="space-y-4 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-400 font-bold mb-1">{translateRawUi('Supplier')}</label>
+                  <select
+                    value={retSupplierId}
+                    onChange={(e) => setRetSupplierId(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-3 text-white"
+                  >
+                    <option value="">{translateRawUi('Select Supplier')}</option>
+                    {suppliers.map((s) => (
+                      <option key={s.id} value={s.id}>{s.companyName}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-slate-400 font-bold mb-1">{translateRawUi('Linked Purchase Order (Optional)')}</label>
+                  <select
+                    value={retPoId}
+                    onChange={(e) => setRetPoId(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-3 text-white font-mono"
+                  >
+                    <option value="">{translateRawUi('None / Direct Return')}</option>
+                    {purchaseOrders.map((po) => (
+                      <option key={po.id} value={po.id}>{po.poNumber} ({po.supplierName})</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-400 font-bold mb-1">{translateRawUi('Inventory Item to Return *')}</label>
+                <select
+                  required
+                  value={retItemId}
+                  onChange={(e) => {
+                    const id = e.target.value;
+                    setRetItemId(id);
+                    const found = inventoryItems.find((i) => i.id === id);
+                    if (found) setRetUnitCost(found.purchaseCost || 0);
+                  }}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-3 text-white"
+                >
+                  {inventoryItems.map((inv) => (
+                    <option key={inv.id} value={inv.id}>
+                      {inv.itemName} (In Stock: {inv.currentQuantity} {inv.unit})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-400 font-bold mb-1">{translateRawUi('Return Quantity *')}</label>
+                  <input
+                    type="number"
+                    required
+                    min="0.01"
+                    step="any"
+                    value={retQty}
+                    onChange={(e) => setRetQty( parseFloat(e.target.value) || 0 )}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-3 text-white font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-400 font-bold mb-1">{translateRawUi('Unit Cost Credit ($)')}</label>
+                  <input
+                    type="number"
+                    required
+                    min="0"
+                    step="0.01"
+                    value={retUnitCost}
+                    onChange={(e) => setRetUnitCost( parseFloat(e.target.value) || 0 )}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-3 text-white font-mono"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-400 font-bold mb-1">{translateRawUi('Return Reason / Inspection Notes *')}</label>
+                <input
+                  type="text"
+                  required
+                  value={retReason}
+                  onChange={(e) => setRetReason(e.target.value)}
+                  placeholder={translateRawUi('e.g. Damaged packaging, spoiled batch, wrong specification')}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-3 text-white"
+                />
+              </div>
+
+              <div className="p-3.5 bg-slate-950 border border-slate-800 rounded-2xl flex items-center justify-between">
+                <span className="text-slate-400 font-bold">{translateRawUi('Total Vendor Debit Note Credit:')}</span>
+                <span className="text-base font-black font-mono text-emerald-400">
+                  ${(Math.max(0, retQty) * Math.max(0, retUnitCost)).toFixed(2)}
+                </span>
+              </div>
+
+              <div className="pt-2 border-t border-slate-800 flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsReturnModalOpen(false)}
+                  className="px-4 py-2 rounded-2xl bg-slate-800 text-slate-300 font-bold"
+                >
+                  {translateRawUi('Cancel')}
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingReturn}
+                  className="px-5 py-2 rounded-2xl bg-rose-500 hover:bg-rose-400 text-slate-950 font-black cursor-pointer"
+                >
+                  {isSubmittingReturn ? translateRawUi('Processing...') : translateRawUi('Post Purchase Return')}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* MODAL: Create Purchase Order */}
       {isModalOpen && (

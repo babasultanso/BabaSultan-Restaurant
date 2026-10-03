@@ -3,12 +3,14 @@ services:
     name: babasultan-api
     runtime: node
     plan: free
-    buildCommand: npm install && npm run build
+    buildCommand: npm ci && npm run build
     startCommand: npm start
     healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
         value: production
+      - key: PORT
+        value: 3000
       - key: FIREBASE_PROJECT_ID
         value: babasultan-restaurant
       - key: FIREBASE_CLIENT_EMAIL

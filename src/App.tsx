@@ -124,7 +124,11 @@ function ERPAppContent() {
       : query(collection(db, COLLECTIONS.PRODUCTS));
 
     const unsubProducts = onSnapshot(productsQuery, (snapshot) => {
-      setProducts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Product)));
+      setProducts(
+        snapshot.docs
+          .map(doc => ({ id: doc.id, ...doc.data() } as Product))
+          .filter(p => !(p as any).isDeleted && !(p as any).isArchived && (p as any).status !== 'deleted')
+      );
     }, (err) => {
       console.warn('Products listener notice:', err?.message || err);
     });
@@ -134,7 +138,12 @@ function ERPAppContent() {
       : query(collection(db, COLLECTIONS.INGREDIENTS));
 
     const unsubIngredients = onSnapshot(ingredientsQuery, (snapshot) => {
-      const docs = snapshot.docs.map(doc => {
+      const docs = snapshot.docs
+        .filter(doc => {
+          const raw = doc.data() as Record<string, unknown>;
+          return !raw.isDeleted && !raw.isArchived && raw.isActive !== false && raw.status !== 'deleted' && !raw.deletedAt;
+        })
+        .map(doc => {
         const raw = doc.data() as Partial<Ingredient> & Record<string, unknown>;
         const usageStock = Number(raw.currentStockUsageUnit ?? raw.stock ?? raw.currentQuantity ?? 0);
         const usageMin = Number(raw.minStockUsageUnit ?? raw.minAlertStock ?? 0);
@@ -183,7 +192,11 @@ function ERPAppContent() {
       : query(collection(db, COLLECTIONS.EMPLOYEES));
 
     const unsubEmployees = onSnapshot(employeesQuery, (snapshot) => {
-      setEmployees(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Employee)));
+      setEmployees(
+        snapshot.docs
+          .map(doc => ({ id: doc.id, ...doc.data() } as Employee))
+          .filter(emp => !(emp as any).isDeleted && !(emp as any).isArchived && (emp as any).status !== 'deleted')
+      );
     }, (err) => {
       console.warn('Employees listener notice:', err?.message || err);
     });
@@ -205,7 +218,11 @@ function ERPAppContent() {
       : query(collection(db, COLLECTIONS.SUPPLIERS));
 
     const unsubSuppliers = onSnapshot(suppliersQuery, (snapshot) => {
-      setSuppliers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Supplier)));
+      setSuppliers(
+        snapshot.docs
+          .map(doc => ({ id: doc.id, ...doc.data() } as Supplier))
+          .filter(sup => !(sup as any).isDeleted && !(sup as any).isArchived && (sup as any).isActive !== false && (sup as any).status !== 'deleted')
+      );
     }, (err) => {
       console.warn('Suppliers listener notice:', err?.message || err);
     });

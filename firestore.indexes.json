@@ -30,10 +30,14 @@
     },
     {
       "collectionGroup": "recipes",
-      "queryScope": "COLLECTION_GROUP",
+      "queryScope": "COLLECTION",
       "fields": [
         {
           "fieldPath": "productId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "branchId",
           "order": "ASCENDING"
         },
         {
@@ -243,11 +247,11 @@
       ]
     },
     {
-      "collectionGroup": "ingredient_movements",
+      "collectionGroup": "inventory_movements",
       "queryScope": "COLLECTION",
       "fields": [
         {
-          "fieldPath": "branchId",
+          "fieldPath": "itemId",
           "order": "ASCENDING"
         },
         {
@@ -257,11 +261,11 @@
       ]
     },
     {
-      "collectionGroup": "ingredient_movements",
+      "collectionGroup": "inventory_movements",
       "queryScope": "COLLECTION",
       "fields": [
         {
-          "fieldPath": "ingredientId",
+          "fieldPath": "itemId",
           "order": "ASCENDING"
         },
         {
@@ -290,6 +294,220 @@
     },
     {
       "collectionGroup": "waste_records",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "branchId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "kitchen_waste",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "branchId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "recipe_versions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "recipeId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "version",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "recipe_versions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "recipeId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "branchId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "version",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "loyalty_transactions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "customerId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "journal_entries",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "branchId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "revenues",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "branchId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "accounts_receivable",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "branchId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "accounts_payable",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "branchId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "cash_registers",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "branchId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "openedAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "supplier_payments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "branchId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "kitchen_orders",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "branchId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "orders",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "branchId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "purchases",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "branchId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "expenses",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "branchId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "bank_transactions",
       "queryScope": "COLLECTION",
       "fields": [
         {

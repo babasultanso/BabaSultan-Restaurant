@@ -16,7 +16,8 @@ import {
   CustomerFeedback, 
   EquipmentItem, 
   BankTransaction,
-  Customer
+  Customer,
+  CustomerRefund
 } from '../types';
 
 export interface AIPlatformDataPackage {
@@ -37,6 +38,7 @@ export interface AIPlatformDataPackage {
   equipment?: EquipmentItem[];
   bankTransactions?: BankTransaction[];
   customers?: Customer[];
+  refunds?: CustomerRefund[];
 }
 
 export interface AIAlert {
@@ -67,24 +69,42 @@ export function calculateAIBusinessPlatformAnalytics(data: AIPlatformDataPackage
     feedbacks = [],
     equipment = [],
     bankTransactions = [],
-    customers = []
+    customers = [],
+    refunds = []
   } = data;
 
   const todayStr = getMogadishuDateString();
 
   // 1. REVENUE, PROFIT & EXPENSES
-  const completedOrders = orders.filter(o => o.status === 'completed' || o.prepStatus === 'delivered');
+  const completedOrders = orders.filter(o => o.status === 'completed' || o.status === 'delivered' || o.prepStatus === 'delivered');
   const todayOrders = orders.filter(o => o.createdAt && (getMogadishuDateString(o.createdAt) === todayStr || o.createdAt.startsWith(todayStr)));
-  const todayCompleted = todayOrders.filter(o => o.status === 'completed' || o.prepStatus === 'delivered');
+  const todayCompleted = todayOrders.filter(o => o.status === 'completed' || o.status === 'delivered' || o.prepStatus === 'delivered');
 
-  const totalRevenue = completedOrders.reduce((sum, o) => sum + o.totalAmount, 0);
-  const todayRevenue = todayCompleted.reduce((sum, o) => sum + o.totalAmount, 0);
+  const grossRevenue = completedOrders.reduce((sum, o) => sum + (Number(o.totalAmount) || 0), 0);
+  const totalRefunds = refunds.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+  const totalRevenue = Math.max(0, grossRevenue - totalRefunds);
 
-  const totalCOGS = completedOrders.reduce((sum, o) => sum + (o.cogs || 0), 0);
-  const todayCOGS = todayCompleted.reduce((sum, o) => sum + (o.cogs || 0), 0);
+  const todayGrossRevenue = todayCompleted.reduce((sum, o) => sum + (Number(o.totalAmount) || 0), 0);
+  const todayRefunds = refunds
+    .filter(r => {
+      const rDate = r.createdAt || (r as any).processedAt || '';
+      return Boolean(rDate) && (getMogadishuDateString(rDate) === todayStr || String(rDate).startsWith(todayStr));
+    })
+    .reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+  const todayRevenue = Math.max(0, todayGrossRevenue - todayRefunds);
 
-  const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0) + salaries.reduce((sum, s) => sum + s.amount, 0);
-  const todayExpenses = expenses.filter(e => e.createdAt && (getMogadishuDateString(e.createdAt) === todayStr || e.createdAt.startsWith(todayStr))).reduce((sum, e) => sum + e.amount, 0);
+  const totalCOGS = completedOrders.reduce((sum, o) => sum + (Number(o.cogs ?? (o as any).costOfGoodsSold ?? (o as any).cogsTotal) || 0), 0);
+  const todayCOGS = todayCompleted.reduce((sum, o) => sum + (Number(o.cogs ?? (o as any).costOfGoodsSold ?? (o as any).cogsTotal) || 0), 0);
+
+  const paidSalaries = salaries.filter(s => !s.status || s.status === 'paid');
+  const totalExpenses = expenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0) + paidSalaries.reduce((sum, s) => sum + (Number(s.amount) || 0), 0);
+  const todayPaidSalaries = paidSalaries
+    .filter(s => {
+      const sDate = s.paidDate || (s as any).paymentDate || (s as any).createdAt || (s as any).date || '';
+      return Boolean(sDate) && (getMogadishuDateString(sDate) === todayStr || String(sDate).startsWith(todayStr));
+    })
+    .reduce((sum, s) => sum + (Number(s.amount) || 0), 0);
+  const todayExpenses = expenses.filter(e => e.createdAt && (getMogadishuDateString(e.createdAt) === todayStr || e.createdAt.startsWith(todayStr))).reduce((sum, e) => sum + (Number(e.amount) || 0), 0) + todayPaidSalaries;
 
   const grossProfit = totalRevenue - totalCOGS;
   const netProfit = grossProfit - totalExpenses;
@@ -93,7 +113,10 @@ export function calculateAIBusinessPlatformAnalytics(data: AIPlatformDataPackage
   const todayNetProfit = todayGrossProfit - todayExpenses;
 
   const liquidBalance = bankTransactions.reduce((acc, t) => {
-    return t.type === 'deposit' ? acc + t.amount : acc - t.amount;
+    const amt = Number(t.amount) || 0;
+    if (t.type === 'deposit') return acc + amt;
+    if (t.type === 'withdrawal' || t.type === 'fee') return acc - amt;
+    return acc;
   }, 0);
 
   // 2. ACCOUNTANT ANALYTICS & MISTAKE DETECTION

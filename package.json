@@ -8,7 +8,7 @@
     "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
     "start": "node dist/server.cjs",
     "clean": "rm -rf dist",
-    "test": "firebase emulators:exec --only firestore,storage --project babasultan-restaurant \"vitest run\"",
+    "test": "vitest run",
     "test:unit": "vitest run --exclude 'tests/*emulator.test.ts'",
     "test:rules": "firebase emulators:exec --only firestore,storage --project babasultan-restaurant \"vitest run tests/firestore_rules_emulator.test.ts tests/storage_rules_emulator.test.ts --hookTimeout 30000 --no-file-parallelism\"",
     "lint": "tsc --noEmit",
@@ -51,7 +51,8 @@
     "vitest": "^4.1.10"
   },
   "overrides": {
-    "uuid": "^11.1.1"
+    "uuid": "^11.1.1",
+    "@grpc/grpc-js": "^1.14.0"
   },
   "engines": {
     "node": ">=22.0.0"

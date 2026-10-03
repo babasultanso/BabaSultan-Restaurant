@@ -42,8 +42,15 @@ interface Props {
 }
 
 export const EmployeeProfileModal: React.FC<Props> = ({ employee, isOpen, onClose, onUpdate }) => {
-  const { t } = useAuth();
+  const { t, user, userRecord } = useAuth();
   const pt = t.hrm.payrollManagement;
+  const viewerRole = String(userRecord?.role || '').trim().toLowerCase();
+  const isPrivilegedHR = ['owner', 'admin', 'manager', 'accountant'].includes(viewerRole) || Boolean((userRecord as any)?.isOwner || (userRecord as any)?.isAdmin);
+  const isSelfProfile = Boolean(
+    (user?.uid && (employee?.id === user.uid || (employee as any)?.userId === user.uid)) ||
+    (user?.email && employee?.email && employee.email.toLowerCase() === user.email.toLowerCase())
+  );
+  const canViewSensitive = isPrivilegedHR || isSelfProfile;
   const [activeTab, setActiveTab] = useState<'overview' | 'documents' | 'attendance' | 'payroll' | 'performance' | 'leave'>('overview');
   const [documents, setDocuments] = useState<EmployeeDocument[]>([]);
   const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
@@ -70,11 +77,11 @@ export const EmployeeProfileModal: React.FC<Props> = ({ employee, isOpen, onClos
   const loadEmployeeData = async () => {
     try {
       const [docsData, attData, payData, leaveData, perfData] = await Promise.all([
-        repository.getEmployeeDocuments(employee.id),
+        isPrivilegedHR ? repository.getEmployeeDocuments(employee.id) : Promise.resolve([]),
         repository.getAttendanceRecords({ employeeId: employee.id }),
-        repository.getPayrollRecords({ employeeId: employee.id }),
-        repository.getLeaveRequests({ employeeId: employee.id }),
-        repository.getPerformanceRecords({ employeeId: employee.id })
+        isPrivilegedHR ? repository.getPayrollRecords({ employeeId: employee.id }) : Promise.resolve([]),
+        canViewSensitive ? repository.getLeaveRequests({ employeeId: employee.id }) : Promise.resolve([]),
+        isPrivilegedHR ? repository.getPerformanceRecords({ employeeId: employee.id }) : Promise.resolve([])
       ]);
 
       setDocuments(docsData);
@@ -203,7 +210,7 @@ export const EmployeeProfileModal: React.FC<Props> = ({ employee, isOpen, onClos
                 <div className="grid grid-cols-2 gap-3 text-slate-300">
                   <div>
                     <span className="text-slate-500 block">{translateRawUi('National ID / Passport')}</span>
-                    <span className="font-semibold text-white">{employee.nationalIdOrPassport || 'N/A'}</span>
+                    <span className="font-semibold text-white">{canViewSensitive ? (employee.nationalIdOrPassport || 'N/A') : 'Restricted'}</span>
                   </div>
                   <div>
                     <span className="text-slate-500 block">{t.legacyUi.gender}</span>
@@ -247,10 +254,12 @@ export const EmployeeProfileModal: React.FC<Props> = ({ employee, isOpen, onClos
                     <span className="text-slate-500 block">{t.legacyUi.hireDate}</span>
                     <span className="font-semibold text-white">{employee.hireDate}</span>
                   </div>
-                  <div>
-                    <span className="text-slate-500 block">{pt.salaryPerCycle}</span>
-                    <span className="font-bold text-emerald-400 text-sm">${employee.salary.toLocaleString()} · {(employee.payFrequency || 'monthly').toUpperCase()}</span>
-                  </div>
+                  {canViewSensitive && (
+                    <div>
+                      <span className="text-slate-500 block">{pt.salaryPerCycle}</span>
+                      <span className="font-bold text-emerald-400 text-sm">${employee.salary.toLocaleString()} · {(employee.payFrequency || 'monthly').toUpperCase()}</span>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -291,7 +300,7 @@ export const EmployeeProfileModal: React.FC<Props> = ({ employee, isOpen, onClos
                     <span className="text-slate-500 block">{t.legacyUi.emergencyPhone}</span>
                     <span className="font-semibold text-white">{employee.emergencyContact?.phone || 'N/A'}</span>
                   </div>
-                  {employee.bankAccount && (
+                  {canViewSensitive && employee.bankAccount && (
                     <div className="pt-2 border-t border-slate-800/60">
                       <span className="text-slate-500 block">Bank Account ({employee.bankAccount.bankName})</span>
                       <span className="font-mono text-emerald-400">{employee.bankAccount.accountNumber}</span>

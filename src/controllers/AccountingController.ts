@@ -11,7 +11,8 @@ import {
   BankAccount,
   BankTransaction,
   TaxConfig,
-  FinancialStatements
+  FinancialStatements,
+  AccountingPeriod
 } from '../domain/entities/accounting';
 
 export class AccountingController {
@@ -115,6 +116,28 @@ export class AccountingController {
     return await this.repo.createBankAccount(data, initialBalance);
   }
 
+  async fetchBankTransactions(bankAccountId?: string, branchId?: string): Promise<BankTransaction[]> {
+    return await this.repo.getBankTransactions(bankAccountId, branchId);
+  }
+
+  async recordBankTransaction(txData: {
+    bankAccountId: string;
+    type: 'deposit' | 'withdrawal' | 'fee';
+    amount: number;
+    reference?: string;
+    description?: string;
+    date?: string;
+    branchId?: string;
+  }): Promise<any> {
+    if (!txData.bankAccountId) {
+      throw new Error('Bank account is required.');
+    }
+    if (!Number.isFinite(txData.amount) || txData.amount <= 0) {
+      throw new Error('Transaction amount must be positive.');
+    }
+    return await this.repo.recordBankTransaction(txData);
+  }
+
   async transfer(fromAccountId: string, toAccountId: string, amount: number, reference: string, description: string): Promise<void> {
     if (amount <= 0) {
       throw new Error('Transfer amount must be positive.');
@@ -132,5 +155,28 @@ export class AccountingController {
 
   async fetchFinancialStatements(startDate?: string, endDate?: string, branchId?: string): Promise<FinancialStatements> {
     return await this.repo.getFinancialStatements(startDate, endDate, branchId);
+  }
+
+  async fetchAccountingPeriods(branchId?: string): Promise<AccountingPeriod[]> {
+    return await this.repo.getAccountingPeriods(branchId);
+  }
+
+  async saveAccountingPeriod(period: {
+    id?: string;
+    name: string;
+    startDate: string;
+    endDate: string;
+    status: 'Open' | 'Closed' | 'Locked';
+    branchId?: string;
+    notes?: string;
+  }): Promise<AccountingPeriod> {
+    if (!period.name || !period.startDate || !period.endDate) {
+      throw new Error('Period name, start date, and end date are required.');
+    }
+    return await this.repo.saveAccountingPeriod(period);
+  }
+
+  async changeAccountingPeriodStatus(id: string, status: 'Open' | 'Closed' | 'Locked'): Promise<AccountingPeriod> {
+    return await this.repo.updateAccountingPeriodStatus(id, status);
   }
 }

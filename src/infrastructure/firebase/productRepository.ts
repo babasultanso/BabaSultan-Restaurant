@@ -1,13 +1,18 @@
 import { collection, getDocs, doc, getDoc, query, where } from 'firebase/firestore';
-import { db, COLLECTIONS, getEffectiveBranchId, addProductFirestore, updateProductFirestore, deleteProductFirestore, toggleProductAvailabilityFirestore, deductProductIngredientsStockFirestore } from '../../lib/firebase';
+import { db, COLLECTIONS, getEffectiveBranchId, getEffectiveBranchScope, addProductFirestore, updateProductFirestore, deleteProductFirestore, toggleProductAvailabilityFirestore, deductProductIngredientsStockFirestore } from '../../lib/firebase';
 import { IProductRepository } from '../../domain/repositories/IProductRepository';
 import { Product, ProductOption } from '../../types';
 
 export class ProductRepository implements IProductRepository {
   async fetchProducts(): Promise<Product[]> {
-    const branchId = getEffectiveBranchId();
-    const snap = await getDocs(query(collection(db, COLLECTIONS.PRODUCTS), where('branchId', '==', branchId)));
-    return snap.docs.map(d => ({ id: d.id, ...d.data() } as Product));
+    const branchScope = getEffectiveBranchScope();
+    const q = branchScope === 'all'
+      ? collection(db, COLLECTIONS.PRODUCTS)
+      : query(collection(db, COLLECTIONS.PRODUCTS), where('branchId', '==', branchScope));
+    const snap = await getDocs(q);
+    return snap.docs
+      .map(d => ({ id: d.id, ...d.data() } as Product))
+      .filter(p => !p.isDeleted && !p.isArchived && (p as any).status !== 'deleted' && (p as any).isActive !== false);
   }
 
   async getProductById(id: string): Promise<Product | null> {

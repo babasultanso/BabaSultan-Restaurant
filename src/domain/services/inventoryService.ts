@@ -6,6 +6,7 @@ import {
   InventoryValuationReport,
   InventoryCategory
 } from '../entities/inventory';
+import { sanitizeCSVCell, escapeHtml } from '../../lib/reports';
 
 export class InventoryService {
   /**
@@ -182,26 +183,25 @@ export class InventoryService {
     if (!rows || rows.length === 0) return;
     const headers = Object.keys(rows[0]);
     const csvContent =
-      'data:text/csv;charset=utf-8,' +
+      '\uFEFF' +
       [
-        headers.join(','),
+        headers.map((h) => sanitizeCSVCell(h)).join(','),
         ...rows.map((row) =>
           headers
-            .map((h) => {
-              const val = row[h] !== undefined && row[h] !== null ? String(row[h]).replace(/"/g, '""') : '';
-              return `"${val}"`;
-            })
+            .map((h) => sanitizeCSVCell(row[h]))
             .join(',')
         )
       ].join('\n');
 
-    const encodedUri = encodeURI(csvContent);
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const encodedUri = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `${filename}.csv`);
+    link.setAttribute('download', `${filename.replace(/[^a-zA-Z0-9_\-]/g, '_')}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(encodedUri);
   }
 
   /**
@@ -211,11 +211,12 @@ export class InventoryService {
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
 
+    const safeTitle = escapeHtml(title);
     const htmlContent = `
       <!DOCTYPE html>
       <html>
         <head>
-          <title>${title}</title>
+          <title>${safeTitle}</title>
           <style>
             body { font-family: system-ui, -apple-system, sans-serif; padding: 30px; color: #1e293b; }
             h1 { font-size: 20px; font-weight: 800; margin-bottom: 8px; color: #0f172a; }
@@ -228,14 +229,14 @@ export class InventoryService {
           </style>
         </head>
         <body>
-          <h1>BabaSultan POS Enterprise — ${title}</h1>
-          <p>Generated on: ${new Date().toLocaleString()}</p>
+          <h1>BabaSultan POS Enterprise — ${safeTitle}</h1>
+          <p>Generated on: ${escapeHtml(new Date().toLocaleString())}</p>
           <table>
             <thead>
-              <tr>${headers.map((h) => `<th>${h}</th>`).join('')}</tr>
+              <tr>${headers.map((h) => `<th>${escapeHtml(h)}</th>`).join('')}</tr>
             </thead>
             <tbody>
-              ${rows.map((row) => `<tr>${row.map((cell) => `<td>${cell}</td>`).join('')}</tr>`).join('')}
+              ${rows.map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join('')}</tr>`).join('')}
             </tbody>
           </table>
           <div class="footer">

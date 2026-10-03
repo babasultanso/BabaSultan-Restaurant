@@ -37,7 +37,7 @@ import {
   Layers,
   Sparkles,
 } from 'lucide-react';
-import { Order, Product, Ingredient, Expense, Employee, Supplier, Customer } from '../../../types';
+import { Order, Product, Ingredient, Expense, Employee, Supplier, Customer, CustomerRefund, SalaryPayment } from '../../../types';
 
 interface BIAnalyticsDashboardProps {
   orders: Order[];
@@ -47,6 +47,8 @@ interface BIAnalyticsDashboardProps {
   employees: Employee[];
   suppliers: Supplier[];
   customers: Customer[];
+  refunds?: CustomerRefund[];
+  salaries?: SalaryPayment[];
 }
 
 const COLORS = ['#10b981', '#3b82f6', '#6366f1', '#8b5cf6', '#ec4899', '#f59e0b', '#14b8a6', '#06b6d4'];
@@ -59,32 +61,53 @@ export const BIAnalyticsDashboard: React.FC<BIAnalyticsDashboardProps> = ({
   employees,
   suppliers,
   customers,
+  refunds = [],
+  salaries = [],
 }) => {
   const { t } = useAuth();
   // 1. Core Financial Calculations
   const completedOrders = orders.filter((o) => {
     const status = String(o.status || '').toLowerCase();
     const prepStatus = String(o.prepStatus || '').toLowerCase();
-    return status === 'completed' || prepStatus === 'delivered';
+    const paymentStatus = String(o.paymentStatus || '').toLowerCase();
+    if (status === 'cancelled' || status === 'void') return false;
+    return (
+      status === 'completed' ||
+      status === 'delivered' ||
+      prepStatus === 'delivered' ||
+      status === 'refunded' ||
+      status === 'partially_refunded' ||
+      paymentStatus === 'refunded' ||
+      paymentStatus === 'partially_refunded'
+    );
   });
-  const grossSales = completedOrders.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
-  const totalCogs = completedOrders.reduce((sum, o) => sum + (o.cogs || 0), 0);
-  const totalExpenses = expenses.reduce((sum, e) => sum + (e.amount || 0), 0);
-  const totalPayroll = employees.reduce((sum, e) => sum + employeeMonthlyPayrollEquivalent(e), 0);
+  const grossSales = completedOrders.reduce((sum, o) => sum + (Number(o.totalAmount) || 0), 0);
+  const totalRefunds = refunds.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+  const netSales = grossSales - totalRefunds;
+  const grossCogs = completedOrders.reduce((sum, o) => sum + (Number(o.cogs ?? (o as any).costOfGoodsSold) || 0), 0);
+  const reversedCogs = refunds.reduce((sum, r) => sum + (Number((r as any).cogsReversed) || 0), 0);
+  const totalCogs = Math.max(0, grossCogs - reversedCogs);
+  const totalExpenses = expenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+  const paidSalariesTotal = salaries.filter((s) => s.status === 'paid').reduce((sum, s) => sum + (Number(s.amount) || 0), 0);
+  const totalPayroll = paidSalariesTotal > 0
+    ? paidSalariesTotal
+    : employees.reduce((sum, e) => sum + employeeMonthlyPayrollEquivalent(e), 0);
 
-  const grossProfit = grossSales - totalCogs;
+  const grossProfit = netSales - totalCogs;
   const netProfit = grossProfit - totalExpenses - totalPayroll;
-  const netProfitMargin = grossSales > 0 ? (netProfit / grossSales) * 100 : 0;
+  const netProfitMargin = netSales > 0 ? (netProfit / netSales) * 100 : 0;
 
-  const foodCostPercentage = grossSales > 0 ? (totalCogs / grossSales) * 100 : 0;
-  const laborCostPercentage = grossSales > 0 ? (totalPayroll / grossSales) * 100 : 0;
+  const foodCostPercentage = netSales > 0 ? (totalCogs / netSales) * 100 : 0;
+  const laborCostPercentage = netSales > 0 ? (totalPayroll / netSales) * 100 : 0;
 
   // Inventory Asset Valuation
-  const ingredientsValuation = ingredients.reduce(
-    (sum, i) => sum + (i.stock || 0) * (i.costPerUnit || 0),
+  const activeIngredients = ingredients.filter((i) => !(i as any).deletedAt && !(i as any).isDeleted);
+  const activeProducts = products.filter((p) => !(p as any).deletedAt && !(p as any).isDeleted);
+  const ingredientsValuation = activeIngredients.reduce(
+    (sum, i) => sum + (Number(i.currentStockUsageUnit ?? i.stock) || 0) * (Number(i.costPerUsageUnit ?? i.costPerUnit ?? (i as any).unitCost) || 0),
     0
   );
-  const productsValuation = products.reduce((sum, p) => sum + (p.stock || 0) * (p.cost || 0), 0);
+  const productsValuation = activeProducts.reduce((sum, p) => sum + (Number(p.stock) || 0) * (Number(p.cost ?? (p as any).costPrice) || 0), 0);
   const totalInventoryValue = ingredientsValuation + productsValuation;
   const inventoryTurnover = totalInventoryValue > 0 ? totalCogs / totalInventoryValue : 0;
 
@@ -171,9 +194,9 @@ export const BIAnalyticsDashboard: React.FC<BIAnalyticsDashboardProps> = ({
     }
   });
 
-  // 4. Product Performance (Best & Worst Selling)
+  // 4. Product Performance (Best & Worst Selling — strictly completed/delivered orders)
   const productSalesMap: { [pName: string]: { qty: number; revenue: number } } = {};
-  orders.forEach((o) => {
+  completedOrders.forEach((o) => {
     (o.items || []).forEach((item) => {
       const name = item.productName || 'Dish Item';
       if (!productSalesMap[name]) {
@@ -194,9 +217,9 @@ export const BIAnalyticsDashboard: React.FC<BIAnalyticsDashboardProps> = ({
   const bestSellingProducts = sortedProducts.slice(0, 5);
   const worstSellingProducts = [...sortedProducts].reverse().slice(0, 5);
 
-  // 5. Category Performance
+  // 5. Category Performance (strictly completed/delivered orders)
   const categorySalesMap: { [cat: string]: number } = {};
-  orders.forEach((o) => {
+  completedOrders.forEach((o) => {
     (o.items || []).forEach((item) => {
       // Find matching product category
       const prod = products.find((p) => p.id === item.productId || p.name === item.productName);
@@ -228,9 +251,11 @@ export const BIAnalyticsDashboard: React.FC<BIAnalyticsDashboardProps> = ({
   completedOrders.forEach((o) => {
     const d = (o.createdAt || new Date().toISOString()).split('T')[0];
     if (!dateMap[d]) dateMap[d] = { revenue: 0, cogs: 0, profit: 0 };
-    dateMap[d].revenue += o.totalAmount || 0;
-    dateMap[d].cogs += o.cogs || 0;
-    dateMap[d].profit += o.profit || (o.totalAmount - (o.cogs || 0));
+    const amt = Number(o.totalAmount) || 0;
+    const cogsVal = Number(o.cogs ?? (o as any).costOfGoodsSold) || 0;
+    dateMap[d].revenue += amt;
+    dateMap[d].cogs += cogsVal;
+    dateMap[d].profit += typeof o.profit === 'number' && !Number.isNaN(o.profit) ? o.profit : (amt - cogsVal);
   });
 
   const trendChartData = Object.entries(dateMap)

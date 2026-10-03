@@ -4,6 +4,14 @@ import { calculateCFOAnalytics, CFODataPackage } from '../src/lib/cfoAnalytics';
 import { calculateCEOAnalytics, CEODataPackage } from '../src/lib/ceoAnalytics';
 import { RecipeController } from '../src/controllers/RecipeController';
 import { translations } from '../src/i18n/translations';
+import {
+  getAdminDb,
+  handleReceiveGoods,
+  handleRecordAPPayment,
+  handleRecordSupplierPayment,
+  handlePurchaseRegistration,
+  handleStockUpdate
+} from '../server/trustedFinancialBackend';
 
 describe('PHASE 2 REMEDIATION REGRESSION TESTS', () => {
 
@@ -406,6 +414,287 @@ describe('PHASE 2 REMEDIATION REGRESSION TESTS', () => {
       expect(totals.estimatedNetProfit).toBe(5.95);
       expect(totals.netProfit).toBe(5.95);
       expect(totals.overheadRateEstimated).toBe(0.15);
+    });
+  });
+
+  describe('9. Procure-to-Pay & AP Subledger Synchronization', () => {
+    const mockRes = () => {
+      const res: any = {
+        statusCode: 200,
+        body: null,
+        status(code: number) {
+          this.statusCode = code;
+          return this;
+        },
+        json(payload: any) {
+          this.body = payload;
+          return this;
+        }
+      };
+      return res;
+    };
+
+    const ADMIN_AUTH = { authorization: 'Bearer test_token_admin' };
+
+    it('creates a payable bill and increments supplier outstandingBalance on handleReceiveGoods', async () => {
+      const db = getAdminDb();
+      const ts = Date.now();
+      const poId = `po_reg_${ts}`;
+      const supId = `sup_reg_${ts}`;
+      const ingId = `ing_reg_${ts}`;
+
+      await db.collection('suppliers').doc(supId).set({
+        id: supId,
+        name: 'Baraka Supplies',
+        branchId: 'main_branch_01',
+        outstandingBalance: 100,
+        pendingAmount: 100
+      });
+      await db.collection('ingredients').doc(ingId).set({
+        id: ingId,
+        name: 'Basmati Rice',
+        branchId: 'main_branch_01',
+        stock: 20,
+        currentStockUsageUnit: 20,
+        costPerUnit: 5,
+        costPerUsageUnit: 5,
+        purchaseCost: 5,
+        unit: 'kg',
+        purchaseUnit: 'kg',
+        usageUnit: 'kg',
+        conversionFactor: 1
+      });
+      await db.collection('purchase_orders').doc(poId).set({
+        id: poId,
+        poNumber: `PO-${ts}`,
+        supplierId: supId,
+        supplierName: 'Baraka Supplies',
+        branchId: 'main_branch_01',
+        status: 'ordered',
+        items: [
+          { itemId: ingId, itemName: 'Basmati Rice', itemType: 'ingredient', quantity: 10, receivedQuantity: 0, unitPrice: 5 }
+        ]
+      });
+
+      const req: any = {
+        headers: { ...ADMIN_AUTH, 'idempotency-key': `idem_rec_po_${ts}` },
+        body: {
+          poId,
+          receivedItems: [{ itemId: ingId, receivedQty: 10 }]
+        }
+      };
+      const res = mockRes();
+      await handleReceiveGoods(req, res);
+
+      expect(res.statusCode).toBe(200);
+      const supSnap = await db.collection('suppliers').doc(supId).get();
+      expect(supSnap.data()?.outstandingBalance).toBe(150); // 100 + (10 * 5)
+
+      const paySnap = await db.collection('payables').where('poId', '==', poId).get();
+      expect(paySnap.empty).toBe(false);
+      const payable: any = paySnap.docs[0].data();
+      expect(payable.supplierId).toBe(supId);
+      expect(payable.totalAmount).toBe(50);
+      expect(payable.remainingBalance).toBe(50);
+      expect(payable.status).toBe('Unpaid');
+    });
+
+    it('records negative cash outflow on cash_registers and decrements supplier balance on handleRecordAPPayment', async () => {
+      const db = getAdminDb();
+      const ts = Date.now();
+      const apId = `ap_reg_${ts}`;
+      const supId = `sup_ap_${ts}`;
+      const branchId = 'main_branch_01';
+      const regId = `reg_ap_${ts}`;
+
+      // Close any existing open registers on main_branch_01 so our test register is the sole open register
+      const existingRegs = await db.collection('cash_registers').where('branchId', '==', branchId).get();
+      for (const d of existingRegs.docs) {
+        await d.ref.update({ status: 'Closed' });
+      }
+
+      await db.collection('suppliers').doc(supId).set({
+        id: supId,
+        name: 'Mogadishu Wholesale',
+        branchId,
+        outstandingBalance: 80,
+        pendingAmount: 80
+      });
+      await db.collection('payables').doc(apId).set({
+        id: apId,
+        billNumber: `BILL-${ts}`,
+        vendorName: 'Mogadishu Wholesale',
+        supplierId: supId,
+        branchId,
+        totalAmount: 80,
+        amount: 80,
+        paidAmount: 0,
+        remainingBalance: 80,
+        status: 'Unpaid',
+        payments: []
+      });
+      await db.collection('cash_registers').doc(regId).set({
+        id: regId,
+        registerName: 'AP Test Register',
+        branchId,
+        status: 'Open',
+        openingBalance: 500,
+        expectedClosingBalance: 500,
+        cashSales: 0,
+        cashExpenses: 0
+      });
+
+      const req: any = {
+        headers: { ...ADMIN_AUTH, 'idempotency-key': `idem_ap_pay_${ts}` },
+        params: { id: apId },
+        body: {
+          amount: 80,
+          paymentMethod: 'cash',
+          branchId
+        }
+      };
+      const res = mockRes();
+      await handleRecordAPPayment(req, res);
+
+      expect(res.statusCode).toBe(200);
+      const apSnap = await db.collection('payables').doc(apId).get();
+      expect(apSnap.data()?.status).toBe('Paid');
+      expect(apSnap.data()?.remainingBalance).toBe(0);
+
+      const supSnap = await db.collection('suppliers').doc(supId).get();
+      expect(supSnap.data()?.outstandingBalance).toBe(0);
+
+      const regSnap = await db.collection('cash_registers').doc(regId).get();
+      expect(regSnap.data()?.expectedClosingBalance).toBe(420); // 500 - 80 outflow
+    });
+
+    it('settles open payables FIFO when paying a supplier via handleRecordSupplierPayment', async () => {
+      const db = getAdminDb();
+      const ts = Date.now();
+      const supId = `sup_fifo_${ts}`;
+      const branchId = 'main_branch_01';
+      const regId = `reg_fifo_${ts}`;
+      const apOldId = `ap_old_${ts}`;
+      const apNewId = `ap_new_${ts}`;
+
+      const existingRegs = await db.collection('cash_registers').where('branchId', '==', branchId).get();
+      for (const d of existingRegs.docs) {
+        await d.ref.update({ status: 'Closed' });
+      }
+
+      await db.collection('suppliers').doc(supId).set({
+        id: supId,
+        name: 'FIFO Supplier',
+        branchId,
+        outstandingBalance: 100,
+        pendingAmount: 100
+      });
+      await db.collection('payables').doc(apOldId).set({
+        id: apOldId,
+        billNumber: 'BILL-OLD',
+        supplierId: supId,
+        branchId,
+        totalAmount: 60,
+        amount: 60,
+        paidAmount: 0,
+        remainingBalance: 60,
+        status: 'Unpaid',
+        createdAt: '2026-09-01T10:00:00.000Z',
+        payments: []
+      });
+      await db.collection('payables').doc(apNewId).set({
+        id: apNewId,
+        billNumber: 'BILL-NEW',
+        supplierId: supId,
+        branchId,
+        totalAmount: 40,
+        amount: 40,
+        paidAmount: 0,
+        remainingBalance: 40,
+        status: 'Unpaid',
+        createdAt: '2026-09-10T10:00:00.000Z',
+        payments: []
+      });
+      await db.collection('cash_registers').doc(regId).set({
+        id: regId,
+        registerName: 'FIFO Register',
+        branchId,
+        status: 'Open',
+        openingBalance: 500,
+        expectedClosingBalance: 500,
+        cashSales: 0,
+        cashExpenses: 0
+      });
+
+      const req: any = {
+        headers: { ...ADMIN_AUTH, 'idempotency-key': `idem_sup_pay_${ts}` },
+        body: {
+          supplierId: supId,
+          supplierName: 'FIFO Supplier',
+          amount: 75,
+          paymentMethod: 'cash',
+          branchId
+        }
+      };
+      const res = mockRes();
+      await handleRecordSupplierPayment(req, res);
+
+      expect(res.statusCode).toBe(200);
+      const supSnap = await db.collection('suppliers').doc(supId).get();
+      expect(supSnap.data()?.outstandingBalance).toBe(25);
+
+      const oldSnap = await db.collection('payables').doc(apOldId).get();
+      expect(oldSnap.data()?.status).toBe('Paid');
+      expect(oldSnap.data()?.remainingBalance).toBe(0);
+
+      const newSnap = await db.collection('payables').doc(apNewId).get();
+      expect(newSnap.data()?.status).toBe('Partial');
+      expect(newSnap.data()?.paidAmount).toBe(15);
+      expect(newSnap.data()?.remainingBalance).toBe(25);
+    });
+
+    it('records unitCost, totalCost, and GL inventory adjustment entry on handleStockUpdate', async () => {
+      const db = getAdminDb();
+      const ts = Date.now();
+      const prodId = `prod_stk_${ts}`;
+      const branchId = 'main_branch_01';
+
+      await db.collection('products').doc(prodId).set({
+        id: prodId,
+        name: 'Bottled Water Case',
+        branchId,
+        stock: 10,
+        costPrice: 4,
+        price: 8
+      });
+
+      const req: any = {
+        headers: { ...ADMIN_AUTH, 'idempotency-key': `idem_stock_upd_${ts}` },
+        body: {
+          productId: prodId,
+          newStock: 7,
+          reason: 'Damaged case'
+        }
+      };
+      const res = mockRes();
+      await handleStockUpdate(req, res);
+
+      expect(res.statusCode).toBe(200);
+      const prodSnap = await db.collection('products').doc(prodId).get();
+      expect(prodSnap.data()?.stock).toBe(7);
+
+      const movSnap = await db.collection('inventory_movements').where('itemId', '==', prodId).get();
+      expect(movSnap.empty).toBe(false);
+      const mov: any = movSnap.docs[0].data();
+      expect(mov.unitCost).toBe(4);
+      expect(mov.totalCost).toBe(12); // |7 - 10| * 4
+
+      const jeSnap = await db.collection('journal_entries').where('reference', '==', movSnap.docs[0].id).get();
+      expect(jeSnap.empty).toBe(false);
+      const je: any = jeSnap.docs[0].data();
+      expect(je.source).toBe('InventoryAdjustment');
+      expect(je.totalDebit).toBe(12);
+      expect(je.totalCredit).toBe(12);
     });
   });
 

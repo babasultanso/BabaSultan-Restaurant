@@ -1,5 +1,14 @@
 import express from 'express';
-import { getAdminAuth, getAdminDb, getFirebaseApiKey, getFirebaseProjectId } from './db.js';
+import {
+  getAdminAuth,
+  getAdminDb,
+  getFirebaseApiKey,
+  getFirebaseProjectId,
+  computeCanonicalPayloadHash,
+  setActiveIdempotencyContext,
+  requestIdempotencyStorage,
+  type RequestIdempotencyContext
+} from './db.js';
 import { firestoreDocToObj } from './helpers.js';
 
 export interface AuthenticatedUser {
@@ -68,6 +77,38 @@ export async function authenticateTrustedUser(
   req: express.Request,
   res: express.Response
 ): Promise<AuthenticatedUser | null> {
+  const rawKey = req.headers?.['idempotency-key'] || req.headers?.['x-idempotency-key'] || req.body?.idempotencyKey || req.body?.idempotency_key;
+  const idempotencyKey = typeof rawKey === 'string' ? rawKey.trim() : Array.isArray(rawKey) ? String(rawKey[0] || '').trim() : undefined;
+  const payloadHash = computeCanonicalPayloadHash(req.body, req.params);
+  const idempCtx: RequestIdempotencyContext = {
+    payloadHash,
+    idempotencyKey
+  };
+  setActiveIdempotencyContext(idempCtx);
+  requestIdempotencyStorage.enterWith(idempCtx);
+
+  if (!(res as any).__idempotencyWrapped) {
+    (res as any).__idempotencyWrapped = true;
+    const origStatus = typeof res.status === 'function' ? res.status.bind(res) : null;
+    const origJson = typeof res.json === 'function' ? res.json.bind(res) : null;
+    if (origStatus) {
+      res.status = ((code: number) => {
+        if ((code === 500 || code === 400) && idempCtx.conflictDetected) {
+          return origStatus(409);
+        }
+        return origStatus(code);
+      }) as any;
+    }
+    if (origJson) {
+      res.json = ((body: any) => {
+        if (idempCtx.conflictDetected && body && typeof body === 'object' && !body.code) {
+          return origJson({ ...body, code: 'IDEMPOTENCY_PAYLOAD_MISMATCH' });
+        }
+        return origJson(body);
+      }) as any;
+    }
+  }
+
   const authHeader = req.headers.authorization || '';
   const idToken = authHeader.startsWith('Bearer ') ? authHeader.substring(7) : '';
 

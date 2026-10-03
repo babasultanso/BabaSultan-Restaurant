@@ -1,6 +1,7 @@
 import express from 'express';
 import path from 'path';
 import dotenv from 'dotenv';
+import { randomUUID } from 'crypto';
 import { handleAIChatRequest } from './server/aiService.js';
 import {
   handlePosCheckout,
@@ -15,6 +16,7 @@ import {
   handlePurchaseRegistration,
   handleBankTransaction,
   handleInventoryAdjustment,
+  handleApplyStockCount,
   handleStockUpdate,
   handleKitchenStatusUpdate,
   handleDeliveryStatusUpdate,
@@ -72,7 +74,21 @@ import {
   handleUpdateBranchSettings,
   handleCreateRecipe,
   handleUpdateRecipe,
-  handleDeleteRecipe
+  handleDeleteRecipe,
+  handleCreateIngredient,
+  handleUpdateIngredient,
+  handleDeleteIngredient,
+  handleDiagnosticsPing,
+  handleGetAccountingPeriods,
+  handleSaveAccountingPeriod,
+  handleUpdateAccountingPeriodStatus,
+  handleCreatePurchaseReturn,
+  handleGetPurchaseReturns,
+  handleCreateStockCount,
+  handleGetReservations,
+  handleCreateReservation,
+  handleUpdateReservationStatus,
+  handleGetAuditLogs
 } from './server/trustedFinancialBackend.js';
 
 dotenv.config();
@@ -86,29 +102,50 @@ const PORT = process.env.NODE_ENV === 'production' && process.env.PORT
   : 3000;
 
 // P3-01: Production Security Headers & Strict CORS Allowlist Middleware
-function isOriginAllowed(origin?: string): boolean {
+export function isOriginAllowed(origin?: string): boolean {
   if (!origin) return true; // Same-origin or non-browser / server-to-server requests
   try {
     const parsed = new URL(origin);
-    const host = parsed.hostname;
-    // Strict match for the production Vercel frontend. Compare origins, not hostnames,
-    // so alternate schemes/ports are never implicitly trusted.
+    const host = parsed.hostname.toLowerCase();
+    const isProd = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
+
+    // Allow local development only in non-production environments
+    if (!isProd && (host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0')) {
+      return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+    }
+
+    // All non-local origins MUST use HTTPS
+    if (parsed.protocol !== 'https:') {
+      return false;
+    }
+
+    // Strict match for the production Vercel frontend
     if (parsed.origin === 'https://baba-sultan-restaurant.vercel.app') {
       return true;
     }
-    
-    // Allow local development.
-    if (host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0') {
+
+    // Allow project-specific Firebase Hosting domains only (never wildcard *.web.app or *.firebaseapp.com)
+    const firebaseProjectId = String(
+      process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID || 'babasultan-restaurant'
+    ).trim().toLowerCase();
+    if (
+      firebaseProjectId &&
+      (
+        host === `${firebaseProjectId}.web.app` ||
+        host === `${firebaseProjectId}.firebaseapp.com` ||
+        (host.startsWith(`${firebaseProjectId}--`) && (host.endsWith('.web.app') || host.endsWith('.firebaseapp.com')))
+      )
+    ) {
       return true;
     }
 
-    // Allow AI Studio preview, Cloud Run, Firebase hosting, and Google Cloud domains
+    // Allow AI Studio preview and service-specific Cloud Run preview URLs (never arbitrary *.run.app or *.google.com)
     if (
-      host.endsWith('.run.app') ||
-      host.endsWith('.google.com') ||
-      host === 'ai.studio' || host.endsWith('.ai.studio') ||
-      host.endsWith('.web.app') ||
-      host.endsWith('.firebaseapp.com')
+      host === 'ai.studio' ||
+      host.endsWith('.ai.studio') ||
+      host === 'aistudio.google.com' ||
+      /^babasultan-api-[a-z0-9-]+(\.[a-z0-9-]+)?\.run\.app$/i.test(host) ||
+      /^ais-(dev|pre)-[a-z0-9-]+(\.[a-z0-9-]+)?\.run\.app$/i.test(host)
     ) {
       return true;
     }
@@ -124,8 +161,9 @@ function isOriginAllowed(origin?: string): boolean {
     for (const envOrigin of envOrigins) {
       for (const single of envOrigin.split(',')) {
         const trimmed = single.trim();
+        if (!trimmed || trimmed === '*') continue;
         try {
-          if (new URL(trimmed).origin === origin) return true;
+          if (new URL(trimmed).origin === parsed.origin) return true;
         } catch {
           if (trimmed === origin) return true;
         }
@@ -138,6 +176,13 @@ function isOriginAllowed(origin?: string): boolean {
 }
 
 app.use((req, res, next) => {
+  const incomingReqId = req.headers['x-request-id'] || req.headers['x-correlation-id'];
+  const requestId = (Array.isArray(incomingReqId) ? incomingReqId[0] : incomingReqId || '').trim() || randomUUID();
+  (req as any).requestId = requestId;
+  (req as any).correlationId = requestId;
+  res.setHeader('X-Request-Id', requestId);
+  res.setHeader('X-Correlation-Id', requestId);
+
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   res.setHeader('X-XSS-Protection', '1; mode=block');
@@ -173,14 +218,15 @@ app.use((req, res, next) => {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, Idempotency-Key, X-Idempotency-Key, X-Requested-With');
+    res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, Idempotency-Key, X-Idempotency-Key, X-Request-Id, X-Correlation-Id, X-Requested-With');
+    res.setHeader('Access-Control-Expose-Headers', 'X-Request-Id, X-Correlation-Id, X-Idempotent-Replay, Retry-After');
     res.setHeader('Access-Control-Max-Age', '86400');
     res.setHeader('Vary', 'Origin');
   }
 
   if (req.method === 'OPTIONS') {
     if (origin && !allowed) {
-      return res.status(403).json({ error: 'CORS policy violation: Origin not allowed.' });
+      return res.status(403).json({ error: 'CORS policy violation: Origin not allowed.', requestId });
     }
     return res.sendStatus(204);
   }
@@ -243,13 +289,21 @@ app.use('/api', (req, res, next) => {
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  res.json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    uptime: Math.floor(process.uptime()),
+    requestId: (req as any).requestId
+  });
 });
 
 // P0 Trusted Financial & Operational Endpoints (Firebase Admin SDK Server Execution)
 app.post('/api/pos/complete', handlePosCheckout);
+app.post('/api/pos/checkout', handlePosCheckout);
 app.post('/api/orders/:orderId/cancel', handleOrderCancellation);
 app.post('/api/orders/:orderId/refund', handleCustomerRefund);
+app.post('/api/pos/refund', handleCustomerRefund);
+app.post('/api/pos/orders/:orderId/refund', handleCustomerRefund);
 app.post('/api/expenses', handleExpenseCreation);
 app.post('/api/salaries', handleSalaryDisbursement);
 app.post('/api/payroll/process', handlePayrollProcess);
@@ -259,6 +313,7 @@ app.post('/api/hrm/attendance/manual', handleAttendanceManual);
 app.post('/api/purchases', handlePurchaseRegistration);
 app.post('/api/bank-transactions', handleBankTransaction);
 app.post('/api/inventory/adjust', handleInventoryAdjustment);
+app.post('/api/inventory/stock-count/apply', handleApplyStockCount);
 app.post('/api/inventory/stock', handleStockUpdate);
 app.post('/api/kitchen/:ticketId/status', handleKitchenStatusUpdate);
 app.post('/api/kitchen/:ticketId/update', handleKitchenTicketUpdate);
@@ -288,17 +343,37 @@ app.post('/api/accounting/cash-registers/close', handleCloseCashRegister);
 app.post('/api/accounting/bank-accounts', handleCreateBankAccount);
 app.post('/api/accounting/taxes', handleCreateTax);
 app.post('/api/accounting/taxes/:id', handleUpdateTax);
+app.get('/api/accounting/periods', handleGetAccountingPeriods);
+app.post('/api/accounting/periods', handleSaveAccountingPeriod);
+app.post('/api/accounting/periods/:id/status', handleUpdateAccountingPeriodStatus);
 app.post('/api/purchases/receive', handleReceiveGoods);
 app.post('/api/purchases/supplier-payment', handleRecordSupplierPayment);
+app.get('/api/purchases/returns', handleGetPurchaseReturns);
+app.post('/api/purchases/returns', handleCreatePurchaseReturn);
 app.post('/api/purchases/orders', handleCreatePurchaseOrder);
 app.post('/api/purchases/orders/:id/update', handleUpdatePurchaseOrder);
 app.post('/api/purchases/orders/:id/approve', handleApprovePurchaseOrder);
+app.post('/api/inventory/stock-count', handleCreateStockCount);
+app.get('/api/reservations', handleGetReservations);
+app.post('/api/reservations', handleCreateReservation);
+app.post('/api/reservations/:id/status', handleUpdateReservationStatus);
+app.get('/api/audit/logs', handleGetAuditLogs);
 app.post('/api/inventory/items', handleCreateInventoryItem);
 app.post('/api/inventory/items/:id/update', handleUpdateInventoryItem);
 app.post('/api/inventory/items/:id/delete', handleDeleteInventoryItem);
+app.delete('/api/inventory/items/:id', handleDeleteInventoryItem);
 app.post('/api/recipes', handleCreateRecipe);
 app.post('/api/recipes/:id/update', handleUpdateRecipe);
+app.put('/api/recipes/:id', handleUpdateRecipe);
+app.patch('/api/recipes/:id', handleUpdateRecipe);
 app.delete('/api/recipes/:id', handleDeleteRecipe);
+app.post('/api/recipes/ingredients', handleCreateIngredient);
+app.post('/api/recipes/ingredients/:id/update', handleUpdateIngredient);
+app.put('/api/recipes/ingredients/:id', handleUpdateIngredient);
+app.patch('/api/recipes/ingredients/:id', handleUpdateIngredient);
+app.delete('/api/recipes/ingredients/:id', handleDeleteIngredient);
+app.post('/api/diagnostics/ping', handleDiagnosticsPing);
+app.post('/api/system/diagnostics/ping', handleDiagnosticsPing);
 app.post('/api/deliveries', handleCreateDeliveryOrder);
 app.post('/api/deliveries/:deliveryId/tracking', handleDeliveryTracking);
 app.post('/api/deliveries/:deliveryId/rating', handleDeliveryRating);
@@ -359,7 +434,9 @@ app.all('/api/*', (_req, res) => {
 app.use((err: any, req: express.Request, res: express.Response, _next: express.NextFunction) => {
   const status = Number(err?.statusCode || err?.status || 500);
   const safeStatus = status >= 400 && status < 600 ? status : 500;
+  const requestId = (req as any).requestId;
   console.error('Unhandled API error', {
+    requestId,
     method: req.method,
     path: req.path,
     status: safeStatus,
@@ -367,7 +444,8 @@ app.use((err: any, req: express.Request, res: express.Response, _next: express.N
   });
   if (res.headersSent) return;
   return res.status(safeStatus).json({
-    error: safeStatus >= 500 ? 'Internal server error.' : (err?.message || 'Request failed.')
+    error: safeStatus >= 500 ? 'Internal server error.' : (err?.message || 'Request failed.'),
+    requestId
   });
 });
 
@@ -396,9 +474,31 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
+  const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`Restaurant ERP & AI Business Assistant server running on port ${PORT}`);
   });
+
+  const gracefulShutdown = (signal: string) => {
+    console.log(`[Server] Received ${signal}. Draining in-flight requests for graceful shutdown...`);
+    const forceTimer = setTimeout(() => {
+      console.error('[Server] Forced shutdown after drain timeout.');
+      process.exit(1);
+    }, 10_000);
+    forceTimer.unref();
+
+    server.close((err) => {
+      clearTimeout(forceTimer);
+      if (err) {
+        console.error('[Server] Error during HTTP server close:', err);
+        process.exit(1);
+      }
+      console.log('[Server] Graceful shutdown complete.');
+      process.exit(0);
+    });
+  };
+
+  process.once('SIGTERM', () => gracefulShutdown('SIGTERM'));
+  process.once('SIGINT', () => gracefulShutdown('SIGINT'));
 }
 
 if (!process.env.VERCEL && !process.env.VITEST && process.env.NODE_ENV !== 'test') {

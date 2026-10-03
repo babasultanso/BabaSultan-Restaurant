@@ -11,7 +11,7 @@ import {
   orderBy,
   where
 } from 'firebase/firestore';
-import { db, COLLECTIONS, deductProductIngredientsStockFirestore, updateKitchenStatusFirestore, updateKitchenTicketFirestore, updateStationStatusFirestore, recordInventoryMovementFirestore, getAuthToken } from '../../lib/firebase';
+import { db, COLLECTIONS, deductProductIngredientsStockFirestore, updateKitchenStatusFirestore, updateKitchenTicketFirestore, updateStationStatusFirestore, recordInventoryMovementFirestore, getAuthToken, getEffectiveBranchScope } from '../../lib/firebase';
 import { getApiUrl } from '../../lib/apiConfig';
 import {
   KitchenTicket,
@@ -94,9 +94,10 @@ export class KitchenRepositoryImpl implements KitchenRepository {
     onError?: (err: Error) => void,
     onNewTickets?: (newTickets: KitchenTicket[]) => void
   ): () => void {
-    const isBranchScoped = !isHQ && branchId && branchId !== 'all';
+    const effectiveBranch = branchId || getEffectiveBranchScope();
+    const isBranchScoped = !isHQ && effectiveBranch && effectiveBranch !== 'all';
     const q = isBranchScoped
-      ? query(collection(db, COLLECTIONS.KITCHEN_ORDERS), where('branchId', '==', branchId))
+      ? query(collection(db, COLLECTIONS.KITCHEN_ORDERS), where('branchId', '==', effectiveBranch))
       : query(collection(db, COLLECTIONS.KITCHEN_ORDERS), orderBy('createdAt', 'desc'));
     
     let isInitialSnapshot = true;
@@ -167,9 +168,10 @@ export class KitchenRepositoryImpl implements KitchenRepository {
     isHQ?: boolean,
     onError?: (err: Error) => void
   ): () => void {
-    const isBranchScoped = !isHQ && branchId && branchId !== 'all';
+    const effectiveBranch = branchId || getEffectiveBranchScope();
+    const isBranchScoped = !isHQ && effectiveBranch && effectiveBranch !== 'all';
     const q = isBranchScoped
-      ? query(collection(db, COLLECTIONS.STATIONS), where('branchId', 'in', [branchId, 'all']))
+      ? query(collection(db, COLLECTIONS.STATIONS), where('branchId', 'in', [effectiveBranch, 'all']))
       : query(collection(db, COLLECTIONS.STATIONS));
     return onSnapshot(q, (snap) => {
       const stations: KitchenStation[] = snap.docs.map(d => ({
@@ -184,9 +186,10 @@ export class KitchenRepositoryImpl implements KitchenRepository {
   }
 
   async getKitchenTickets(branchId?: string, isHQ?: boolean): Promise<KitchenTicket[]> {
-    const isBranchScoped = !isHQ && branchId && branchId !== 'all';
+    const effectiveBranch = branchId || getEffectiveBranchScope();
+    const isBranchScoped = !isHQ && effectiveBranch && effectiveBranch !== 'all';
     const q = isBranchScoped
-      ? query(collection(db, COLLECTIONS.KITCHEN_ORDERS), where('branchId', '==', branchId))
+      ? query(collection(db, COLLECTIONS.KITCHEN_ORDERS), where('branchId', '==', effectiveBranch))
       : query(collection(db, COLLECTIONS.KITCHEN_ORDERS), orderBy('createdAt', 'desc'));
     const snap = await getDocs(q);
     const tickets = snap.docs.map(d => {
@@ -217,9 +220,10 @@ export class KitchenRepositoryImpl implements KitchenRepository {
   }
 
   async getKitchenStations(branchId?: string, isHQ?: boolean): Promise<KitchenStation[]> {
-    const isBranchScoped = !isHQ && branchId && branchId !== 'all';
+    const effectiveBranch = branchId || getEffectiveBranchScope();
+    const isBranchScoped = !isHQ && effectiveBranch && effectiveBranch !== 'all';
     const q = isBranchScoped
-      ? query(collection(db, COLLECTIONS.STATIONS), where('branchId', 'in', [branchId, 'all']))
+      ? query(collection(db, COLLECTIONS.STATIONS), where('branchId', 'in', [effectiveBranch, 'all']))
       : query(collection(db, COLLECTIONS.STATIONS));
     const snap = await getDocs(q);
     return snap.docs.map(d => ({ id: d.id, ...d.data() } as KitchenStation));
@@ -337,8 +341,12 @@ export class KitchenRepositoryImpl implements KitchenRepository {
     return data.id;
   }
 
-  async fetchKitchenWasteLogs(): Promise<KitchenWasteLog[]> {
-    const q = query(collection(db, COLLECTIONS.KITCHEN_WASTE), orderBy('createdAt', 'desc'));
+  async fetchKitchenWasteLogs(branchId?: string, isHQ?: boolean): Promise<KitchenWasteLog[]> {
+    const effectiveBranch = branchId || getEffectiveBranchScope();
+    const isBranchScoped = !isHQ && effectiveBranch && effectiveBranch !== 'all';
+    const q = isBranchScoped
+      ? query(collection(db, COLLECTIONS.KITCHEN_WASTE), where('branchId', '==', effectiveBranch), orderBy('createdAt', 'desc'))
+      : query(collection(db, COLLECTIONS.KITCHEN_WASTE), orderBy('createdAt', 'desc'));
     const snap = await getDocs(q);
     return snap.docs.map(d => ({ id: d.id, ...d.data() } as KitchenWasteLog));
   }

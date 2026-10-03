@@ -2,7 +2,12 @@ import {
   collection, 
   doc, 
   setDoc, 
-  updateDoc
+  updateDoc,
+  getDoc,
+  getDocs,
+  query,
+  where,
+  limit
 } from 'firebase/firestore';
 import { db, COLLECTIONS, getAuthToken } from './firebase';
 import { getApiUrl } from './apiConfig';
@@ -16,7 +21,8 @@ import {
   Ingredient, 
   Product, 
   Customer,
-  SalaryPayment 
+  SalaryPayment,
+  CustomerRefund
 } from '../types';
 
 // Helper: Authoritative branch matching without unsafe substring inclusion or cross-branch bleed
@@ -64,12 +70,31 @@ export function matchesBranch(
 
 // Branch Firestore Actions
 export async function createBranch(branchData: Omit<Branch, 'id' | 'createdAt'>): Promise<string> {
+  const name = String(branchData.name || '').trim();
+  if (!name) throw new Error('Branch name is required.');
+  const rawCode = String(branchData.code || '').trim().toUpperCase();
+  const code = rawCode || name.replace(/[^A-Za-z0-9]/g, '').slice(0, 4).toUpperCase();
+  if (!code) throw new Error('Branch code is required.');
+
+  // Validate code uniqueness across branches
+  const existingCodeSnap = await getDocs(query(collection(db, COLLECTIONS.BRANCHES), where('code', '==', code)));
+  if (!existingCodeSnap.empty) {
+    throw new Error(`A branch with code "${code}" already exists.`);
+  }
+
   const newRef = doc(collection(db, COLLECTIONS.BRANCHES));
   const newBranch: Branch = {
     ...branchData,
     id: newRef.id,
     branchId: newRef.id,
-    createdAt: new Date().toISOString()
+    name,
+    code,
+    isHeadquarters: Boolean(branchData.isHeadquarters),
+    isMain: Boolean(branchData.isMain || branchData.isHeadquarters),
+    status: branchData.status || 'active',
+    isDeleted: false,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
   };
   await setDoc(newRef, newBranch);
   return newRef.id;
@@ -89,9 +114,24 @@ export async function disableBranch(branchId: string): Promise<void> {
 
 export async function deleteBranch(branchId: string): Promise<void> {
   const ref = doc(db, COLLECTIONS.BRANCHES, branchId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) throw new Error('Branch not found.');
+  const data = snap.data() as Branch;
+  if (data.isHeadquarters || data.isMain || data.code === 'HQ' || data.code === 'MAIN' || branchId === 'branch_main' || branchId === 'main') {
+    throw new Error('The main/headquarters branch cannot be deleted.');
+  }
+
+  // Check if branch has active employees
+  const empSnap = await getDocs(query(collection(db, COLLECTIONS.EMPLOYEES), where('branchId', '==', branchId), limit(10)));
+  const activeEmps = empSnap.docs.filter(d => !d.data()?.isDeleted && d.data()?.status !== 'inactive');
+  if (activeEmps.length > 0) {
+    throw new Error('Cannot delete branch with active employees. Please reassign or deactivate staff first.');
+  }
+
   await updateDoc(ref, {
     status: 'inactive',
     isDeleted: true,
+    deletedAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   });
 }
@@ -199,6 +239,7 @@ export interface ConsolidatedAnalyticsPackage {
   customers: Customer[];
   transfers: BranchTransfer[];
   salaries?: SalaryPayment[];
+  refunds?: CustomerRefund[];
 }
 
 export function calculateConsolidatedBranchAnalytics(pkg: ConsolidatedAnalyticsPackage) {
@@ -213,14 +254,17 @@ export function calculateConsolidatedBranchAnalytics(pkg: ConsolidatedAnalyticsP
   const customers = safeArray<Customer>(pkg?.customers);
   const transfers = safeArray<BranchTransfer>(pkg?.transfers);
   const salaries = safeArray<SalaryPayment>(pkg?.salaries);
+  const refunds = safeArray<CustomerRefund>(pkg?.refunds);
 
   const totalBranchesCount = branches.length;
   const activeBranchesCount = branches.filter((b) => b?.status === 'active').length;
 
   // Completed Orders across all branches
-  const completedOrders = orders.filter((o) => o?.status === 'completed' || o?.prepStatus === 'delivered');
+  const completedOrders = orders.filter((o) => o?.status === 'completed' || o?.status === 'delivered' || o?.prepStatus === 'delivered');
 
-  const totalConsolidatedSales = completedOrders.reduce((sum, o) => sum + (typeof o?.totalAmount === 'number' && !isNaN(o.totalAmount) ? o.totalAmount : 0), 0);
+  const grossConsolidatedSales = completedOrders.reduce((sum, o) => sum + (typeof o?.totalAmount === 'number' && !isNaN(o.totalAmount) ? o.totalAmount : 0), 0);
+  const totalConsolidatedRefunds = refunds.reduce((sum, r) => sum + (typeof r?.amount === 'number' && !isNaN(r.amount) ? r.amount : 0), 0);
+  const totalConsolidatedSales = Math.max(0, grossConsolidatedSales - totalConsolidatedRefunds);
   const totalConsolidatedOrders = completedOrders.length;
   const totalConsolidatedExpenses = expenses.reduce((sum, e) => sum + (typeof e?.amount === 'number' && !isNaN(e.amount) ? e.amount : 0), 0);
   
@@ -229,7 +273,10 @@ export function calculateConsolidatedBranchAnalytics(pkg: ConsolidatedAnalyticsP
   const totalConsolidatedPayroll = paidSalaries.reduce((sum, s) => sum + (typeof s?.amount === 'number' && !isNaN(s.amount) ? s.amount : 0), 0);
 
   // Calculate COGS - using strictly actual order COGS when available
-  const totalConsolidatedCOGS = completedOrders.reduce((sum, o) => sum + (typeof o?.cogs === 'number' && !isNaN(o.cogs) ? o.cogs : 0), 0);
+  const totalConsolidatedCOGS = completedOrders.reduce((sum, o) => {
+    const cogsVal = Number(o?.cogs ?? (o as any)?.costOfGoodsSold ?? (o as any)?.cogsTotal);
+    return sum + (Number.isFinite(cogsVal) ? cogsVal : 0);
+  }, 0);
   const grossProfit = totalConsolidatedSales - totalConsolidatedCOGS;
   const totalConsolidatedOperatingExpenses = totalConsolidatedExpenses + totalConsolidatedPayroll;
   const totalConsolidatedProfit = grossProfit - totalConsolidatedOperatingExpenses;
@@ -259,7 +306,14 @@ export function calculateConsolidatedBranchAnalytics(pkg: ConsolidatedAnalyticsP
       return matchesBranch(oBranchId, oBranchName, bId, bName);
     });
     
-    const branchSales = bOrders.reduce((sum, o) => sum + (typeof o?.totalAmount === 'number' && !isNaN(o.totalAmount) ? o.totalAmount : 0), 0);
+    const grossBranchSales = bOrders.reduce((sum, o) => sum + (typeof o?.totalAmount === 'number' && !isNaN(o.totalAmount) ? o.totalAmount : 0), 0);
+    const bRefunds = refunds.filter((r) => {
+      const rBranchId = (r as any)?.branchId;
+      const rBranchName = (r as any)?.branch;
+      return matchesBranch(rBranchId, rBranchName, bId, bName);
+    });
+    const branchRefunds = bRefunds.reduce((sum, r) => sum + (typeof r?.amount === 'number' && !isNaN(r.amount) ? r.amount : 0), 0);
+    const branchSales = Math.max(0, grossBranchSales - branchRefunds);
     const branchOrdersCount = bOrders.length;
 
     // Filter operating expenses incurred by this branch
@@ -279,7 +333,10 @@ export function calculateConsolidatedBranchAnalytics(pkg: ConsolidatedAnalyticsP
     const branchPayroll = bSalaries.reduce((sum, s) => sum + (typeof s?.amount === 'number' && !isNaN(s.amount) ? s.amount : 0), 0);
     const branchTotalExpenses = branchExpenses + branchPayroll;
 
-    const branchCOGS = bOrders.reduce((sum, o) => sum + (typeof o?.cogs === 'number' && !isNaN(o.cogs) ? o.cogs : 0), 0);
+    const branchCOGS = bOrders.reduce((sum, o) => {
+      const cogsVal = Number(o?.cogs ?? (o as any)?.costOfGoodsSold ?? (o as any)?.cogsTotal);
+      return sum + (Number.isFinite(cogsVal) ? cogsVal : 0);
+    }, 0);
     const branchNetProfit = branchSales - branchCOGS - branchTotalExpenses;
 
     // Filter employees assigned to this branch

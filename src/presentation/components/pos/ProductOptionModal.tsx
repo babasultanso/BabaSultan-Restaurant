@@ -179,7 +179,18 @@ export const ProductOptionModal: React.FC<ProductOptionModalProps> = ({
             <span className="px-4 font-extrabold text-emerald-400 text-sm">{quantity}</span>
             <button
               type="button"
-              onClick={() => setQuantity(q => Math.min(Math.max(0, Number(product.stock ?? 0)), q + 1))}
+              onClick={() => {
+                const hasDirectStockLimit =
+                  (product as any).trackStock === true ||
+                  ((product as any).trackStock !== false &&
+                    !Boolean((product as any).activeRecipeId) &&
+                    !(Array.isArray((product as any).recipe) && (product as any).recipe.length > 0) &&
+                    !(Array.isArray(product.ingredients) && product.ingredients.length > 0) &&
+                    typeof product.stock === 'number' &&
+                    Number.isFinite(product.stock) &&
+                    product.stock > 0);
+                setQuantity(q => hasDirectStockLimit ? Math.min(Math.max(1, Number(product.stock ?? 1)), q + 1) : q + 1);
+              }}
               className="p-2 hover:bg-slate-800 rounded-xl text-slate-300 cursor-pointer"
             >
               <Plus className="w-4 h-4" />

@@ -44,9 +44,11 @@ import {
   PayableItem,
   CashRegister,
   BankAccount,
+  BankTransaction,
   TaxConfig,
   FinancialStatements,
-  ExpenseCategory
+  ExpenseCategory,
+  AccountingPeriod
 } from '../../../domain/entities/accounting';
 
 const controller = new AccountingController();
@@ -83,8 +85,10 @@ export const AccountingManagementView: React.FC = () => {
   const [payables, setPayables] = useState<PayableItem[]>([]);
   const [cashRegisters, setCashRegisters] = useState<CashRegister[]>([]);
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
+  const [bankTransactions, setBankTransactions] = useState<BankTransaction[]>([]);
   const [taxes, setTaxes] = useState<TaxConfig[]>([]);
   const [financials, setFinancials] = useState<FinancialStatements | null>(null);
+  const [accountingPeriods, setAccountingPeriods] = useState<AccountingPeriod[]>([]);
 
   // Filters & Selected State
   const [searchTerm, setSearchTerm] = useState<string>('');
@@ -102,6 +106,9 @@ export const AccountingManagementView: React.FC = () => {
   const [isTransferModalOpen, setIsTransferModalOpen] = useState<boolean>(false);
   const [isOpenRegisterModalOpen, setIsOpenRegisterModalOpen] = useState<boolean>(false);
   const [isCloseRegisterModalOpen, setIsCloseRegisterModalOpen] = useState<boolean>(false);
+  const [isBankAccountModalOpen, setIsBankAccountModalOpen] = useState<boolean>(false);
+  const [isBankTxModalOpen, setIsBankTxModalOpen] = useState<boolean>(false);
+  const [isPeriodModalOpen, setIsPeriodModalOpen] = useState<boolean>(false);
 
   // Forms State
   // 1. Account Form
@@ -149,6 +156,38 @@ export const AccountingManagementView: React.FC = () => {
   const [selectedRegisterToClose, setSelectedRegisterToClose] = useState<CashRegister | null>(null);
   const [closeActualCash, setCloseActualCash] = useState<number>(0);
 
+  // 8. New Receivable (Customer Invoice) Form
+  const [arCustomerName, setArCustomerName] = useState<string>('');
+  const [arInvoiceNum, setArInvoiceNum] = useState<string>('');
+  const [arTotalAmount, setArTotalAmount] = useState<number>(0);
+  const [arDueDate, setArDueDate] = useState<string>(getMogadishuDateString());
+
+  // 9. New Payable (Supplier Bill) Form
+  const [apSupplierName, setApSupplierName] = useState<string>('');
+  const [apBillNum, setApBillNum] = useState<string>('');
+  const [apTotalAmount, setApTotalAmount] = useState<number>(0);
+  const [apDueDate, setApDueDate] = useState<string>(getMogadishuDateString());
+
+  // 10. New Bank Account & Bank Transaction Forms
+  const [newBankName, setNewBankName] = useState<string>('');
+  const [newBankAccNumber, setNewBankAccNumber] = useState<string>('');
+  const [newBankAccName, setNewBankAccName] = useState<string>('');
+  const [newBankCurrency, setNewBankCurrency] = useState<string>('USD');
+  const [newBankOpeningBal, setNewBankOpeningBal] = useState<number>(0);
+
+  const [bankTxAccountId, setBankTxAccountId] = useState<string>('');
+  const [bankTxType, setBankTxType] = useState<'deposit' | 'withdrawal' | 'fee'>('deposit');
+  const [bankTxAmount, setBankTxAmount] = useState<number>(0);
+  const [bankTxRef, setBankTxRef] = useState<string>('');
+  const [bankTxDesc, setBankTxDesc] = useState<string>('');
+
+  // 11. Accounting Period Form
+  const [periodName, setPeriodName] = useState<string>('');
+  const [periodStartDate, setPeriodStartDate] = useState<string>(getMogadishuDateString().slice(0, 8) + '01');
+  const [periodEndDate, setPeriodEndDate] = useState<string>(getMogadishuDateString());
+  const [periodStatus, setPeriodStatus] = useState<'Open' | 'Closed' | 'Locked'>('Open');
+  const [periodNotes, setPeriodNotes] = useState<string>('');
+
   const userRole = (userRecord?.role || '').toLowerCase().trim();
   const isHqUser = userRole === 'owner' || (userRole === 'admin' && (userRecord?.isHQ === true || !userRecord?.branchId || userRecord?.branchId === 'all'));
   const effectiveBranchId = isHqUser ? undefined : userRecord?.branchId;
@@ -168,8 +207,10 @@ export const AccountingManagementView: React.FC = () => {
         pay,
         crs,
         bnk,
+        bnkTxs,
         txs,
-        fin
+        fin,
+        prds
       ] = await Promise.all([
         controller.fetchAccounts(),
         controller.fetchJournalEntries(effectiveBranchId),
@@ -180,8 +221,10 @@ export const AccountingManagementView: React.FC = () => {
         controller.fetchPayables(effectiveBranchId),
         controller.fetchCashRegisters(effectiveBranchId),
         controller.fetchBankAccounts(),
+        controller.fetchBankTransactions(undefined, effectiveBranchId),
         controller.fetchTaxes(effectiveBranchId),
-        controller.fetchFinancialStatements(undefined, undefined, effectiveBranchId)
+        controller.fetchFinancialStatements(undefined, undefined, effectiveBranchId),
+        controller.fetchAccountingPeriods(effectiveBranchId)
       ]);
 
       setAccounts(accs);
@@ -193,8 +236,13 @@ export const AccountingManagementView: React.FC = () => {
       setPayables(pay);
       setCashRegisters(crs);
       setBankAccounts(bnk);
+      setBankTransactions(bnkTxs);
       setTaxes(txs);
       setFinancials(fin);
+      setAccountingPeriods(prds);
+      if (bnk.length > 0 && !bankTxAccountId) {
+        setBankTxAccountId(bnk[0].id);
+      }
 
       if (accs.length > 0 && !expAccount) {
         const defaultExpAcc = accs.find(a => a.type === 'Expense');
@@ -394,6 +442,135 @@ export const AccountingManagementView: React.FC = () => {
       );
       setIsOpenRegisterModalOpen(false);
       flashSuccess('Cash Register opened for today shift.');
+      await loadAllData();
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  const handleCreateReceivable = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const activeBranchId = userRecord?.branchId && userRecord.branchId !== 'all' ? userRecord.branchId : undefined;
+      await controller.addReceivable({
+        invoiceNumber: arInvoiceNum || `INV-${Date.now().toString().slice(-6)}`,
+        customerName: arCustomerName,
+        issueDate: getMogadishuDateString(),
+        dueDate: arDueDate || getMogadishuDateString(),
+        totalAmount: Number(arTotalAmount),
+        branchId: activeBranchId
+      });
+      setIsReceivableModalOpen(false);
+      setArCustomerName('');
+      setArInvoiceNum('');
+      setArTotalAmount(0);
+      flashSuccess('Customer receivable invoice created and posted to General Ledger.');
+      await loadAllData();
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  const handleCreatePayable = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const activeBranchId = userRecord?.branchId && userRecord.branchId !== 'all' ? userRecord.branchId : undefined;
+      await controller.addPayable({
+        billNumber: apBillNum || `BILL-${Date.now().toString().slice(-6)}`,
+        supplierName: apSupplierName,
+        issueDate: getMogadishuDateString(),
+        dueDate: apDueDate || getMogadishuDateString(),
+        totalAmount: Number(apTotalAmount),
+        branchId: activeBranchId
+      });
+      setIsPayableModalOpen(false);
+      setApSupplierName('');
+      setApBillNum('');
+      setApTotalAmount(0);
+      flashSuccess('Supplier payable bill recorded and posted to General Ledger.');
+      await loadAllData();
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  const handleCreateBankAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const activeBranchId = userRecord?.branchId && userRecord.branchId !== 'all' ? userRecord.branchId : undefined;
+      await controller.addBankAccount(
+        {
+          bankName: newBankName,
+          accountNumber: newBankAccNumber,
+          accountName: newBankAccName || newBankName,
+          currency: newBankCurrency || 'USD',
+          status: 'Active',
+          branchId: activeBranchId
+        },
+        Number(newBankOpeningBal) || 0
+      );
+      setIsBankAccountModalOpen(false);
+      setNewBankName('');
+      setNewBankAccNumber('');
+      setNewBankAccName('');
+      setNewBankOpeningBal(0);
+      flashSuccess('Corporate bank account added successfully.');
+      await loadAllData();
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  const handleRecordBankTx = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const activeBranchId = userRecord?.branchId && userRecord.branchId !== 'all' ? userRecord.branchId : undefined;
+      await controller.recordBankTransaction({
+        bankAccountId: bankTxAccountId || bankAccounts[0]?.id || '',
+        type: bankTxType,
+        amount: Number(bankTxAmount),
+        reference: bankTxRef,
+        description: bankTxDesc,
+        date: getMogadishuDateString(),
+        branchId: activeBranchId
+      });
+      setIsBankTxModalOpen(false);
+      setBankTxAmount(0);
+      setBankTxRef('');
+      setBankTxDesc('');
+      flashSuccess('Bank transaction recorded and posted to General Ledger.');
+      await loadAllData();
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  const handleSavePeriod = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const activeBranchId = userRecord?.branchId && userRecord.branchId !== 'all' ? userRecord.branchId : 'all';
+      await controller.saveAccountingPeriod({
+        name: periodName,
+        startDate: periodStartDate,
+        endDate: periodEndDate,
+        status: periodStatus,
+        notes: periodNotes,
+        branchId: activeBranchId
+      });
+      setIsPeriodModalOpen(false);
+      setPeriodName('');
+      setPeriodNotes('');
+      flashSuccess(`Accounting period "${periodName}" saved (${periodStatus}).`);
+      await loadAllData();
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  const handlePeriodStatusChange = async (id: string, nextStatus: 'Open' | 'Closed' | 'Locked') => {
+    try {
+      await controller.changeAccountingPeriodStatus(id, nextStatus);
+      flashSuccess(`Accounting period status updated to ${nextStatus}.`);
       await loadAllData();
     } catch (err: any) {
       alert(err.message);
@@ -967,10 +1144,38 @@ export const AccountingManagementView: React.FC = () => {
       {/* TAB 5: ACCOUNTS RECEIVABLE */}
       {activeTab === 'receivables' && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between bg-slate-900 p-4 rounded-2xl border border-slate-800">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between bg-slate-900 p-4 rounded-2xl border border-slate-800 gap-3">
             <div>
               <h2 className="text-sm font-bold text-white">{t.legacyUi.accountsReceivableCustomerBalances}</h2>
               <p className="text-[10px] text-slate-400">{t.legacyUi.trackCustomerInvoices}</p>
+            </div>
+            <button
+              onClick={() => setIsReceivableModalOpen(true)}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs transition cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>{translateRawUi('New Customer Invoice')}</span>
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+            <div className="bg-slate-900 border border-slate-800 p-3.5 rounded-2xl">
+              <span className="text-[10px] text-slate-400 font-bold uppercase block">{translateRawUi('Total Invoiced')}</span>
+              <span className="text-base font-black text-white font-mono">${receivables.reduce((s, r) => s + (r.totalAmount || 0), 0).toFixed(2)}</span>
+            </div>
+            <div className="bg-slate-900 border border-slate-800 p-3.5 rounded-2xl">
+              <span className="text-[10px] text-slate-400 font-bold uppercase block">{translateRawUi('Total Collected')}</span>
+              <span className="text-base font-black text-emerald-400 font-mono">${receivables.reduce((s, r) => s + (r.paidAmount || 0), 0).toFixed(2)}</span>
+            </div>
+            <div className="bg-slate-900 border border-slate-800 p-3.5 rounded-2xl">
+              <span className="text-[10px] text-slate-400 font-bold uppercase block">{translateRawUi('Outstanding AR')}</span>
+              <span className="text-base font-black text-amber-400 font-mono">${receivables.reduce((s, r) => s + (r.remainingBalance || 0), 0).toFixed(2)}</span>
+            </div>
+            <div className="bg-slate-900 border border-slate-800 p-3.5 rounded-2xl">
+              <span className="text-[10px] text-slate-400 font-bold uppercase block">{translateRawUi('Overdue Invoices')}</span>
+              <span className="text-base font-black text-rose-400 font-mono">
+                {receivables.filter(r => r.remainingBalance > 0 && r.dueDate && r.dueDate < getMogadishuDateString()).length}
+              </span>
             </div>
           </div>
 
@@ -1039,10 +1244,38 @@ export const AccountingManagementView: React.FC = () => {
       {/* TAB 6: ACCOUNTS PAYABLE */}
       {activeTab === 'payables' && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between bg-slate-900 p-4 rounded-2xl border border-slate-800">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between bg-slate-900 p-4 rounded-2xl border border-slate-800 gap-3">
             <div>
               <h2 className="text-sm font-bold text-white">{t.legacyUi.accountsPayableSupplierBills}</h2>
               <p className="text-[10px] text-slate-400">{t.legacyUi.trackSupplierBills}</p>
+            </div>
+            <button
+              onClick={() => setIsPayableModalOpen(true)}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>{translateRawUi('Record Supplier Bill')}</span>
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+            <div className="bg-slate-900 border border-slate-800 p-3.5 rounded-2xl">
+              <span className="text-[10px] text-slate-400 font-bold uppercase block">{translateRawUi('Total Billed')}</span>
+              <span className="text-base font-black text-white font-mono">${payables.reduce((s, p) => s + (p.totalAmount || 0), 0).toFixed(2)}</span>
+            </div>
+            <div className="bg-slate-900 border border-slate-800 p-3.5 rounded-2xl">
+              <span className="text-[10px] text-slate-400 font-bold uppercase block">{translateRawUi('Total Settled')}</span>
+              <span className="text-base font-black text-emerald-400 font-mono">${payables.reduce((s, p) => s + (p.paidAmount || 0), 0).toFixed(2)}</span>
+            </div>
+            <div className="bg-slate-900 border border-slate-800 p-3.5 rounded-2xl">
+              <span className="text-[10px] text-slate-400 font-bold uppercase block">{translateRawUi('Outstanding AP')}</span>
+              <span className="text-base font-black text-rose-400 font-mono">${payables.reduce((s, p) => s + (p.remainingBalance || 0), 0).toFixed(2)}</span>
+            </div>
+            <div className="bg-slate-900 border border-slate-800 p-3.5 rounded-2xl">
+              <span className="text-[10px] text-slate-400 font-bold uppercase block">{translateRawUi('Overdue Bills')}</span>
+              <span className="text-base font-black text-amber-400 font-mono">
+                {payables.filter(p => p.remainingBalance > 0 && p.dueDate && p.dueDate < getMogadishuDateString()).length}
+              </span>
             </div>
           </div>
 
@@ -1171,17 +1404,31 @@ export const AccountingManagementView: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Bank Accounts List */}
             <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl space-y-4">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex flex-wrap items-center justify-between border-b border-slate-800 pb-3 gap-2">
                 <h2 className="text-sm font-bold text-white flex items-center gap-2">
                   <Landmark className="w-4 h-4 text-sky-400" />
                   <span>{t.legacyUi.corporateBankAccounts}</span>
                 </h2>
-                <button
-                  onClick={() => setIsTransferModalOpen(true)}
-                  className="px-3 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition"
-                >
-                  {translateRawUi('Transfer Funds')}
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setIsBankAccountModalOpen(true)}
+                    className="px-3 py-1 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 text-xs font-bold transition cursor-pointer"
+                  >
+                    + {translateRawUi('Add Bank')}
+                  </button>
+                  <button
+                    onClick={() => setIsBankTxModalOpen(true)}
+                    className="px-3 py-1 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold transition cursor-pointer"
+                  >
+                    {translateRawUi('Deposit / Withdraw')}
+                  </button>
+                  <button
+                    onClick={() => setIsTransferModalOpen(true)}
+                    className="px-3 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition cursor-pointer"
+                  >
+                    {translateRawUi('Transfer Funds')}
+                  </button>
+                </div>
               </div>
 
               <div className="space-y-3">
@@ -1256,6 +1503,58 @@ export const AccountingManagementView: React.FC = () => {
                   </div>
                 ))}
               </div>
+            </div>
+          </div>
+
+          {/* Bank Transactions Subledger Table */}
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
+            <div className="p-4 border-b border-slate-800 flex items-center justify-between">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <ArrowRightLeft className="w-4 h-4 text-sky-400" />
+                <span>{translateRawUi('Corporate Bank Transactions Ledger')}</span>
+              </h3>
+              <span className="text-[11px] text-slate-400 font-mono">{bankTransactions.length} transactions</span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs text-slate-300">
+                <thead className="bg-slate-950 text-slate-400 font-bold border-b border-slate-800 uppercase tracking-wider text-[10px]">
+                  <tr>
+                    <th className="p-4">{t.legacyUi.dateLabel}</th>
+                    <th className="p-4">{translateRawUi('Type')}</th>
+                    <th className="p-4">{translateRawUi('Reference')}</th>
+                    <th className="p-4">{translateRawUi('Description')}</th>
+                    <th className="p-4 text-right">{t.legacyUi.amountUsd}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60 font-medium">
+                  {bankTransactions.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="p-8 text-center text-slate-500">
+                        {translateRawUi('No corporate bank transactions recorded yet.')}
+                      </td>
+                    </tr>
+                  ) : (
+                    bankTransactions.map(tx => {
+                      const isDeposit = String(tx.type || '').toLowerCase().includes('deposit') || String(tx.type || '').toLowerCase().includes('in');
+                      return (
+                        <tr key={tx.id} className="hover:bg-slate-800/40 transition">
+                          <td className="p-4 font-mono text-slate-400">{tx.date || tx.createdAt?.slice(0, 10)}</td>
+                          <td className="p-4">
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${isDeposit ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
+                              {tx.type}
+                            </span>
+                          </td>
+                          <td className="p-4 font-mono text-white">{tx.reference || '-'}</td>
+                          <td className="p-4 text-slate-300">{tx.description || '-'}</td>
+                          <td className={`p-4 text-right font-mono font-bold ${isDeposit ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            {isDeposit ? '+' : '-'}${Number(tx.amount || 0).toFixed(2)}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
@@ -1442,6 +1741,154 @@ export const AccountingManagementView: React.FC = () => {
                   <span>${(financials?.balanceSheet.totalLiabilitiesAndEquity || 0).toFixed(2)}</span>
                 </div>
               </div>
+            </div>
+          </div>
+
+          {/* Trial Balance Statement */}
+          <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800 pb-3 gap-2">
+              <div className="flex items-center gap-2">
+                <Layers className="w-4 h-4 text-emerald-400" />
+                <h2 className="text-sm font-bold text-white">{translateRawUi('General Ledger Trial Balance')}</h2>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase ${financials?.isTrialBalanced ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/15 text-rose-400 border border-rose-500/30'}`}>
+                  {financials?.isTrialBalanced ? translateRawUi('Trial Balance Verified') : translateRawUi('Out of Balance')}
+                </span>
+                <button
+                  onClick={() => exportToCSV(financials?.trialBalance || [], 'Trial_Balance')}
+                  className="flex items-center gap-1 text-xs text-slate-300 hover:text-white bg-slate-800 px-3 py-1 rounded-xl"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>{translateRawUi('Export CSV')}</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs text-slate-300">
+                <thead className="bg-slate-950 text-slate-400 font-bold border-b border-slate-800 uppercase tracking-wider text-[10px]">
+                  <tr>
+                    <th className="p-3">{translateRawUi('Code')}</th>
+                    <th className="p-3">{t.legacyUi.accountName}</th>
+                    <th className="p-3">{t.legacyUi.accountType}</th>
+                    <th className="p-3 text-right">{t.legacyUi.debitUsd}</th>
+                    <th className="p-3 text-right">{t.legacyUi.creditUsd}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60">
+                  {(financials?.trialBalance || []).map(row => (
+                    <tr key={row.accountCode} className="hover:bg-slate-800/40">
+                      <td className="p-3 font-mono font-bold text-emerald-400">{row.accountCode}</td>
+                      <td className="p-3 font-semibold text-white">{row.accountName}</td>
+                      <td className="p-3 text-slate-400">{row.type}</td>
+                      <td className="p-3 text-right font-mono text-emerald-400">
+                        {row.debitBalance > 0 ? `$${row.debitBalance.toFixed(2)}` : '-'}
+                      </td>
+                      <td className="p-3 text-right font-mono text-sky-400">
+                        {row.creditBalance > 0 ? `$${row.creditBalance.toFixed(2)}` : '-'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot className="bg-slate-950 font-extrabold text-white border-t border-slate-800">
+                  <tr>
+                    <td colSpan={3} className="p-3">{translateRawUi('Total Trial Balance')}</td>
+                    <td className="p-3 text-right font-mono text-emerald-400">${(financials?.totalTrialDebit || 0).toFixed(2)}</td>
+                    <td className="p-3 text-right font-mono text-sky-400">${(financials?.totalTrialCredit || 0).toFixed(2)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+
+          {/* Accounting Period Close & Lock Control Panel */}
+          <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800 pb-3 gap-2">
+              <div>
+                <h2 className="text-sm font-bold text-white flex items-center gap-2">
+                  <Calendar className="w-4 h-4 text-amber-400" />
+                  <span>{translateRawUi('Fiscal & Accounting Period Controls')}</span>
+                </h2>
+                <p className="text-[11px] text-slate-400">
+                  {translateRawUi('Closed or locked periods prevent backdated journal postings, expenses, and inventory adjustments.')}
+                </p>
+              </div>
+              <button
+                onClick={() => setIsPeriodModalOpen(true)}
+                className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>{translateRawUi('Manage / Close Period')}</span>
+              </button>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs text-slate-300">
+                <thead className="bg-slate-950 text-slate-400 font-bold border-b border-slate-800 uppercase tracking-wider text-[10px]">
+                  <tr>
+                    <th className="p-3">{translateRawUi('Period Name')}</th>
+                    <th className="p-3">{translateRawUi('Start Date')}</th>
+                    <th className="p-3">{translateRawUi('End Date')}</th>
+                    <th className="p-3">{translateRawUi('Status')}</th>
+                    <th className="p-3 text-right">{translateRawUi('Actions')}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60">
+                  {accountingPeriods.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="p-6 text-center text-slate-500">
+                        {translateRawUi('All accounting periods are currently open. Create a period record to close or lock past dates.')}
+                      </td>
+                    </tr>
+                  ) : (
+                    accountingPeriods.map(p => (
+                      <tr key={p.id} className="hover:bg-slate-800/40">
+                        <td className="p-3 font-bold text-white">{p.name}</td>
+                        <td className="p-3 font-mono text-slate-400">{p.startDate}</td>
+                        <td className="p-3 font-mono text-slate-400">{p.endDate}</td>
+                        <td className="p-3">
+                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                            p.status === 'Open'
+                              ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                              : p.status === 'Closed'
+                              ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                              : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                          }`}>
+                            {p.status}
+                          </span>
+                        </td>
+                        <td className="p-3 text-right space-x-2">
+                          {p.status === 'Open' && (
+                            <button
+                              onClick={() => handlePeriodStatusChange(p.id, 'Closed')}
+                              className="px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 text-[10px] font-bold cursor-pointer"
+                            >
+                              {translateRawUi('Close Period')}
+                            </button>
+                          )}
+                          {p.status !== 'Locked' && (
+                            <button
+                              onClick={() => handlePeriodStatusChange(p.id, 'Locked')}
+                              className="px-2.5 py-1 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-400 text-[10px] font-bold cursor-pointer"
+                            >
+                              {translateRawUi('Lock')}
+                            </button>
+                          )}
+                          {p.status !== 'Open' && (
+                            <button
+                              onClick={() => handlePeriodStatusChange(p.id, 'Open')}
+                              className="px-2.5 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 text-[10px] font-bold cursor-pointer"
+                            >
+                              {translateRawUi('Reopen')}
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
@@ -2113,6 +2560,377 @@ export const AccountingManagementView: React.FC = () => {
                   className="px-4 py-2 rounded-xl bg-rose-500 text-white font-bold"
                 >
                   {translateRawUi('Confirm & Close Shift')}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 9: CREATE RECEIVABLE (CUSTOMER INVOICE) */}
+      {isReceivableModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-md w-full space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="text-sm font-bold text-white">{translateRawUi('Create Customer Invoice (AR)')}</h3>
+              <button onClick={() => setIsReceivableModalOpen(false)}>
+                <X className="w-4 h-4 text-slate-400" />
+              </button>
+            </div>
+            <form onSubmit={handleCreateReceivable} className="space-y-3 text-xs">
+              <div>
+                <label className="block text-slate-400 font-medium mb-1">{t.legacyUi.customerName}</label>
+                <input
+                  type="text"
+                  required
+                  value={arCustomerName}
+                  onChange={e => setArCustomerName(e.target.value)}
+                  placeholder={translateRawUi('Corporate Catering Client')}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-400 font-medium mb-1">{t.legacyUi.invoiceNumber}</label>
+                  <input
+                    type="text"
+                    value={arInvoiceNum}
+                    onChange={e => setArInvoiceNum(e.target.value)}
+                    placeholder={translateRawUi('INV-2026-001')}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-400 font-medium mb-1">{t.legacyUi.dueDate}</label>
+                  <input
+                    type="date"
+                    required
+                    value={arDueDate}
+                    onChange={e => setArDueDate(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-slate-400 font-medium mb-1">{t.legacyUi.amountUsd}</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  required
+                  value={arTotalAmount || ''}
+                  onChange={e => setArTotalAmount(parseFloat(e.target.value) || 0)}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white font-mono"
+                />
+              </div>
+              <div className="pt-2 flex items-center justify-end gap-2">
+                <button type="button" onClick={() => setIsReceivableModalOpen(false)} className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 font-semibold">
+                  {translateRawUi('Cancel')}
+                </button>
+                <button type="submit" className="px-4 py-2 rounded-xl bg-emerald-500 text-slate-950 font-bold">
+                  {translateRawUi('Post Invoice')}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 10: CREATE PAYABLE (SUPPLIER BILL) */}
+      {isPayableModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-md w-full space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="text-sm font-bold text-white">{translateRawUi('Record Supplier Bill (AP)')}</h3>
+              <button onClick={() => setIsPayableModalOpen(false)}>
+                <X className="w-4 h-4 text-slate-400" />
+              </button>
+            </div>
+            <form onSubmit={handleCreatePayable} className="space-y-3 text-xs">
+              <div>
+                <label className="block text-slate-400 font-medium mb-1">{t.legacyUi.supplierName}</label>
+                <input
+                  type="text"
+                  required
+                  value={apSupplierName}
+                  onChange={e => setApSupplierName(e.target.value)}
+                  placeholder={translateRawUi('Baraka Wholesale Foods')}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-400 font-medium mb-1">{t.legacyUi.billNumber}</label>
+                  <input
+                    type="text"
+                    value={apBillNum}
+                    onChange={e => setApBillNum(e.target.value)}
+                    placeholder={translateRawUi('BILL-2026-001')}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-400 font-medium mb-1">{t.legacyUi.dueDate}</label>
+                  <input
+                    type="date"
+                    required
+                    value={apDueDate}
+                    onChange={e => setApDueDate(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-slate-400 font-medium mb-1">{t.legacyUi.amountUsd}</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  required
+                  value={apTotalAmount || ''}
+                  onChange={e => setApTotalAmount(parseFloat(e.target.value) || 0)}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white font-mono"
+                />
+              </div>
+              <div className="pt-2 flex items-center justify-end gap-2">
+                <button type="button" onClick={() => setIsPayableModalOpen(false)} className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 font-semibold">
+                  {translateRawUi('Cancel')}
+                </button>
+                <button type="submit" className="px-4 py-2 rounded-xl bg-amber-500 text-slate-950 font-bold">
+                  {translateRawUi('Post Supplier Bill')}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 11: ADD CORPORATE BANK ACCOUNT */}
+      {isBankAccountModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-md w-full space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="text-sm font-bold text-white">{translateRawUi('Add Corporate Bank Account')}</h3>
+              <button onClick={() => setIsBankAccountModalOpen(false)}>
+                <X className="w-4 h-4 text-slate-400" />
+              </button>
+            </div>
+            <form onSubmit={handleCreateBankAccount} className="space-y-3 text-xs">
+              <div>
+                <label className="block text-slate-400 font-medium mb-1">{translateRawUi('Bank Name')}</label>
+                <input
+                  type="text"
+                  required
+                  value={newBankName}
+                  onChange={e => setNewBankName(e.target.value)}
+                  placeholder={translateRawUi('Premier Bank / Salaam Somali Bank')}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-400 font-medium mb-1">{translateRawUi('Account Number')}</label>
+                  <input
+                    type="text"
+                    required
+                    value={newBankAccNumber}
+                    onChange={e => setNewBankAccNumber(e.target.value)}
+                    placeholder="0019283746"
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-400 font-medium mb-1">{translateRawUi('Currency')}</label>
+                  <input
+                    type="text"
+                    value={newBankCurrency}
+                    onChange={e => setNewBankCurrency(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white font-mono"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-slate-400 font-medium mb-1">{translateRawUi('Opening Balance (USD)')}</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={newBankOpeningBal || ''}
+                  onChange={e => setNewBankOpeningBal(parseFloat(e.target.value) || 0)}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white font-mono"
+                />
+              </div>
+              <div className="pt-2 flex items-center justify-end gap-2">
+                <button type="button" onClick={() => setIsBankAccountModalOpen(false)} className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 font-semibold">
+                  {translateRawUi('Cancel')}
+                </button>
+                <button type="submit" className="px-4 py-2 rounded-xl bg-sky-500 text-slate-950 font-bold">
+                  {translateRawUi('Save Bank Account')}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 12: RECORD BANK TRANSACTION */}
+      {isBankTxModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-md w-full space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="text-sm font-bold text-white">{translateRawUi('Record Bank Deposit / Withdrawal')}</h3>
+              <button onClick={() => setIsBankTxModalOpen(false)}>
+                <X className="w-4 h-4 text-slate-400" />
+              </button>
+            </div>
+            <form onSubmit={handleRecordBankTx} className="space-y-3 text-xs">
+              <div>
+                <label className="block text-slate-400 font-medium mb-1">{translateRawUi('Bank Account')}</label>
+                <select
+                  required
+                  value={bankTxAccountId}
+                  onChange={e => setBankTxAccountId(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white"
+                >
+                  <option value="">{translateRawUi('Select Bank Account...')}</option>
+                  {bankAccounts.map(b => (
+                    <option key={b.id} value={b.id}>
+                      {b.bankName} ({b.accountNumber}) - ${b.currentBalance.toFixed(2)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-400 font-medium mb-1">{translateRawUi('Transaction Type')}</label>
+                  <select
+                    value={bankTxType}
+                    onChange={e => setBankTxType(e.target.value as 'deposit' | 'withdrawal' | 'fee')}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white"
+                  >
+                    <option value="deposit">{translateRawUi('Cash Deposit to Bank')}</option>
+                    <option value="withdrawal">{translateRawUi('Bank Withdrawal to Cash')}</option>
+                    <option value="fee">{translateRawUi('Bank Service Charge / Fee')}</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-slate-400 font-medium mb-1">{t.legacyUi.amountUsd}</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    required
+                    value={bankTxAmount || ''}
+                    onChange={e => setBankTxAmount(parseFloat(e.target.value) || 0)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white font-mono"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-slate-400 font-medium mb-1">{translateRawUi('Reference')}</label>
+                <input
+                  type="text"
+                  value={bankTxRef}
+                  onChange={e => setBankTxRef(e.target.value)}
+                  placeholder={translateRawUi('DEP-10024')}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white font-mono"
+                />
+              </div>
+              <div>
+                <label className="block text-slate-400 font-medium mb-1">{translateRawUi('Description')}</label>
+                <input
+                  type="text"
+                  value={bankTxDesc}
+                  onChange={e => setBankTxDesc(e.target.value)}
+                  placeholder={translateRawUi('Daily POS cash deposit')}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white"
+                />
+              </div>
+              <div className="pt-2 flex items-center justify-end gap-2">
+                <button type="button" onClick={() => setIsBankTxModalOpen(false)} className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 font-semibold">
+                  {translateRawUi('Cancel')}
+                </button>
+                <button type="submit" className="px-4 py-2 rounded-xl bg-emerald-500 text-slate-950 font-bold">
+                  {translateRawUi('Post Bank Transaction')}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 13: MANAGE / CLOSE ACCOUNTING PERIOD */}
+      {isPeriodModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-md w-full space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="text-sm font-bold text-white">{translateRawUi('Create or Close Accounting Period')}</h3>
+              <button onClick={() => setIsPeriodModalOpen(false)}>
+                <X className="w-4 h-4 text-slate-400" />
+              </button>
+            </div>
+            <form onSubmit={handleSavePeriod} className="space-y-3 text-xs">
+              <div>
+                <label className="block text-slate-400 font-medium mb-1">{translateRawUi('Period Name')}</label>
+                <input
+                  type="text"
+                  required
+                  value={periodName}
+                  onChange={e => setPeriodName(e.target.value)}
+                  placeholder={translateRawUi('October 2026 Fiscal Period')}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-400 font-medium mb-1">{translateRawUi('Start Date')}</label>
+                  <input
+                    type="date"
+                    required
+                    value={periodStartDate}
+                    onChange={e => setPeriodStartDate(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-400 font-medium mb-1">{translateRawUi('End Date')}</label>
+                  <input
+                    type="date"
+                    required
+                    value={periodEndDate}
+                    onChange={e => setPeriodEndDate(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-slate-400 font-medium mb-1">{translateRawUi('Period Status')}</label>
+                <select
+                  value={periodStatus}
+                  onChange={e => setPeriodStatus(e.target.value as 'Open' | 'Closed' | 'Locked')}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white"
+                >
+                  <option value="Open">{translateRawUi('Open (Allow Posting)')}</option>
+                  <option value="Closed">{translateRawUi('Closed (Block Backdated Postings)')}</option>
+                  <option value="Locked">{translateRawUi('Locked (Permanent Audit Lock)')}</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-slate-400 font-medium mb-1">{translateRawUi('Closing Notes')}</label>
+                <input
+                  type="text"
+                  value={periodNotes}
+                  onChange={e => setPeriodNotes(e.target.value)}
+                  placeholder={translateRawUi('Monthly reconciliation completed')}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white"
+                />
+              </div>
+              <div className="pt-2 flex items-center justify-end gap-2">
+                <button type="button" onClick={() => setIsPeriodModalOpen(false)} className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 font-semibold">
+                  {translateRawUi('Cancel')}
+                </button>
+                <button type="submit" className="px-4 py-2 rounded-xl bg-amber-500 text-slate-950 font-bold">
+                  {translateRawUi('Save Period')}
                 </button>
               </div>
             </form>

@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { Employee, Supplier, Salary } from '../../types';
 import { StaffRepositoryImpl } from '../../data/repositories/StaffRepositoryImpl';
 import { HRMRepositoryImpl } from '../../data/repositories/HRMRepositoryImpl';
+import { HRMManagementView } from './hrm/HRMManagementView';
 import { useAuth } from '../context/AuthContext';
 import {
   Users,
@@ -37,7 +38,7 @@ export const StaffAndSuppliersView: React.FC<StaffAndSuppliersViewProps> = ({
 }) => {
   const { t } = useAuth();
   const pt = t.hrm.payrollManagement;
-  const [activeTab, setActiveTab] = useState<'employees' | 'suppliers' | 'payroll'>('employees');
+  const [activeTab, setActiveTab] = useState<'employees' | 'suppliers' | 'payroll' | 'hrm_suite'>('employees');
 
   // Separate State Hooks for Each Resource
   const [employeesList, setEmployeesList] = useState<Employee[]>([]);
@@ -246,6 +247,14 @@ export const StaffAndSuppliersView: React.FC<StaffAndSuppliersViewProps> = ({
           >
             Payroll History ({salariesList.length})
           </button>
+          <button
+            onClick={() => setActiveTab('hrm_suite')}
+            className={`px-4 py-2 rounded-xl transition font-bold cursor-pointer ${
+              activeTab === 'hrm_suite' ? 'bg-emerald-500 text-slate-950 shadow-md' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            {translateRawUi('HRM & Shift Roster Suite')}
+          </button>
         </div>
 
         {/* Search Bar */}
@@ -405,6 +414,11 @@ export const StaffAndSuppliersView: React.FC<StaffAndSuppliersViewProps> = ({
             </div>
           )}
         </div>
+      )}
+
+      {/* 4. Full HRM, Attendance, Shifts & Leave Suite */}
+      {activeTab === 'hrm_suite' && (
+        <HRMManagementView />
       )}
 
       {/* Hire Staff Modal */}

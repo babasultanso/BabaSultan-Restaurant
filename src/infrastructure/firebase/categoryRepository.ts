@@ -7,7 +7,9 @@ export class CategoryRepository implements ICategoryRepository {
   async fetchCategories(): Promise<Category[]> {
     const branchId = getEffectiveBranchId();
     const snap = await getDocs(query(collection(db, COLLECTIONS.CATEGORIES), where('branchId', '==', branchId)));
-    const categories = snap.docs.map(d => ({ id: d.id, ...d.data() } as Category));
+    const categories = snap.docs
+      .map(d => ({ id: d.id, ...d.data() } as Category))
+      .filter(c => !(c as any).isDeleted && !(c as any).isArchived && (c as any).isActive !== false && (c as any).status !== 'deleted');
     categories.sort((a, b) => (a.order || 0) - (b.order || 0));
     return categories;
   }

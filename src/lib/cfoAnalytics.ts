@@ -141,7 +141,7 @@ export function calculateCFOAnalytics(data: CFODataPackage) {
   const todayStr = getMogadishuDateString();
 
   // Helper date logic
-  const completedOrders = orders.filter(o => o.status === 'completed');
+  const completedOrders = orders.filter(o => o.status === 'completed' || o.status === 'delivered' || o.prepStatus === 'delivered');
 
   // Revenue computations
   let dailyRevenue = 0;
@@ -196,11 +196,11 @@ export function calculateCFOAnalytics(data: CFODataPackage) {
   completedOrders.forEach(ord => {
     const ordDate = new Date(ord.createdAt);
     if (ordDate >= thirtyDaysAgo) {
-      totalCOGS += Number(ord.cogs) || 0;
+      totalCOGS += Number(ord.cogs ?? (ord as any).costOfGoodsSold ?? (ord as any).cogsTotal) || 0;
     }
   });
 
-  const hasRecordedCOGS = completedOrders.some(ord => Number.isFinite(Number(ord.cogs)));
+  const hasRecordedCOGS = completedOrders.some(ord => Number.isFinite(Number(ord.cogs ?? (ord as any).costOfGoodsSold ?? (ord as any).cogsTotal)));
   const ingredientPurchasesLast30Days = purchases
     .filter(p => new Date(p.createdAt) >= thirtyDaysAgo)
     .reduce((sum, p) => sum + (Number(p.totalCost) || 0), 0);
@@ -252,9 +252,13 @@ export function calculateCFOAnalytics(data: CFODataPackage) {
   if (netMarginPercentage < 10) netMarginStatus = 'critical';
   else if (netMarginPercentage < 20) netMarginStatus = 'warning';
 
-  // Accounts & Liquidity
-  let cashBalance = accounts.find(a => String(a.type || '').toLowerCase() === 'cash' || String((a as any).accountType || '').toLowerCase() === 'cash' || String((a as any).code || '').startsWith('101'))?.balance ?? 0;
-  let bankBalance = accounts.find(a => String(a.type || '').toLowerCase() === 'bank' || String((a as any).accountType || '').toLowerCase() === 'bank' || String((a as any).code || '').startsWith('102'))?.balance ?? 0;
+  // Accounts & Liquidity (Sum across all cash and bank accounts)
+  const cashBalance = accounts
+    .filter(a => String(a.type || '').toLowerCase() === 'cash' || String((a as any).accountType || '').toLowerCase() === 'cash' || (String((a as any).code || '').startsWith('101') && !String((a as any).code || '').startsWith('102')))
+    .reduce((sum, a) => sum + (Number(a.balance) || 0), 0);
+  const bankBalance = accounts
+    .filter(a => String(a.type || '').toLowerCase() === 'bank' || String((a as any).accountType || '').toLowerCase() === 'bank' || String((a as any).code || '').startsWith('102'))
+    .reduce((sum, a) => sum + (Number(a.balance) || 0), 0);
   const totalLiquidity = cashBalance + bankBalance;
 
   // Cash Flow (Inflow - Outflow in 30 days)
@@ -533,13 +537,13 @@ export function calculateCFOAnalytics(data: CFODataPackage) {
   for (let i = 6; i >= 0; i--) {
     const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
     const dStr = getMogadishuDateString(d);
-    const dayOrders = completedOrders.filter(o => o.createdAt && o.createdAt.startsWith(dStr));
+    const dayOrders = completedOrders.filter(o => o.createdAt && (getMogadishuDateString(o.createdAt) === dStr || o.createdAt.startsWith(dStr)));
     const sales = dayOrders.reduce((sum, o) => sum + (Number(o.totalAmount) || 0), 0);
     const dayExpenses = expenses.filter(e => {
-      const eDate = (e as any).date || e.createdAt || '';
-      return eDate.startsWith(dStr);
+      const eDate = String((e as any).date || e.createdAt || '');
+      return Boolean(eDate) && (getMogadishuDateString(eDate) === dStr || eDate.startsWith(dStr));
     }).reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
-    const dayCogs = dayOrders.reduce((sum, o) => sum + (Number(o.cogs) || 0), 0);
+    const dayCogs = dayOrders.reduce((sum, o) => sum + (Number(o.cogs ?? (o as any).costOfGoodsSold ?? (o as any).cogsTotal) || 0), 0);
     const prof = sales - dayCogs - dayExpenses;
     historicalDailyTrends.push({
       date: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
@@ -766,12 +770,18 @@ export function calculateCFOAnalytics(data: CFODataPackage) {
         : `Sales are currently healthy with a ${revenueGrowthWeekOverWeek.toFixed(1)}% week-over-week growth rate. Top performing sales hours are ${peakHours[0]?.hourLabel || 'No recorded peak'} and ${peakHours[1]?.hourLabel || 'No recorded peak'}.`,
       keyMetrics: [`Week-over-Week Growth: ${revenueGrowthWeekOverWeek.toFixed(1)}%`, `Weekly Sales: $${weeklyRevenue.toFixed(2)}`, `Avg Ticket Size: $${averageOrderValue.toFixed(2)}`]
     },
-    most_profitable_products: {
-      question: 'Which products make the most money?',
-      answer: `Top revenue and profit driving products:
-${products.slice(0, 4).map((p, idx) => `${idx + 1}. **${p.name}**: Price $${p.price.toFixed(2)} | Cost $${p.cost.toFixed(2)} | Gross Profit per unit: $${(p.price - p.cost).toFixed(2)} (${p.salesCount} sold)`).join('\n')}`,
-      keyMetrics: [`Top Product: ${products[0]?.name || 'N/A'}`, `Gross Profit/Unit: $${((products[0]?.price || 0) - (products[0]?.cost || 0)).toFixed(2)}`, `Sales Volume: ${products[0]?.salesCount || 0}`]
-    },
+    most_profitable_products: (() => {
+      const sortedByProfit = [...products].sort(
+        (a, b) => (((Number(b.price) || 0) - (Number(b.cost) || 0)) * Math.max(1, Number(b.salesCount) || 0)) -
+                  (((Number(a.price) || 0) - (Number(a.cost) || 0)) * Math.max(1, Number(a.salesCount) || 0))
+      );
+      return {
+        question: 'Which products make the most money?',
+        answer: `Top revenue and profit driving products:
+${sortedByProfit.slice(0, 4).map((p, idx) => `${idx + 1}. **${p.name}**: Price $${(Number(p.price) || 0).toFixed(2)} | Cost $${(Number(p.cost) || 0).toFixed(2)} | Gross Profit per unit: $${((Number(p.price) || 0) - (Number(p.cost) || 0)).toFixed(2)} (${p.salesCount || 0} sold)`).join('\n')}`,
+        keyMetrics: [`Top Product: ${sortedByProfit[0]?.name || 'N/A'}`, `Gross Profit/Unit: $${((Number(sortedByProfit[0]?.price) || 0) - (Number(sortedByProfit[0]?.cost) || 0)).toFixed(2)}`, `Sales Volume: ${sortedByProfit[0]?.salesCount || 0}`]
+      };
+    })(),
     losing_money_products: {
       question: 'Which products lose money?',
       answer: lowMarginProducts.length > 0 

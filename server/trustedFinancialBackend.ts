@@ -7,7 +7,8 @@ import {
   getAdminDb,
   getAdminAuth,
   getAdminMessaging,
-  InMemoryFirestoreMock
+  InMemoryFirestoreMock,
+  computeCanonicalPayloadHash
 } from './db.js';
 import {
   authenticateTrustedUser,
@@ -386,6 +387,8 @@ export async function runTransactionWithRetry<T>(
         err?.statusCode === 400 ||
         err?.statusCode === 403 ||
         err?.statusCode === 404 ||
+        err?.code === 'IDEMPOTENCY_PAYLOAD_MISMATCH' ||
+        rawMsg.includes('Idempotency key reuse conflict') ||
         rawMsg.includes('not found') ||
         rawMsg.includes('Unauthorized') ||
         rawMsg.includes('cross-branch') ||
@@ -448,6 +451,9 @@ export async function handlePosCheckout(req: express.Request, res: express.Respo
     return res.status(403).json({ error: branchCheck.error });
   }
   const targetBranchId = branchCheck.targetBranchId;
+  if (!targetBranchId || targetBranchId === 'all') {
+    return res.status(400).json({ error: 'Invalid POS Checkout Request: A concrete branchId is required.' });
+  }
   if (!orderData || !Array.isArray(orderData.items) || orderData.items.length === 0) {
     return res.status(400).json({ error: 'Invalid POS Checkout Request: Order items required.' });
   }
@@ -458,20 +464,52 @@ export async function handlePosCheckout(req: express.Request, res: express.Respo
     return res.status(e?.statusCode || 400).json({ error: e?.message || 'Idempotency-Key is required for POS checkout.' });
   }
   const db = getAdminDb();
+  const posPayloadHash = computeCanonicalPayloadHash(req.body, req.params);
 
   try {
     const result = await runTransactionWithRetry(db, async (transaction) => {
       const orderNumber = orderData.orderNumber || `ORD-${Date.now().toString().slice(-6)}`;
 
-      // Idempotency check: prevent duplicate checkout submission
+      // Idempotency check: prevent duplicate checkout submission and reject conflicting payloads
       const normalizedIdempotencyKey = idempotencyKey.trim();
+      const posIdemRef = db.collection('mutation_idempotency').doc(
+        createHash('sha256').update(`pos-checkout:${normalizedIdempotencyKey}`).digest('hex')
+      );
+      const posIdemSnap = await transaction.get(posIdemRef);
+      if (posIdemSnap.exists) {
+        const priorData = posIdemSnap.data() || {};
+        if (priorData.branchId && !areBranchesMatching(priorData.branchId, targetBranchId)) {
+          const branchConflictErr: any = new Error('Idempotency key reuse conflict: Idempotency key is already associated with another branch.');
+          branchConflictErr.statusCode = 409;
+          branchConflictErr.code = 'IDEMPOTENCY_BRANCH_CONFLICT';
+          throw branchConflictErr;
+        }
+        if (priorData.payloadHash && priorData.payloadHash !== posPayloadHash) {
+          const conflictErr: any = new Error(`Idempotency key reuse conflict: Idempotency-Key "${normalizedIdempotencyKey}" was already used with a different checkout payload.`);
+          conflictErr.statusCode = 409;
+          conflictErr.code = 'IDEMPOTENCY_PAYLOAD_MISMATCH';
+          throw conflictErr;
+        }
+        if (priorData.order) {
+          return { status: 'duplicate', order: priorData.order };
+        }
+      }
       const idempQuery = await transaction.get(
         db.collection('orders').where('idempotencyKey', '==', normalizedIdempotencyKey).limit(1)
       );
       if (!idempQuery.empty) {
         const existingOrder = idempQuery.docs[0].data();
         if (existingOrder.branchId && !areBranchesMatching(existingOrder.branchId, targetBranchId)) {
-          throw new Error('Idempotency key is already associated with another branch.');
+          const branchConflictErr: any = new Error('Idempotency key reuse conflict: Idempotency key is already associated with another branch.');
+          branchConflictErr.statusCode = 409;
+          branchConflictErr.code = 'IDEMPOTENCY_BRANCH_CONFLICT';
+          throw branchConflictErr;
+        }
+        if (existingOrder.payloadHash && existingOrder.payloadHash !== posPayloadHash) {
+          const conflictErr: any = new Error(`Idempotency key reuse conflict: Idempotency-Key "${normalizedIdempotencyKey}" was already used with a different checkout payload.`);
+          conflictErr.statusCode = 409;
+          conflictErr.code = 'IDEMPOTENCY_PAYLOAD_MISMATCH';
+          throw conflictErr;
         }
         return { status: 'duplicate', order: existingOrder };
       }
@@ -481,7 +519,7 @@ export async function handlePosCheckout(req: express.Request, res: express.Respo
       let verifiedSubtotal = 0;
       let verifiedCOGS = 0;
 
-      const productIds = Array.from(new Set(orderData.items.map((i: any) => i.productId).filter(Boolean)));
+      const productIds = Array.from(new Set(orderData.items.map((i: any) => i?.productId).filter(Boolean)));
       const productSnaps = await Promise.all(
         productIds.map(id => transaction.get(db.collection('products').doc(id as string)))
       );
@@ -536,10 +574,11 @@ export async function handlePosCheckout(req: express.Request, res: express.Respo
       });
 
       const ingredientDeductions = new Map<string, { totalRequired: number; ingredientName: string; currentStock: number }>();
+      const productDeductions = new Map<string, { totalQty: number; productName: string; currentStock: number }>();
 
       for (const rawItem of orderData.items) {
-        if (!rawItem.productId || !productMap.has(rawItem.productId)) {
-          throw new Error(`Product "${rawItem.productName || rawItem.productId}" was not found in catalog.`);
+        if (!rawItem || typeof rawItem !== 'object' || !rawItem.productId || !productMap.has(rawItem.productId)) {
+          throw new Error(`Product "${rawItem?.productName || rawItem?.productId}" was not found in catalog.`);
         }
 
         const prodData = productMap.get(rawItem.productId);
@@ -575,40 +614,64 @@ export async function handlePosCheckout(req: express.Request, res: express.Respo
 
         if (Array.isArray(rawItem.selectedOptions) && rawItem.selectedOptions.length > 0) {
           for (const selOpt of rawItem.selectedOptions) {
+            if (!selOpt || typeof selOpt !== 'object') {
+              throw new Error(`Invalid selected option format on product "${prodData.name}".`);
+            }
+            const reqOptId = selOpt.optionId ? String(selOpt.optionId).trim() : '';
+            const reqOptName = selOpt.optionName ? String(selOpt.optionName).trim() : '';
+            const reqChoiceId = selOpt.choiceId ? String(selOpt.choiceId).trim() : '';
+            const reqChoiceName = selOpt.choiceName ? String(selOpt.choiceName).trim() : '';
+
+            if (!reqOptId && !reqOptName) {
+              throw new Error(`Selected option on product "${prodData.name}" is missing optionId and optionName.`);
+            }
+            if (!reqChoiceId && !reqChoiceName) {
+              throw new Error(`Selected option "${reqOptName || reqOptId}" on product "${prodData.name}" is missing choiceId and choiceName.`);
+            }
+
             let modPrice = 0;
-            let verifiedOptName = selOpt.optionName || '';
-            let verifiedChoiceName = selOpt.choiceName || '';
-            let verifiedOptId = selOpt.optionId || '';
-            let verifiedChoiceId = selOpt.choiceId || '';
+            let verifiedOptName = reqOptName;
+            let verifiedChoiceName = reqChoiceName;
+            let verifiedOptId = reqOptId;
+            let verifiedChoiceId = reqChoiceId;
 
             if (Array.isArray(prodData.options) && prodData.options.length > 0) {
-              const parentOpt = prodData.options.find((o: any) => 
-                (selOpt.optionId && o.id === selOpt.optionId) || 
-                (selOpt.optionName && (o.nameEn === selOpt.optionName || o.nameAr === selOpt.optionName || o.name === selOpt.optionName))
-              );
+              const parentOpt = prodData.options.find((o: any) => {
+                const idMatches = reqOptId ? o.id === reqOptId : true;
+                const nameMatches = reqOptName
+                  ? (o.nameEn === reqOptName || o.nameAr === reqOptName || o.name === reqOptName)
+                  : true;
+                return idMatches && nameMatches && (Boolean(reqOptId) || Boolean(reqOptName));
+              });
               if (parentOpt && Array.isArray(parentOpt.choices)) {
-                const choice = parentOpt.choices.find((c: any) => 
-                  (selOpt.choiceId && c.id === selOpt.choiceId) || 
-                  (selOpt.choiceName && (c.nameEn === selOpt.choiceName || c.nameAr === selOpt.choiceName || c.name === selOpt.choiceName))
-                );
+                const choice = parentOpt.choices.find((c: any) => {
+                  const choiceIdMatches = reqChoiceId ? c.id === reqChoiceId : true;
+                  const choiceNameMatches = reqChoiceName
+                    ? (c.nameEn === reqChoiceName || c.nameAr === reqChoiceName || c.name === reqChoiceName)
+                    : true;
+                  return choiceIdMatches && choiceNameMatches && (Boolean(reqChoiceId) || Boolean(reqChoiceName));
+                });
                 if (choice) {
                   verifiedOptId = parentOpt.id || verifiedOptId;
                   verifiedOptName = parentOpt.nameEn || parentOpt.name || verifiedOptName;
                   verifiedChoiceId = choice.id || verifiedChoiceId;
                   verifiedChoiceName = choice.nameEn || choice.name || verifiedChoiceName;
-                  if (typeof choice.priceModifier === 'number') {
+                  if (typeof choice.priceModifier === 'number' && Number.isFinite(choice.priceModifier)) {
                     modPrice = choice.priceModifier;
-                  } else if (typeof choice.price === 'number') {
+                  } else if (typeof choice.price === 'number' && Number.isFinite(choice.price)) {
                     modPrice = choice.price;
                   }
+                  if (!Number.isFinite(modPrice) || modPrice < 0) {
+                    throw new Error(`Invalid price modifier configured for choice "${verifiedChoiceName}" on product "${prodData.name}".`);
+                  }
                 } else {
-                  throw new Error(`Invalid or missing choice "${selOpt.choiceName || selOpt.choiceId}" for option "${parentOpt.nameEn || parentOpt.nameAr || parentOpt.name || parentOpt.id}" on product "${prodData.name}".`);
+                  throw new Error(`Invalid or missing choice "${reqChoiceName || reqChoiceId}" for option "${parentOpt.nameEn || parentOpt.nameAr || parentOpt.name || parentOpt.id}" on product "${prodData.name}".`);
                 }
               } else {
-                throw new Error(`Option "${selOpt.optionName || selOpt.optionId}" not found for product "${prodData.name}".`);
+                throw new Error(`Option "${reqOptName || reqOptId}" not found for product "${prodData.name}".`);
               }
             } else {
-              throw new Error(`Product "${prodData.name}" has no configured options, but option "${selOpt.optionName || selOpt.optionId}" was selected.`);
+              throw new Error(`Product "${prodData.name}" has no configured options, but option "${reqOptName || reqOptId}" was selected.`);
             }
             optionsModifierSum += modPrice;
             verifiedSelectedOptions.push({
@@ -647,18 +710,28 @@ export async function handlePosCheckout(req: express.Request, res: express.Respo
               throw new Error(`Ingredient missing for recipe of "${prodData.name}".`);
             }
             const ingredientBranch = normalizeCanonicalBranchId(ingData.branchId || '');
-            if (!ingredientBranch || ingredientBranch === 'all' ? false : !areBranchesMatching(ingredientBranch, targetBranchId)) {
+            if (!ingredientBranch) {
+              throw new Error(`Ingredient "${ingData.name || ingId}" has no canonical branchId and cannot be consumed.`);
+            }
+            if (ingredientBranch !== 'all' && !areBranchesMatching(ingredientBranch, targetBranchId)) {
               throw new Error(`Ingredient "${ingData.name || ingId}" belongs to branch "${ingredientBranch}" and cannot be consumed by branch "${targetBranchId}".`);
             }
-            const reqQty = Number(rItem.quantity || rItem.quantityRequired || 0) * qty;
-            const ingCost = Number(ingData.costPerUnit || ingData.cost || ingData.unitCost || 0);
+            const qtyPerItem = Number(rItem.quantity ?? rItem.quantityRequired ?? 0);
+            if (!Number.isFinite(qtyPerItem) || qtyPerItem <= 0) {
+              throw new Error(`Invalid recipe quantity (${rItem.quantity ?? rItem.quantityRequired}) for ingredient "${ingData.name || ingId}" in product "${prodData.name}".`);
+            }
+            const reqQty = qtyPerItem * qty;
+            const ingCost = Number(ingData.costPerUsageUnit ?? ingData.costPerUnit ?? ingData.costPrice ?? ingData.cost ?? ingData.unitCost ?? 0);
+            if (!Number.isFinite(ingCost) || ingCost < 0) {
+              throw new Error(`Invalid unit cost for ingredient "${ingData.name || ingId}".`);
+            }
             const totalIngredientCost = reqQty * ingCost;
             itemCOGS += totalIngredientCost;
 
             itemRecipeSnapshot.push({
               ingredientId: ingId,
               ingredientName: ingData.name || 'Ingredient',
-              quantityPerItem: Number(rItem.quantity || rItem.quantityRequired || 0),
+              quantityPerItem: qtyPerItem,
               totalQuantity: reqQty,
               unit: rItem.unit || ingData.unit || 'unit',
               costPerUnit: ingCost,
@@ -675,19 +748,26 @@ export async function handlePosCheckout(req: express.Request, res: express.Respo
           }
         } else {
           const directCost = typeof prodData.costPrice === 'number' ? prodData.costPrice : (typeof prodData.cost === 'number' ? prodData.cost : 0);
-          itemCOGS = directCost * qty;
+          itemCOGS = Math.max(0, Number.isFinite(directCost) ? directCost : 0) * qty;
         }
 
         verifiedCOGS += itemCOGS;
 
-        // P1-01: Verify product stock if direct stock tracking is enabled
+        // P1-01: Verify product stock if direct stock tracking is enabled (accumulate across all lines for same product)
         if (prodData.trackStock === true) {
           if (typeof prodData.stock !== 'number' || !Number.isFinite(prodData.stock) || prodData.stock < 0) {
             throw new Error(`Product "${prodData.name}" has stock tracking enabled but has no valid finite stock recorded. Checkout rejected.`);
           }
-          if (prodData.stock < qty) {
-            throw new Error(`Insufficient stock for product "${prodData.name}". Requested: ${qty}, Available: ${prodData.stock}.`);
+          const existingProdDed = productDeductions.get(rawItem.productId) || {
+            totalQty: 0,
+            productName: prodData.name || rawItem.productId,
+            currentStock: Number(prodData.stock)
+          };
+          existingProdDed.totalQty += qty;
+          if (existingProdDed.currentStock < existingProdDed.totalQty) {
+            throw new Error(`Insufficient stock for product "${prodData.name}". Requested: ${existingProdDed.totalQty}, Available: ${existingProdDed.currentStock}.`);
           }
+          productDeductions.set(rawItem.productId, existingProdDed);
         }
 
         const lineId = rawItem.id || rawItem.orderItemId || `item_${rawItem.productId}_${verifiedItems.length + 1}_${Date.now().toString(36)}`;
@@ -713,15 +793,22 @@ export async function handlePosCheckout(req: express.Request, res: express.Respo
 
       // Verify ingredient stocks
       for (const [ingId, info] of ingredientDeductions.entries()) {
-        if (info.currentStock < info.totalRequired) {
-          throw new Error(`Insufficient stock for ingredient "${info.ingredientName}". Required: ${info.totalRequired.toFixed(2)}, Available: ${info.currentStock.toFixed(2)}.`);
+        if (!Number.isFinite(info.currentStock) || info.currentStock < info.totalRequired) {
+          throw new Error(`Insufficient stock for ingredient "${info.ingredientName}". Required: ${info.totalRequired.toFixed(2)}, Available: ${Number(info.currentStock || 0).toFixed(2)}.`);
         }
       }
 
       // Financial totals recalculation: manual discount is role-capped; coupon discounts are server-derived.
       const isManagementOrAdminRole = ['Owner', 'owner', 'Admin', 'admin', 'Manager', 'manager'].includes(user.role);
       let validatedDiscount = 0;
-      const requestedDiscount = Number(orderData.discountAmount || 0);
+      let pendingCouponUpdate: { ref: any; usedCount: number } | null = null;
+      const rawDiscountInput = orderData.discountAmount !== undefined && orderData.discountAmount !== null
+        ? orderData.discountAmount
+        : orderData.discount;
+      const requestedDiscount = rawDiscountInput !== undefined && rawDiscountInput !== null ? Number(rawDiscountInput) : 0;
+      if (!Number.isFinite(requestedDiscount) || requestedDiscount < 0) {
+        throw new Error(`Invalid discount amount (${rawDiscountInput}): discount must be a non-negative number.`);
+      }
       const couponCode = String(orderData.couponCode || orderData.coupon || '').trim().toUpperCase();
       if (couponCode) {
         const couponQuery = await transaction.get(
@@ -757,7 +844,7 @@ export async function handlePosCheckout(req: express.Request, res: express.Respo
         else couponDiscount = dv;
         if (coupon.maxDiscountAmount != null && Number.isFinite(Number(coupon.maxDiscountAmount))) couponDiscount = Math.min(couponDiscount, Number(coupon.maxDiscountAmount));
         validatedDiscount = Math.min(Math.max(0, couponDiscount), verifiedSubtotal);
-        transaction.update(couponSnap.ref, { usedCount: usedCount + 1, usageCount: usedCount + 1, updatedAt: new Date().toISOString() });
+        pendingCouponUpdate = { ref: couponSnap.ref, usedCount: usedCount + 1 };
       } else {
         const maxDiscountAllowed = isManagementOrAdminRole ? verifiedSubtotal : Math.min(verifiedSubtotal * 0.15, 25);
         if (requestedDiscount > maxDiscountAllowed) {
@@ -775,7 +862,7 @@ export async function handlePosCheckout(req: express.Request, res: express.Respo
 
       if (isTaxExplicitlyDisabled) {
         configuredTaxRate = 0;
-      } else if (branchSnap.exists && typeof branchData?.taxRate === 'number') {
+      } else if (branchSnap.exists && typeof branchData?.taxRate === 'number' && Number.isFinite(branchData.taxRate) && branchData.taxRate >= 0) {
         const bTax = branchData!.taxRate;
         configuredTaxRate = bTax > 1 ? bTax / 100 : bTax;
       } else {
@@ -796,7 +883,7 @@ export async function handlePosCheckout(req: express.Request, res: express.Respo
         const primaryTax = branchDocs.find((t: any) => t.branchId === targetBranchId) ||
                            branchDocs.find((t: any) => t.isPrimary === true || t.isDefault === true || t.taxType === 'vat' || t.taxType === 'sales_tax') ||
                            branchDocs[0];
-        if (primaryTax && typeof primaryTax.rate === 'number') {
+        if (primaryTax && typeof primaryTax.rate === 'number' && Number.isFinite(primaryTax.rate) && primaryTax.rate >= 0) {
           const r = Number(primaryTax.rate || 0);
           configuredTaxRate = r > 1 ? r / 100 : r;
         } else if (!isTaxExplicitlyEnabled) {
@@ -806,7 +893,7 @@ export async function handlePosCheckout(req: express.Request, res: express.Respo
         }
       }
 
-      if (configuredTaxRate === null) {
+      if (configuredTaxRate === null || !Number.isFinite(configuredTaxRate) || configuredTaxRate < 0) {
         throw new Error(`Tax configuration not found for branch "${targetBranchId}". Checkout rejected.`);
       }
 
@@ -949,10 +1036,22 @@ export async function handlePosCheckout(req: express.Request, res: express.Respo
         amountTendered = 0;
         changeDue = 0;
       } else if (rawPayMethod === 'cash') {
+        // Validate explicit paidAmount / paymentAmount if provided so underpayment cannot be masked by amountTendered
+        for (const explicitPaidField of [orderData.paidAmount, orderData.paymentAmount]) {
+          if (explicitPaidField !== undefined && explicitPaidField !== null) {
+            const numPaid = Number(explicitPaidField);
+            if (!Number.isFinite(numPaid) || numPaid < 0) {
+              throw new Error(`Invalid payment amount (${explicitPaidField}): cannot be negative.`);
+            }
+            if (numPaid < realTotalAmount - 0.001) {
+              throw new Error(`Underpayment rejected: Payment amount ($${numPaid.toFixed(2)}) is less than total amount ($${realTotalAmount.toFixed(2)}).`);
+            }
+          }
+        }
         // If client passes explicit overpayment in paidAmount AND passes client-side change tampering, reject
         if (orderData.paidAmount !== undefined && orderData.paidAmount !== null) {
           const numPaid = Number(orderData.paidAmount);
-          if (numPaid > realTotalAmount + 0.001 && orderData.amountTendered === undefined) {
+          if (numPaid > realTotalAmount + 0.001 && orderData.amountTendered === undefined && orderData.tenderAmount === undefined) {
             throw new Error(`Overpayment rejected: Payment amount ($${numPaid.toFixed(2)}) must not exceed order total ($${realTotalAmount.toFixed(2)}). Use amountTendered for cash tender.`);
           }
           if (numPaid > realTotalAmount + 0.001 && (orderData.change !== undefined || orderData.changeAmount !== undefined)) {
@@ -978,20 +1077,23 @@ export async function handlePosCheckout(req: express.Request, res: express.Respo
         paidTenderAmount = realTotalAmount; // Net cash retained is exact sale total
         isPaidSale = true;
       } else {
-        // Non-cash payments (card, bank, mobile_money) require exact payment amount
-        const providedPaid = orderData.paidAmount ?? orderData.paymentAmount ?? orderData.amountTendered ?? orderData.tenderAmount;
-        if (providedPaid === undefined || providedPaid === null) {
+        // Non-cash payments (card, bank, mobile_money) require exact payment amount across all provided payment fields
+        const candidatePayFields = [orderData.paidAmount, orderData.paymentAmount, orderData.amountTendered, orderData.tenderAmount]
+          .filter(v => v !== undefined && v !== null);
+        if (candidatePayFields.length === 0) {
           throw new Error(`Missing payment amount for paid payment method "${rawPayMethod}". Payment amount must be explicitly provided.`);
         }
-        const numPaid = Number(providedPaid);
-        if (!Number.isFinite(numPaid) || numPaid < 0) {
-          throw new Error(`Invalid payment amount (${providedPaid}): cannot be negative.`);
-        }
-        if (numPaid < realTotalAmount - 0.001) {
-          throw new Error(`Underpayment rejected: Payment amount ($${numPaid.toFixed(2)}) is less than total amount ($${realTotalAmount.toFixed(2)}).`);
-        }
-        if (numPaid > realTotalAmount + 0.001) {
-          throw new Error(`Overpayment rejected: Payment amount ($${numPaid.toFixed(2)}) exceeds total amount ($${realTotalAmount.toFixed(2)}). Exact payment required for non-cash.`);
+        for (const rawFieldVal of candidatePayFields) {
+          const numPaid = Number(rawFieldVal);
+          if (!Number.isFinite(numPaid) || numPaid < 0) {
+            throw new Error(`Invalid payment amount (${rawFieldVal}): cannot be negative.`);
+          }
+          if (numPaid < realTotalAmount - 0.001) {
+            throw new Error(`Underpayment rejected: Payment amount ($${numPaid.toFixed(2)}) is less than total amount ($${realTotalAmount.toFixed(2)}).`);
+          }
+          if (numPaid > realTotalAmount + 0.001) {
+            throw new Error(`Overpayment rejected: Payment amount ($${numPaid.toFixed(2)}) exceeds total amount ($${realTotalAmount.toFixed(2)}). Exact payment required for non-cash.`);
+          }
         }
         amountTendered = realTotalAmount;
         changeDue = 0;
@@ -1001,16 +1103,25 @@ export async function handlePosCheckout(req: express.Request, res: express.Respo
 
       const finalPaymentStatus = isPaidSale ? 'paid' : 'unpaid';
 
-      // Phase 1 (Reads) - Fetch Customer record if assigned
+      // Phase 1 (Reads) - Fetch Customer record if assigned & enforce branch isolation
       let customerRef: any = null;
       let customerSnap: any = null;
       let customerPointsRef: any = null;
       let customerPointsSnap: any = null;
 
       if (orderData.customerId) {
-        customerRef = db.collection('customers').doc(orderData.customerId);
+        customerRef = db.collection('customers').doc(String(orderData.customerId));
         customerSnap = await transaction.get(customerRef);
-        customerPointsRef = db.collection('customer_points').doc(orderData.customerId);
+        if (customerSnap.exists) {
+          const cData = customerSnap.data() || {};
+          const custBranch = normalizeCanonicalBranchId(cData.branchId || '');
+          if (custBranch && custBranch !== 'all' && !areBranchesMatching(custBranch, targetBranchId)) {
+            const custBranchErr: any = new Error(`Unauthorized cross-branch customer assignment: Customer "${orderData.customerId}" belongs to branch "${custBranch}" and cannot be used in branch "${targetBranchId}".`);
+            custBranchErr.statusCode = 403;
+            throw custBranchErr;
+          }
+        }
+        customerPointsRef = db.collection('customer_points').doc(String(orderData.customerId));
         customerPointsSnap = await transaction.get(customerPointsRef);
       }
 
@@ -1049,20 +1160,30 @@ export async function handlePosCheckout(req: express.Request, res: express.Respo
       const posPaymentAccountId = posSettlement.id;
       const __posAccountState = await prepareAccountBalanceState(transaction, db, [posPaymentAccountId, 'acc_cogs', 'acc_revenue', 'acc_tax', 'acc_delivery_revenue', 'acc_driver_expense', 'acc_driver_payable', 'acc_inventory']);
 
+      if (pendingCouponUpdate) {
+        transaction.update(pendingCouponUpdate.ref, {
+          usedCount: pendingCouponUpdate.usedCount,
+          usageCount: pendingCouponUpdate.usedCount,
+          updatedAt: timestamp
+        });
+      }
+
       // Perform Product Stock Deductions & Inventory Movements with strict invariants
+      for (const [productId, prodDed] of productDeductions.entries()) {
+        const currentStock = prodDed.currentStock;
+        if (!Number.isFinite(currentStock) || currentStock < 0) {
+          throw new Error(`Critical invariant violation: tracked product "${prodDed.productName}" has invalid stock. Checkout aborted.`);
+        }
+        const newStock = currentStock - prodDed.totalQty;
+        if (newStock < 0) {
+          throw new Error(`Critical invariant violation: resulting stock for "${prodDed.productName}" cannot be negative (${newStock}). Checkout aborted.`);
+        }
+        transaction.update(db.collection('products').doc(productId), { stock: newStock, updatedAt: timestamp });
+      }
+
       for (const item of verifiedItems) {
         const prodData = productMap.get(item.productId);
         if (prodData && prodData.trackStock === true) {
-          const currentStock = Number(prodData.stock);
-          if (!Number.isFinite(currentStock) || currentStock < 0) {
-            throw new Error(`Critical invariant violation: tracked product "${prodData.name}" has invalid stock. Checkout aborted.`);
-          }
-          const newStock = currentStock - item.quantity;
-          if (newStock < 0) {
-            throw new Error(`Critical invariant violation: resulting stock for "${prodData.name}" cannot be negative (${newStock}). Checkout aborted.`);
-          }
-          transaction.update(db.collection('products').doc(item.productId), { stock: newStock, updatedAt: timestamp });
-
           const movementRef = db.collection('inventory_movements').doc();
           transaction.set(movementRef, cleanUndefined({
             id: movementRef.id,
@@ -1156,6 +1277,13 @@ export async function handlePosCheckout(req: express.Request, res: express.Respo
         change: isPaidSale ? changeDue : 0,
         changeAmount: isPaidSale ? changeDue : 0,
         changeDue: isPaidSale ? changeDue : 0,
+        refundedAmount: 0,
+        refundStatus: undefined,
+        cancelledAt: undefined,
+        cancelledBy: undefined,
+        cancelReason: undefined,
+        codSettled: false,
+        codSettledAt: undefined,
         pointsEarnedAtCheckout: pointsEarned,
         loyaltyPointsEarned: pointsEarned,
         cogs: verifiedCOGS,
@@ -1176,6 +1304,7 @@ export async function handlePosCheckout(req: express.Request, res: express.Respo
         employeeId: user.uid,
         employeeName: user.name,
         idempotencyKey: normalizedIdempotencyKey,
+        payloadHash: posPayloadHash,
         createdAt: timestamp,
         updatedAt: timestamp
       };
@@ -1207,11 +1336,16 @@ export async function handlePosCheckout(req: express.Request, res: express.Respo
           id: recRef.id,
           orderId: fullOrder.id,
           orderNumber,
+          customerId: fullOrder.customerId,
           customerName: fullOrder.customerName || 'Credit Customer',
           customerPhone: fullOrder.customerPhone || '',
           amount: fullOrder.totalAmount,
           totalAmount: fullOrder.totalAmount,
           paidAmount: 0,
+          remainingAmount: fullOrder.totalAmount,
+          remainingBalance: fullOrder.totalAmount,
+          balance: fullOrder.totalAmount,
+          invoiceDate: dateStr,
           status: 'pending',
           branchId: targetBranchId,
           createdAt: timestamp,
@@ -1300,6 +1434,8 @@ export async function handlePosCheckout(req: express.Request, res: express.Respo
           membershipLevel,
           lastOrderDate: timestamp,
           loyaltyPoints: (cData.loyaltyPoints || 0) + pointsEarned,
+          points: (cData.loyaltyPoints || 0) + pointsEarned,
+          lifetimePoints: newLifetimePoints,
           updatedAt: timestamp
         }));
 
@@ -1311,6 +1447,7 @@ export async function handlePosCheckout(req: express.Request, res: express.Respo
             customerName: cData.fullName || cData.name || fullOrder.customerName || 'Customer',
             points: oldPoints + pointsEarned,
             currentPointsBalance: oldPoints + pointsEarned,
+            lifetimePoints: newLifetimePoints,
             tier: membershipLevel,
             totalEarned: (customerPointsSnap && customerPointsSnap.exists ? Number(customerPointsSnap.data()?.totalEarned || 0) : 0) + pointsEarned,
             updatedAt: timestamp
@@ -1354,7 +1491,7 @@ export async function handlePosCheckout(req: express.Request, res: express.Respo
         },
         {
           accountId: 'acc_tax',
-          accountCode: '2020',
+          accountCode: '2100',
           accountName: 'Sales Tax Payable',
           debit: 0,
           credit: realTax,
@@ -1371,7 +1508,7 @@ export async function handlePosCheckout(req: express.Request, res: express.Respo
         ...(driverEarningsAmount > 0 ? [
           {
             accountId: 'acc_driver_expense',
-            accountCode: '5020',
+            accountCode: '6110',
             accountName: 'Driver Commission Expense',
             debit: driverEarningsAmount,
             credit: 0,
@@ -1379,7 +1516,7 @@ export async function handlePosCheckout(req: express.Request, res: express.Respo
           },
           {
             accountId: 'acc_driver_payable',
-            accountCode: '2030',
+            accountCode: '2020',
             accountName: 'Driver Payable',
             debit: 0,
             credit: driverEarningsAmount,
@@ -1427,6 +1564,7 @@ export async function handlePosCheckout(req: express.Request, res: express.Respo
           id: jlRef.id,
           journalEntryId: jeRef.id,
           entryNumber,
+          date: dateStr,
           branchId: targetBranchId,
           ...line,
           createdAt: timestamp
@@ -1466,6 +1604,17 @@ export async function handlePosCheckout(req: express.Request, res: express.Respo
         timestamp
       }));
 
+      transaction.set(posIdemRef, cleanUndefined({
+        status: 'duplicate',
+        orderId: fullOrder.id,
+        orderNumber,
+        branchId: targetBranchId,
+        idempotencyKey: normalizedIdempotencyKey,
+        payloadHash: posPayloadHash,
+        order: fullOrder,
+        createdAt: timestamp
+      }));
+
       return { ...fullOrder, success: true, status: 'success', order: fullOrder };
     });
 
@@ -1473,9 +1622,10 @@ export async function handlePosCheckout(req: express.Request, res: express.Respo
   } catch (err: any) {
     const errMsg = err?.message || String(err);
     console.error('POS Checkout Transaction Error:', errMsg);
-    const isValidationError = /Insufficient|Invalid|missing|not found|exceeds|inactive|unauthorized|belong|reject|Tax|Delivery|Payment/i.test(errMsg);
-    const status = isValidationError ? 400 : 500;
-    return res.status(status).json({ error: errMsg || 'POS Checkout Transaction Failed' });
+    const isConflictError = err?.statusCode === 409 || /Idempotency key reuse conflict|already associated with another branch/i.test(errMsg);
+    const isValidationError = /Insufficient|Invalid|missing|not found|exceeds|inactive|unauthorized|belong|reject|Tax|Delivery|Payment|ambiguous|canonical|Coupon|expired|limit|restricted|requires|disabled/i.test(errMsg);
+    const status = err?.statusCode || (isConflictError ? 409 : isValidationError ? 400 : 500);
+    return res.status(status).json(cleanUndefined({ error: errMsg || 'POS Checkout Transaction Failed', code: err?.code }));
   }
 }
 
@@ -1659,31 +1809,40 @@ export async function handleOrderCancellation(req: express.Request, res: express
         }
       }
 
-      // Merge duplicate product/ingredient restorations so each document is written once with a
-      // transaction-safe absolute value, preventing stale-write loss for duplicate order lines.
+      // Merge duplicate product/ingredient restorations across the entire order so each document
+      // is written once with a transaction-safe cumulative value, preventing stale-write loss
+      // when multiple products in the same cancelled order share a recipe ingredient.
       const mergedProducts = new Map<string, any>();
+      const globalMergedIngredients = new Map<string, any>();
       for (const pr of prodRestorations) {
         const key = String(pr.item.productId || pr.prodRef.id);
         const prior = mergedProducts.get(key);
         if (!prior) {
-          const mergedRecipe = new Map<string, any>();
-          for (const rr of pr.recipeRestorations) mergedRecipe.set(rr.ingRef.id, { ...rr });
-          mergedProducts.set(key, { ...pr, recipeRestorations: Array.from(mergedRecipe.values()) });
+          mergedProducts.set(key, { ...pr, recipeRestorations: [] });
         } else {
           prior.restoredQty += pr.restoredQty;
           prior.newStock += pr.restoredQty;
-          const recMap = new Map<string, any>();
-          for (const rr of prior.recipeRestorations) recMap.set(rr.ingRef.id, { ...rr });
-          for (const rr of pr.recipeRestorations) {
-            const existing = recMap.get(rr.ingRef.id);
-            if (existing) { existing.reqQty += rr.reqQty; existing.newIngStock = existing.ingData.stock != null ? Number(existing.ingData.stock) + existing.reqQty : existing.newIngStock + rr.reqQty; }
-            else recMap.set(rr.ingRef.id, { ...rr });
+        }
+        for (const rr of pr.recipeRestorations) {
+          const ingId = String(rr.ingRef.id);
+          const existingIng = globalMergedIngredients.get(ingId);
+          if (existingIng) {
+            existingIng.reqQty += rr.reqQty;
+            const baseIngStock = typeof existingIng.ingData.currentStockUsageUnit === 'number'
+              ? existingIng.ingData.currentStockUsageUnit
+              : (typeof existingIng.ingData.stock === 'number' ? existingIng.ingData.stock : 0);
+            existingIng.newIngStock = baseIngStock + existingIng.reqQty;
+          } else {
+            globalMergedIngredients.set(ingId, { ...rr });
           }
-          prior.recipeRestorations = Array.from(recMap.values());
         }
       }
       prodRestorations.length = 0;
-      prodRestorations.push(...Array.from(mergedProducts.values()));
+      const mergedProductList = Array.from(mergedProducts.values());
+      if (mergedProductList.length > 0) {
+        mergedProductList[0].recipeRestorations = Array.from(globalMergedIngredients.values());
+      }
+      prodRestorations.push(...mergedProductList);
 
       // Read Kitchen Ticket if exists
       const kitchenRef = db.collection('kitchen_orders').doc(orderId);
@@ -1731,7 +1890,7 @@ export async function handleOrderCancellation(req: express.Request, res: express
         customerPointsSnap = await transaction.get(customerPointsRef);
       }
 
-      const __cancelAccountState = await prepareAccountBalanceState(transaction, db, ['acc_ar','acc_revenue','acc_delivery_revenue','acc_tax','acc_inventory','acc_cogs']);
+      const __cancelAccountState = await prepareAccountBalanceState(transaction, db, ['acc_ar','acc_revenue','acc_delivery_revenue','acc_tax','acc_inventory','acc_cogs','acc_driver_payable','acc_driver_expense']);
 
       // Phase 2 (All Writes)
       // Update Open Cash Register if cash refund
@@ -1835,6 +1994,9 @@ export async function handleOrderCancellation(req: express.Request, res: express
         recQuery.docs.forEach((docSnap) => {
           transaction.update(docSnap.ref, {
             status: 'cancelled',
+            remainingAmount: 0,
+            remainingBalance: 0,
+            balance: 0,
             notes: `Cancelled alongside Order #${orderData.orderNumber || orderId}`,
             updatedAt: timestamp
           });
@@ -1868,6 +2030,7 @@ export async function handleOrderCancellation(req: express.Request, res: express
           totalOrders: newOrdersCount,
           loyaltyPoints: newPoints,
           points: newPoints,
+          lifetimePoints: newLifetimePoints,
           membershipLevel,
           updatedAt: timestamp
         }));
@@ -1878,6 +2041,7 @@ export async function handleOrderCancellation(req: express.Request, res: express
             customerName: orderData.customerName || cData.name,
             points: newPoints,
             currentPointsBalance: newPoints,
+            lifetimePoints: newLifetimePoints,
             tier: membershipLevel,
             updatedAt: timestamp
           }), { merge: true });
@@ -1926,6 +2090,8 @@ export async function handleOrderCancellation(req: express.Request, res: express
         const paymentAccountName = 'Accounts Receivable';
         const paymentMemo = `AR Reversal for Cancelled Unpaid/Credit Order #${orderData.orderNumber || orderId}`;
 
+        const driverEarningsRev = Number(orderData.driverEarnings ?? orderData.driverCommission ?? 0);
+
         const reversalLines = [
           {
             accountId: 'acc_revenue',
@@ -1937,7 +2103,7 @@ export async function handleOrderCancellation(req: express.Request, res: express
           },
           {
             accountId: 'acc_delivery_revenue',
-            accountCode: '4100',
+            accountCode: '4020',
             accountName: 'Delivery Fee Revenue',
             debit: deliveryFeeRev,
             credit: 0,
@@ -1945,7 +2111,7 @@ export async function handleOrderCancellation(req: express.Request, res: express
           },
           {
             accountId: 'acc_tax',
-            accountCode: '2020',
+            accountCode: '2100',
             accountName: 'Sales Tax Payable',
             debit: tax,
             credit: 0,
@@ -1959,6 +2125,24 @@ export async function handleOrderCancellation(req: express.Request, res: express
             credit: 0,
             memo: `Inventory Restoration for Cancelled Order #${orderData.orderNumber || orderId}`
           },
+          ...(driverEarningsRev > 0 ? [
+            {
+              accountId: 'acc_driver_payable',
+              accountCode: '2020',
+              accountName: 'Driver Payable',
+              debit: driverEarningsRev,
+              credit: 0,
+              memo: `Driver Payable Reversal for Cancelled Order #${orderData.orderNumber || orderId}`
+            },
+            {
+              accountId: 'acc_driver_expense',
+              accountCode: '6110',
+              accountName: 'Driver Commission Expense',
+              debit: 0,
+              credit: driverEarningsRev,
+              memo: `Driver Expense Reversal for Cancelled Order #${orderData.orderNumber || orderId}`
+            }
+          ] : []),
           {
             accountId: paymentAccountId,
             accountCode: paymentAccountCode,
@@ -1994,12 +2178,14 @@ export async function handleOrderCancellation(req: express.Request, res: express
           branchId: targetBranchId,
           referenceType: 'order_cancellation',
           referenceId: orderId,
+          reference: orderData.orderNumber || orderId,
+          source: 'Order Cancellation',
           orderId: orderId,
           orderNumber: orderData.orderNumber || '',
           lines: reversalLines,
           totalDebit: Math.round(totalDebit * 100) / 100,
           totalCredit: Math.round(totalCredit * 100) / 100,
-          status: 'posted',
+          status: 'Posted',
           postedBy: user.name,
           createdAt: timestamp
         };
@@ -2012,6 +2198,7 @@ export async function handleOrderCancellation(req: express.Request, res: express
             id: jlRef.id,
             journalEntryId: jeRef.id,
             entryNumber,
+            date: dateStr,
             branchId: targetBranchId,
             ...line,
             createdAt: timestamp
@@ -2083,25 +2270,53 @@ export async function handleCustomerRefund(req: express.Request, res: express.Re
     return res.status(400).json({ error: 'Order ID is required for processing a refund.' });
   }
 
-  const refundAmount = Number(amount || 0);
-  if (!Number.isFinite(refundAmount) || refundAmount <= 0) {
+  const hasRequestItems = Array.isArray(req.body?.items) && req.body.items.length > 0;
+  const hasExplicitAmount = amount !== undefined && amount !== null && String(amount).trim() !== '';
+  const requestedRefundAmount = hasExplicitAmount ? Number(amount) : NaN;
+  if (hasExplicitAmount && (!Number.isFinite(requestedRefundAmount) || requestedRefundAmount <= 0)) {
+    return res.status(400).json({ error: 'Refund amount must be a positive numeric value.' });
+  }
+  if (!hasExplicitAmount && !hasRequestItems) {
     return res.status(400).json({ error: 'Refund amount must be a positive numeric value.' });
   }
 
   const db = getAdminDb();
+  const normalizedRefundIdemKey = refundIdempotencyKey.trim();
+  const refundPayloadHash = computeCanonicalPayloadHash(req.body, req.params);
   const idempotencyRef = db.collection('mutation_idempotency').doc(
-    createHash('sha256').update(`refund:${user.uid}:${refundIdempotencyKey}`).digest('hex')
+    createHash('sha256').update(`refund:${normalizedRefundIdemKey}`).digest('hex')
+  );
+  const legacyUserIdempotencyRef = db.collection('mutation_idempotency').doc(
+    createHash('sha256').update(`refund:${user.uid}:${normalizedRefundIdemKey}`).digest('hex')
   );
 
   try {
-    const result = await db.runTransaction(async (transaction) => {
-      const existingIdempotency = await transaction.get(idempotencyRef);
-      if (existingIdempotency.exists) return existingIdempotency.data();
+    const result = await runTransactionWithRetry(db, async (transaction) => {
+      const [existingIdempotency, existingLegacyIdempotency] = await Promise.all([
+        transaction.get(idempotencyRef),
+        transaction.get(legacyUserIdempotencyRef)
+      ]);
+      const matchedIdemSnap = existingIdempotency.exists ? existingIdempotency : (existingLegacyIdempotency.exists ? existingLegacyIdempotency : null);
+      if (matchedIdemSnap && matchedIdemSnap.exists) {
+        const priorData = matchedIdemSnap.data() || {};
+        if (priorData.payloadHash && priorData.payloadHash !== refundPayloadHash) {
+          throw Object.assign(
+            new Error(`Idempotency key reuse conflict: Idempotency-Key "${normalizedRefundIdemKey}" was already used with a different refund payload.`),
+            { statusCode: 409, code: 'IDEMPOTENCY_PAYLOAD_MISMATCH' }
+          );
+        }
+        return {
+          status: 'success',
+          refundId: priorData.refundId,
+          refundAmount: priorData.refundAmount,
+          refundedAmount: priorData.refundedAmount ?? priorData.refundAmount
+        };
+      }
       const orderRef = db.collection('orders').doc(orderId);
       const orderSnap = await transaction.get(orderRef);
 
       if (!orderSnap.exists) {
-        throw new Error(`Original Order #${orderId} not found.`);
+        throw Object.assign(new Error(`Original Order #${orderId} not found.`), { statusCode: 404 });
       }
 
       const orderData = orderSnap.data() as any;
@@ -2117,7 +2332,7 @@ export async function handleCustomerRefund(req: express.Request, res: express.Re
 
       const branchAuth = checkBranchAuthorization(user, targetBranchId);
       if (!branchAuth.authorized) {
-        throw new Error(`Unauthorized refund! Order belongs to branch "${targetBranchId}". ${branchAuth.error}`);
+        throw Object.assign(new Error(`Unauthorized refund! Order belongs to branch "${targetBranchId}". ${branchAuth.error}`), { statusCode: 403 });
       }
 
       const orderPayStatus = String(orderData.paymentStatus || '').toLowerCase();
@@ -2143,15 +2358,23 @@ export async function handleCustomerRefund(req: express.Request, res: express.Re
 
       const originalTotal = Number(orderData.totalAmount || 0);
 
-      // Fetch existing refunds to compute total refunded amount
-      const existingRefundsSnap = await transaction.get(
-        db.collection('refunds').where('orderId', '==', orderId)
-      );
+      // Fetch existing refunds (including standalone wallet refunds) to compute total refunded amount
+      const [existingRefundsSnap, existingWalletRefundsSnap, existingPaymentsSnap] = await Promise.all([
+        transaction.get(db.collection('refunds').where('orderId', '==', orderId)),
+        transaction.get(db.collection('wallet_transactions').where('orderId', '==', orderId).where('type', '==', 'refund')),
+        transaction.get(db.collection('payments').where('orderId', '==', orderId))
+      ]);
 
       let totalAlreadyRefunded = 0;
       existingRefundsSnap.docs.forEach(docSnap => {
         const rData = docSnap.data();
         totalAlreadyRefunded += Number(rData.amount || 0);
+      });
+      existingWalletRefundsSnap.docs.forEach(docSnap => {
+        const wData = docSnap.data();
+        if (!wData.refundId) {
+          totalAlreadyRefunded += Number(wData.amount || 0);
+        }
       });
 
       const existingOrderRefunded = Number(orderData.refundedAmount || 0);
@@ -2162,27 +2385,56 @@ export async function handleCustomerRefund(req: express.Request, res: express.Re
         throw new Error(`Order #${orderData.orderNumber || orderId} is already fully refunded. Additional refunds rejected.`);
       }
 
-      if (refundAmount > remainingRefundable + 0.001) {
-        throw new Error(`Refund amount ($${refundAmount.toFixed(2)}) exceeds remaining refundable balance ($${Math.max(0, remainingRefundable).toFixed(2)}) for Order #${orderData.orderNumber || orderId}. Original Total: $${originalTotal.toFixed(2)}, Already Refunded: $${currentTotalRefunded.toFixed(2)}.`);
+      if (hasExplicitAmount && requestedRefundAmount > remainingRefundable + 0.001) {
+        throw new Error(`Refund amount ($${requestedRefundAmount.toFixed(2)}) exceeds remaining refundable balance ($${Math.max(0, remainingRefundable).toFixed(2)}) for Order #${orderData.orderNumber || orderId}. Original Total: $${originalTotal.toFixed(2)}, Already Refunded: $${currentTotalRefunded.toFixed(2)}.`);
       }
-
-      const updatedRefundedAmount = currentTotalRefunded + refundAmount;
-      const isFullyRefunded = updatedRefundedAmount >= (originalTotal - 0.001);
 
       const timestamp = new Date().toISOString();
       const dateStr = getMogadishuDateString(timestamp);
       await assertAccountingDateOpenInTransaction(transaction, db, dateStr, targetBranchId);
 
-      // Phase 1 (All Reads) - Read customer & receivables if applicable
+      // Phase 1 (All Reads) - Read customer, wallet & receivables if applicable
       let customerRef: any = null;
       let customerSnap: any = null;
       let customerPointsRef: any = null;
       let customerPointsSnap: any = null;
+      let refundWalletRef: any = null;
+      let refundWalletData: any = {};
+      let currentWalletBalance = 0;
       if (orderData.customerId) {
         customerRef = db.collection('customers').doc(orderData.customerId);
         customerSnap = await transaction.get(customerRef);
+        if (customerSnap.exists) {
+          const custBranch = normalizeCanonicalBranchId(customerSnap.data()?.branchId || '');
+          if (custBranch && custBranch !== 'all' && !areBranchesMatching(custBranch, targetBranchId)) {
+            throw Object.assign(new Error(`Unauthorized cross-branch refund customer access for customer "${orderData.customerId}".`), { statusCode: 403 });
+          }
+        }
         customerPointsRef = db.collection('customer_points').doc(orderData.customerId);
         customerPointsSnap = await transaction.get(customerPointsRef);
+      }
+
+      if (effectivePayMethod === 'wallet') {
+        if (!orderData.customerId) {
+          throw Object.assign(new Error(`Cannot issue wallet refund for Order #${orderData.orderNumber || orderId} because no customer is linked to the order.`), { statusCode: 400 });
+        }
+        const walletSnap = await transaction.get(
+          db.collection('customer_wallets').where('customerId', '==', String(orderData.customerId))
+        );
+        const matchingBranchWallets = walletSnap.docs.filter((d: any) => {
+          const dBranch = normalizeCanonicalBranchId(d.data()?.branchId || '');
+          return !!dBranch && (dBranch === 'all' || areBranchesMatching(dBranch, targetBranchId));
+        });
+        if (matchingBranchWallets.length > 1) {
+          throw Object.assign(new Error(`Multiple wallets found for customer "${orderData.customerId}" in branch "${targetBranchId}".`), { statusCode: 409 });
+        }
+        if (matchingBranchWallets.length === 1) {
+          refundWalletRef = matchingBranchWallets[0].ref;
+          refundWalletData = matchingBranchWallets[0].data() || {};
+          currentWalletBalance = Number(refundWalletData.balance || 0);
+        } else {
+          refundWalletRef = db.collection('customer_wallets').doc();
+        }
       }
 
       const recQuery = isOriginalCredit ? await transaction.get(db.collection('receivables').where('orderId', '==', orderId)) : null;
@@ -2230,7 +2482,7 @@ export async function handleCustomerRefund(req: express.Request, res: express.Re
       const requestedQtyByLine = new Map<string, number>();
       const requestItems = Array.isArray(req.body?.items) ? req.body.items : [];
       if (requestItems.length === 0) {
-        if (Math.abs(refundAmount - remainingRefundable) > 0.01) {
+        if (!hasExplicitAmount || Math.abs(requestedRefundAmount - remainingRefundable) > 0.01) {
           throw Object.assign(new Error('An exact line-level item allocation is required unless the refund amount equals the entire remaining refundable order balance.'), { statusCode: 400 });
         }
         for (let idx = 0; idx < orderItems.length; idx++) {
@@ -2239,6 +2491,7 @@ export async function handleCustomerRefund(req: express.Request, res: express.Re
           if (remainingQty > 0) requestedQtyByLine.set(lineKeyFor(item, idx), remainingQty);
         }
       } else {
+        const deferredProductItems: Array<{ productKey: string; qty: number }> = [];
         for (const reqItm of requestItems) {
           const qty = Number(reqItm?.quantity);
           if (!Number.isFinite(qty) || qty <= 0) throw Object.assign(new Error('Every refund item must specify a positive finite quantity.'), { statusCode: 400 });
@@ -2250,6 +2503,9 @@ export async function handleCustomerRefund(req: express.Request, res: express.Re
           }
           const productKey = String(reqItm.productId || reqItm.itemId || '').trim();
           if (!productKey) throw Object.assign(new Error('Refund item must include orderItemId/lineId/id or productId/itemId.'), { statusCode: 400 });
+          deferredProductItems.push({ productKey, qty });
+        }
+        for (const { productKey, qty } of deferredProductItems) {
           const matches = productLineIndexes.get(productKey) || [];
           if (matches.length === 0) throw Object.assign(new Error(`Refund product "${productKey}" was not found on the order.`), { statusCode: 400 });
           let remainingToAllocate = qty;
@@ -2270,7 +2526,7 @@ export async function handleCustomerRefund(req: express.Request, res: express.Re
 
       let selectedSubtotal = 0;
       let selectedCOGS = 0;
-      const lineAllocation = new Map<string, { item: any; index: number; qty: number; lineSubtotal: number; cogs: number }>();
+      const lineAllocation = new Map<string, { item: any; index: number; qty: number; lineSubtotal: number; cogs: number; explicitCogsDefined: boolean }>();
       for (let idx = 0; idx < orderItems.length; idx++) {
         const item = orderItems[idx];
         const key = lineKeyFor(item, idx);
@@ -2283,11 +2539,25 @@ export async function handleCustomerRefund(req: express.Request, res: express.Re
         }
         const originalLineSubtotal = Math.max(0, Number(item.subtotal || (Number(item.price || item.unitPrice || 0) * originalQty) || 0));
         const lineSubtotal = originalLineSubtotal * (qty / originalQty);
-        const originalLineCOGS = Math.max(0, Number(item.itemCogs ?? item.cogs ?? 0));
+        const explicitCogsDefined = item.itemCogs !== undefined || item.cogs !== undefined || item.totalCost !== undefined;
+        let originalLineCOGS = Math.max(0, Number(item.itemCogs ?? item.cogs ?? item.totalCost ?? 0));
+        if (!explicitCogsDefined && originalLineCOGS === 0) {
+          const itemUnitCost = Number(item.unitCost ?? item.cost ?? item.costPrice ?? 0);
+          if (Number.isFinite(itemUnitCost) && itemUnitCost > 0) {
+            originalLineCOGS = itemUnitCost * originalQty;
+          } else if (Array.isArray(item.recipeSnapshot) && item.recipeSnapshot.length > 0) {
+            originalLineCOGS = item.recipeSnapshot.reduce((s: number, r: any) => {
+              const rTotal = Number(r?.totalCost ?? (Number(r?.quantityPerItem || 0) * originalQty * Number(r?.costPerUnit || 0)));
+              return s + (Number.isFinite(rTotal) && rTotal > 0 ? rTotal : 0);
+            }, 0);
+          } else if (orderItemSubtotal > 0 && Number(orderData.cogs ?? orderData.totalCOGS ?? 0) > 0) {
+            originalLineCOGS = Number(orderData.cogs ?? orderData.totalCOGS ?? 0) * (originalLineSubtotal / orderItemSubtotal);
+          }
+        }
         const lineCogs = originalLineCOGS * (qty / originalQty);
         selectedSubtotal += lineSubtotal;
         selectedCOGS += lineCogs;
-        lineAllocation.set(key, { item, index: idx, qty, lineSubtotal, cogs: lineCogs });
+        lineAllocation.set(key, { item, index: idx, qty, lineSubtotal, cogs: lineCogs, explicitCogsDefined });
       }
       if (lineAllocation.size === 0) throw Object.assign(new Error('Refund allocation contains no refundable order lines.'), { statusCode: 400 });
 
@@ -2298,17 +2568,30 @@ export async function handleCustomerRefund(req: express.Request, res: express.Re
       const effectiveTaxRate = Number.isFinite(storedTaxRateRaw) ? (storedTaxRateRaw > 1 ? storedTaxRateRaw / 100 : Math.max(0, storedTaxRateRaw)) : 0;
       const originalTax = Math.max(0, Number(orderData.tax || 0));
       const originalTaxableBase = Math.max(0, orderItemSubtotal - totalDiscount);
-      const selectedTax = Number.isFinite(storedTaxRateRaw)
+      const alreadyReversedTax = existingRefundsSnap.docs.reduce((sum: number, d: any) => sum + Number(d.data()?.taxAmount || 0), 0);
+      const remainingTax = Math.max(0, Math.round((originalTax - alreadyReversedTax) * 100) / 100);
+      const rawSelectedTax = Number.isFinite(storedTaxRateRaw)
         ? Math.round(selectedTaxableSubtotal * effectiveTaxRate * 100) / 100
         : (originalTaxableBase > 0 ? Math.round(originalTax * selectedTaxableSubtotal / originalTaxableBase * 100) / 100 : 0);
+      const selectedTax = originalTax > 0 ? Math.min(remainingTax, rawSelectedTax) : rawSelectedTax;
       const selectedItemRefund = Math.round((selectedTaxableSubtotal + selectedTax) * 100) / 100;
+
+      const refundAmount = hasExplicitAmount ? requestedRefundAmount : selectedItemRefund;
+      if (!Number.isFinite(refundAmount) || refundAmount <= 0) {
+        throw Object.assign(new Error('Refund amount must be a positive numeric value.'), { statusCode: 400 });
+      }
+      if (refundAmount > remainingRefundable + 0.001) {
+        throw Object.assign(new Error(`Refund amount ($${refundAmount.toFixed(2)}) exceeds remaining refundable balance ($${Math.max(0, remainingRefundable).toFixed(2)}) for Order #${orderData.orderNumber || orderId}. Original Total: $${originalTotal.toFixed(2)}, Already Refunded: $${currentTotalRefunded.toFixed(2)}.`), { statusCode: 400 });
+      }
+      const updatedRefundedAmount = Math.round((currentTotalRefunded + refundAmount) * 100) / 100;
+      const isFullyRefunded = updatedRefundedAmount >= (originalTotal - 0.001);
 
       const existingDeliveryRefunds = existingRefundsSnap.docs.reduce((sum: number, d: any) => sum + Number(d.data()?.deliveryAmount || 0), 0);
       const deliveryRemaining = Math.max(0, Number(orderData.deliveryFee || 0) - existingDeliveryRefunds);
       const requestedExtra = Math.round((refundAmount - selectedItemRefund) * 100) / 100;
       if (requestedExtra < -0.01) throw Object.assign(new Error(`Refund amount ($${refundAmount.toFixed(2)}) is below the calculated line refund ($${selectedItemRefund.toFixed(2)}).`), { statusCode: 400 });
       if (requestedExtra > deliveryRemaining + 0.01) throw Object.assign(new Error(`Refund amount includes $${requestedExtra.toFixed(2)} beyond selected lines, but only $${deliveryRemaining.toFixed(2)} of delivery fee remains refundable.`), { statusCode: 400 });
-      const deliveryRefundAmount = Math.max(0, Math.min(deliveryRemaining, requestedExtra));
+      const deliveryRefundAmount = Math.max(0, Math.min(deliveryRemaining, Math.max(0, requestedExtra)));
 
       const refundProdRestorations: any[] = Array.from(lineAllocation.entries()).map(([lineKey, a]) => ({ lineKey, item: a.item, restoredQty: a.qty }));
       const productRestoreQty = new Map<string, number>();
@@ -2328,13 +2611,36 @@ export async function handleCustomerRefund(req: express.Request, res: express.Re
         if (!productBranch || !areBranchesMatching(productBranch, targetBranchId)) {
           throw Object.assign(new Error(`Unauthorized cross-branch refund inventory access for product "${productId}".`), { statusCode: 403 });
         }
-        productRestoreInfo.set(productId, { ref: prodRef, data: prodData });
-        productRestoreQty.set(productId, (productRestoreQty.get(productId) || 0) + allocation.qty);
+        if (prodData.trackStock !== false && typeof prodData.stock === 'number') {
+          productRestoreInfo.set(productId, { ref: prodRef, data: prodData });
+          productRestoreQty.set(productId, (productRestoreQty.get(productId) || 0) + allocation.qty);
+        }
 
-        const snapshot = Array.isArray(item.recipeSnapshot) && item.recipeSnapshot.length > 0 ? item.recipeSnapshot : (Array.isArray(prodData.recipe) ? prodData.recipe : []);
+        let snapshot = Array.isArray(item.recipeSnapshot) && item.recipeSnapshot.length > 0
+          ? item.recipeSnapshot
+          : (Array.isArray(prodData.recipe) && prodData.recipe.length > 0 ? prodData.recipe : []);
+        let usingSnapshot = Array.isArray(item.recipeSnapshot) && item.recipeSnapshot.length > 0;
+        if (snapshot.length === 0) {
+          const canonRecipeSnap = await transaction.get(
+            db.collection('recipes').where('productId', '==', productId).where('isActive', '!=', false)
+          );
+          if (!canonRecipeSnap.empty) {
+            const matchingRecipes = canonRecipeSnap.docs
+              .map((d: any) => d.data())
+              .filter((rData: any) => {
+                const rBranch = normalizeCanonicalBranchId(rData?.branchId || '');
+                return rBranch === 'all' || (rBranch && areBranchesMatching(rBranch, targetBranchId));
+              });
+            if (matchingRecipes[0] && Array.isArray(matchingRecipes[0].items)) {
+              snapshot = matchingRecipes[0].items;
+              usingSnapshot = false;
+            }
+          }
+        }
+        let derivedRecipeLineCogs = 0;
         for (const rItem of snapshot) {
           const ingredientId = String(rItem?.ingredientId || rItem?.id || '').trim();
-          const perItem = Array.isArray(item.recipeSnapshot) && item.recipeSnapshot.length > 0
+          const perItem = usingSnapshot
             ? Number(rItem?.quantityPerItem ?? (Number(rItem?.totalQuantity || 0) / originalPositive(item.quantity)))
             : Number(rItem?.quantity || rItem?.quantityRequired || 0);
           if (!ingredientId || !Number.isFinite(perItem) || perItem <= 0) continue;
@@ -2348,6 +2654,19 @@ export async function handleCustomerRefund(req: express.Request, res: express.Re
           }
           ingredientRestoreInfo.set(ingredientId, { ref: ingRef, data: ingredientData });
           ingredientRestoreQty.set(ingredientId, (ingredientRestoreQty.get(ingredientId) || 0) + perItem * allocation.qty);
+          const unitIngCost = Number(rItem?.costPerUnit ?? ingredientData.costPerUsageUnit ?? ingredientData.costPerUnit ?? ingredientData.costPrice ?? ingredientData.cost ?? ingredientData.unitCost ?? 0);
+          if (Number.isFinite(unitIngCost) && unitIngCost > 0) {
+            derivedRecipeLineCogs += perItem * allocation.qty * unitIngCost;
+          }
+        }
+        if (!allocation.explicitCogsDefined && allocation.cogs === 0) {
+          const fallbackCogs = derivedRecipeLineCogs > 0
+            ? derivedRecipeLineCogs
+            : Math.max(0, Number(prodData.costPrice ?? prodData.cost ?? 0)) * allocation.qty;
+          if (fallbackCogs > 0) {
+            allocation.cogs = fallbackCogs;
+            selectedCOGS += fallbackCogs;
+          }
         }
       }
       const productRestoreWrites: any[] = [];
@@ -2392,10 +2711,20 @@ export async function handleCustomerRefund(req: express.Request, res: express.Re
       transaction.update(orderRef, {
         refundedAmount: updatedRefundedAmount,
         paymentStatus: isFullyRefunded ? 'refunded' : 'partially_refunded',
+        refundStatus: isFullyRefunded ? 'full' : 'partial',
         status: isFullyRefunded ? 'cancelled' : (orderData.status || 'completed'),
         items: updatedOrderItems,
         updatedAt: timestamp
       });
+
+      // Reversal Accounting Journal Entry from exact selected lines.
+      const taxReversalComponent = selectedTax;
+      const rawRevenueReversal = Math.round(selectedTaxableSubtotal * 100) / 100;
+      const roundingDelta = Math.round((refundAmount - (rawRevenueReversal + taxReversalComponent + deliveryRefundAmount)) * 100) / 100;
+      const revenueReversalComponent = Math.abs(roundingDelta) <= 0.02
+        ? Math.max(0, Math.round((rawRevenueReversal + roundingDelta) * 100) / 100)
+        : rawRevenueReversal;
+      const cogsReversalComponent = Math.round(selectedCOGS * 100) / 100;
 
       // Create Refund Document
       const paymentAccountId = __refundSettlement.id;
@@ -2407,6 +2736,9 @@ export async function handleCustomerRefund(req: express.Request, res: express.Re
         orderId,
         orderNumber: orderData.orderNumber || `ORD-${orderId.slice(0, 6)}`,
         amount: refundAmount,
+        revenueAmount: revenueReversalComponent,
+        taxAmount: taxReversalComponent,
+        cogsAmount: cogsReversalComponent,
         reason: reason || 'Customer Refund Request',
         paymentMethod: effectivePayMethod,
         paymentAccountId: paymentAccountId,
@@ -2414,16 +2746,57 @@ export async function handleCustomerRefund(req: express.Request, res: express.Re
         branchId: targetBranchId,
         itemAllocations: Array.from(lineAllocation.entries()).map(([lineId, a]) => ({ lineId, productId: a.item.productId || null, quantity: a.qty, lineSubtotal: a.lineSubtotal, cogs: a.cogs })),
         deliveryAmount: deliveryRefundAmount,
+        idempotencyKey: normalizedRefundIdemKey,
+        payloadHash: refundPayloadHash,
         processedBy: user.name,
         createdAt: timestamp
       };
 
       transaction.set(newRefundRef, cleanUndefined(refundDoc));
 
-      // Reversal Accounting Journal Entry from exact selected lines.
-      const taxReversalComponent = selectedTax;
-      const revenueReversalComponent = Math.round(selectedTaxableSubtotal * 100) / 100;
-      const cogsReversalComponent = Math.round(selectedCOGS * 100) / 100;
+      if (existingPaymentsSnap && !existingPaymentsSnap.empty) {
+        existingPaymentsSnap.docs.forEach((payDoc: any) => {
+          transaction.update(payDoc.ref, {
+            refundedAmount: updatedRefundedAmount,
+            status: isFullyRefunded ? 'refunded' : 'partially_refunded',
+            updatedAt: timestamp
+          });
+        });
+      }
+
+      if (effectivePayMethod === 'wallet' && refundWalletRef) {
+        const custData = customerSnap?.exists ? (customerSnap.data() || {}) : {};
+        const newWalletBalance = Math.round((currentWalletBalance + refundAmount) * 100) / 100;
+        transaction.set(refundWalletRef, cleanUndefined({
+          id: refundWalletRef.id,
+          customerId: String(orderData.customerId),
+          customerName: refundWalletData.customerName || orderData.customerName || custData.fullName || custData.name || 'Customer',
+          balance: newWalletBalance,
+          currency: 'USD',
+          status: 'active',
+          branchId: targetBranchId,
+          updatedAt: timestamp,
+          createdAt: refundWalletData.createdAt || timestamp
+        }), { merge: true });
+
+        const walletTxRef = db.collection('wallet_transactions').doc();
+        transaction.set(walletTxRef, cleanUndefined({
+          id: walletTxRef.id,
+          walletId: refundWalletRef.id,
+          customerId: String(orderData.customerId),
+          customerName: refundWalletData.customerName || orderData.customerName || custData.fullName || custData.name || 'Customer',
+          type: 'refund',
+          amount: refundAmount,
+          balanceAfter: newWalletBalance,
+          orderId,
+          refundId: newRefundRef.id,
+          branchId: targetBranchId,
+          idempotencyKey: normalizedRefundIdemKey,
+          notes: reason || `Order refund credited to customer wallet for Order #${orderData.orderNumber || orderId}`,
+          createdBy: user.name,
+          createdAt: timestamp
+        }));
+      }
       const lines = [
         {
           accountId: 'acc_revenue',
@@ -2435,7 +2808,7 @@ export async function handleCustomerRefund(req: express.Request, res: express.Re
         },
         ...(taxReversalComponent > 0 ? [{
           accountId: 'acc_tax',
-          accountCode: '2020',
+          accountCode: '2100',
           accountName: 'Sales Tax Payable',
           debit: taxReversalComponent,
           credit: 0,
@@ -2512,6 +2885,7 @@ export async function handleCustomerRefund(req: express.Request, res: express.Re
           id: jlRef.id,
           journalEntryId: jeRef.id,
           entryNumber,
+          date: dateStr,
           branchId: targetBranchId,
           ...line,
           createdAt: timestamp
@@ -2585,11 +2959,16 @@ export async function handleCustomerRefund(req: express.Request, res: express.Re
         recQuery.docs.forEach((docSnap) => {
           const recData = docSnap.data() || {};
           const currentRecAmount = Number(recData.amount ?? recData.totalAmount ?? 0);
-          const newRecAmount = Math.max(0, currentRecAmount - refundAmount);
+          const currentRemainingAmount = Number(recData.remainingAmount ?? recData.remainingBalance ?? currentRecAmount);
+          const newRecAmount = Math.max(0, Math.round((currentRecAmount - refundAmount) * 100) / 100);
+          const newRemainingAmount = Math.max(0, Math.round((currentRemainingAmount - refundAmount) * 100) / 100);
           transaction.update(docSnap.ref, {
             amount: newRecAmount,
             totalAmount: newRecAmount,
-            status: newRecAmount <= 0.001 ? 'cancelled' : 'pending',
+            remainingAmount: newRemainingAmount,
+            remainingBalance: newRemainingAmount,
+            balance: newRemainingAmount,
+            status: newRemainingAmount <= 0.001 ? 'cancelled' : 'pending',
             notes: `Refund of $${refundAmount.toFixed(2)} applied on Order #${orderData.orderNumber || orderId}`,
             updatedAt: timestamp
           });
@@ -2607,15 +2986,22 @@ export async function handleCustomerRefund(req: express.Request, res: express.Re
           cpData = customerPointsSnap.data() || {};
         }
         const oldPoints = Number(cpData.points ?? cData.points ?? cData.loyaltyPoints ?? 0);
+        const orderLevelHistoricalPoints = Number(orderData.pointsEarnedAtCheckout ?? orderData.loyaltyPointsEarned ?? orderData.pointsEarned ?? 0);
         const historicalSelectedPoints = Array.from(lineAllocation.values()).reduce((sum: number, a: any) => {
-          const linePoints = Number(a.item.pointsEarned || 0);
-          const lineQty = Number(a.item.quantity || 0);
-          return sum + (lineQty > 0 ? linePoints * (a.qty / lineQty) : 0);
+          if (a.item.pointsEarned !== undefined && a.item.pointsEarned !== null) {
+            const linePoints = Number(a.item.pointsEarned || 0);
+            const lineQty = Number(a.item.quantity || 0);
+            return sum + (lineQty > 0 ? linePoints * (a.qty / lineQty) : 0);
+          }
+          if (orderLevelHistoricalPoints > 0 && orderItemSubtotal > 0) {
+            return sum + orderLevelHistoricalPoints * (a.lineSubtotal / orderItemSubtotal);
+          }
+          return sum;
         }, 0);
         const pointsToReverse = Math.max(0, Math.min(oldPoints, Math.round(historicalSelectedPoints)));
         const newPoints = Math.max(0, oldPoints - pointsToReverse);
         const oldLifetimePoints = Number(cpData.lifetimePoints ?? cData.lifetimePoints ?? 0);
-        const newLifetimePoints = Math.max(0, oldLifetimePoints - historicalSelectedPoints);
+        const newLifetimePoints = Math.max(0, Math.round(oldLifetimePoints - historicalSelectedPoints));
         const membershipLevel = getLoyaltyTierFromLifetimePoints(newLifetimePoints).level;
 
         transaction.update(customerRef, cleanUndefined({
@@ -2623,6 +3009,7 @@ export async function handleCustomerRefund(req: express.Request, res: express.Re
           totalSpending: newTotalSpent,
           loyaltyPoints: newPoints,
           points: newPoints,
+          lifetimePoints: newLifetimePoints,
           membershipLevel,
           updatedAt: timestamp
         }));
@@ -2633,6 +3020,7 @@ export async function handleCustomerRefund(req: express.Request, res: express.Re
             customerName: orderData.customerName || cData.name,
             points: newPoints,
             currentPointsBalance: newPoints,
+            lifetimePoints: newLifetimePoints,
             tier: membershipLevel,
             updatedAt: timestamp
           }), { merge: true });
@@ -2667,7 +3055,18 @@ export async function handleCustomerRefund(req: express.Request, res: express.Re
         timestamp
       }));
 
-      transaction.set(idempotencyRef, cleanUndefined({ status: 'success', orderId, refundAmount, createdAt: timestamp }));
+      const idemRecord = cleanUndefined({
+        status: 'success',
+        orderId,
+        refundId: newRefundRef.id,
+        refundAmount,
+        refundedAmount: refundAmount,
+        payloadHash: refundPayloadHash,
+        branchId: targetBranchId,
+        createdAt: timestamp
+      });
+      transaction.set(idempotencyRef, idemRecord);
+      transaction.set(legacyUserIdempotencyRef, idemRecord);
 
       return { status: 'success', refundId: newRefundRef.id, refundAmount, refundedAmount: refundAmount };
     });
@@ -2676,7 +3075,7 @@ export async function handleCustomerRefund(req: express.Request, res: express.Re
   } catch (err: any) {
     console.error('Customer Refund Error:', err?.message || err);
     const status = err?.statusCode || 400;
-    return res.status(status).json({ error: err?.message || 'Customer Refund Failed' });
+    return res.status(status).json({ error: err?.message || 'Customer Refund Failed', ...(err?.code ? { code: err.code } : {}) });
   }
 }
 
@@ -2711,11 +3110,12 @@ const CANONICAL_SYSTEM_GL_ACCOUNTS: Record<string, { code: string; name: string;
 
 async function prepareAccountBalanceState(transaction: any, db: any, accountIds: string[]) {
   const unique = Array.from(new Set(accountIds.map(String).filter(Boolean)));
-  const state = new Map<string, { ref: any; data: any; balance: number }>();
+  const state = new Map<string, { ref: any; data: any; balance: number; exists: boolean }>();
   const reads: Array<{ accountId: string; ref: any; snap: any }> = [];
 
   // Firestore transactions require every read to happen before the first write.
-  // Read the complete account set first, then create any missing canonical accounts.
+  // Keep prepareAccountBalanceState strictly read-only so subsequent reads in Phase 1 never fail;
+  // missing canonical accounts are created during applyAccountBalanceDeltasInTransaction in Phase 2.
   for (const accountId of unique) {
     const ref = db.collection('accounts').doc(accountId);
     const snap = await transaction.get(ref);
@@ -2735,11 +3135,10 @@ async function prepareAccountBalanceState(transaction: any, db: any, accountIds:
         createdAt: now,
         updatedAt: now
       };
-      transaction.create(ref, data);
     } else {
       data = snap.data() || {};
     }
-    state.set(accountId, { ref, data, balance: Number(data.balance || 0) });
+    state.set(accountId, { ref, data, balance: Number(data.balance || 0), exists: Boolean(snap.exists) });
   }
   return state;
 }
@@ -2756,7 +3155,7 @@ function normalizeAccountNature(rawType: any, data: any = {}): 'debit' | 'credit
 
 function applyAccountBalanceDeltasInTransaction(
   transaction: any,
-  state: Map<string, { ref: any; data: any; balance: number }>,
+  state: Map<string, { ref: any; data: any; balance: number; exists?: boolean }>,
   lines: any[],
   now: string
 ) {
@@ -2772,12 +3171,17 @@ function applyAccountBalanceDeltasInTransaction(
     entry.balance += delta;
   }
   for (const entry of state.values()) {
-    transaction.update(entry.ref, { balance: entry.balance, updatedAt: now });
+    if (entry.exists === false) {
+      transaction.set(entry.ref, { ...entry.data, balance: entry.balance, updatedAt: now }, { merge: true });
+      entry.exists = true;
+    } else {
+      transaction.update(entry.ref, { balance: entry.balance, updatedAt: now });
+    }
   }
 }
 
 // 4. Expense Creation
-const ALLOWED_PAYMENT_METHODS = new Set(['cash', 'card', 'bank', 'bank_transfer', 'mobile', 'mobile_money', 'cheque', 'accounts_payable', 'credit', 'unpaid', 'cod']);
+const ALLOWED_PAYMENT_METHODS = new Set(['cash', 'card', 'bank', 'bank_transfer', 'mobile', 'mobile_money', 'cheque', 'accounts_payable', 'credit', 'unpaid', 'cod', 'wallet']);
 function normalizePaymentMethod(value: any, fallback = 'cash'): string {
   const normalized = String(value ?? fallback).trim().toLowerCase();
   return ALLOWED_PAYMENT_METHODS.has(normalized) ? normalized : '';
@@ -2802,7 +3206,8 @@ async function resolveSettlementAccountInTransaction(
     cash: { id: 'acc_cash', code: '1010', name: 'Cash on Hand (Register)' },
     credit: { id: 'acc_ar', code: '1200', name: 'Accounts Receivable' },
     unpaid: { id: 'acc_ar', code: '1200', name: 'Accounts Receivable' },
-    cod: { id: 'acc_ar', code: '1200', name: 'Accounts Receivable' }
+    cod: { id: 'acc_ar', code: '1200', name: 'Accounts Receivable' },
+    wallet: { id: 'acc_wallet_liability', code: '2030', name: 'Customer Wallet Liability' }
   };
   if (canonicalSystem[method]) return canonicalSystem[method];
 
@@ -3000,7 +3405,7 @@ export async function handleExpenseCreation(req: express.Request, res: express.R
       const lines = [
         {
           accountId: 'acc_expense',
-          accountCode: '6010',
+          accountCode: '6100',
           accountName: `Operating Expense - ${expenseData.category || 'General'}`,
           debit: amount,
           credit: 0,
@@ -3053,6 +3458,7 @@ export async function handleExpenseCreation(req: express.Request, res: express.R
           id: jlRef.id,
           journalEntryId: jeRef.id,
           entryNumber,
+          date: dateStr,
           branchId: targetBranchId,
           ...line,
           createdAt: timestamp
@@ -3104,7 +3510,7 @@ export async function handleSalaryDisbursement(req: express.Request, res: expres
     return res.status(400).json({ error: 'Salary data is required.' });
   }
   let idempotencyKey: string;
-  try { idempotencyKey = getRequiredIdempotencyKey(req, salaryData.payrollId ? `payroll-payment:${salaryData.payrollId}` : undefined); }
+  try { idempotencyKey = getRequiredIdempotencyKey(req, req.body?.idempotencyKey || salaryData.idempotencyKey || (salaryData.payrollId ? `payroll-payment:${salaryData.payrollId}` : undefined)); }
   catch (e: any) { return res.status(e?.statusCode || 400).json({ error: e?.message || 'Idempotency-Key is required.' }); }
 
   const employeeId = salaryData.employeeId ? String(salaryData.employeeId).trim() : '';
@@ -3112,9 +3518,47 @@ export async function handleSalaryDisbursement(req: express.Request, res: expres
     return res.status(400).json({ error: 'Employee ID (employeeId) is required for salary disbursement.' });
   }
 
-  const submittedNetPaid = Number(salaryData.netPaid || salaryData.netSalary || salaryData.amount || 0);
+  const hasComponentBreakdown =
+    salaryData.baseSalary !== undefined ||
+    salaryData.basicSalary !== undefined ||
+    salaryData.allowances !== undefined ||
+    salaryData.bonuses !== undefined ||
+    salaryData.overtimePay !== undefined ||
+    salaryData.deductions !== undefined ||
+    salaryData.advances !== undefined;
+
+  const rawBaseSalary = Number(salaryData.baseSalary ?? salaryData.basicSalary ?? 0);
+  const rawAllowances = Number(salaryData.allowances ?? 0);
+  const rawBonuses = Number(salaryData.bonuses ?? 0);
+  const rawOvertimePay = Number(salaryData.overtimePay ?? 0);
+  const rawDeductions = Number(salaryData.deductions ?? 0);
+  const rawAdvances = Number(salaryData.advances ?? 0);
+
+  if (
+    !Number.isFinite(rawBaseSalary) || rawBaseSalary < 0 ||
+    !Number.isFinite(rawAllowances) || rawAllowances < 0 ||
+    !Number.isFinite(rawBonuses) || rawBonuses < 0 ||
+    !Number.isFinite(rawOvertimePay) || rawOvertimePay < 0 ||
+    !Number.isFinite(rawDeductions) || rawDeductions < 0 ||
+    !Number.isFinite(rawAdvances) || rawAdvances < 0
+  ) {
+    return res.status(400).json({ error: 'Salary components (baseSalary, allowances, bonuses, overtimePay, deductions, advances) must be finite non-negative numbers.' });
+  }
+
+  const hasNonZeroAdjustments = rawAllowances > 0 || rawBonuses > 0 || rawOvertimePay > 0 || rawDeductions > 0 || rawAdvances > 0;
+  const computedComponentNet = Number((rawBaseSalary + rawAllowances + rawBonuses + rawOvertimePay - rawDeductions - rawAdvances).toFixed(2));
+  const explicitNetInput = salaryData.netPaid ?? salaryData.netSalary ?? salaryData.amount;
+  const submittedNetPaid = explicitNetInput !== undefined && explicitNetInput !== null && String(explicitNetInput) !== ''
+    ? Number(explicitNetInput)
+    : (hasComponentBreakdown && rawBaseSalary > 0 ? computedComponentNet : 0);
+
   if (!Number.isFinite(submittedNetPaid) || submittedNetPaid <= 0) {
     return res.status(400).json({ error: 'Disbursement amount must be a positive numeric value.' });
+  }
+  if (rawBaseSalary > 0 && hasNonZeroAdjustments && Math.abs(submittedNetPaid - computedComponentNet) > 0.01) {
+    return res.status(400).json({
+      error: `Submitted salary amount (${submittedNetPaid.toFixed(2)}) does not match salary breakdown net amount (${computedComponentNet.toFixed(2)}).`
+    });
   }
 
   const branchCheck = checkBranchAuthorization(user, salaryData.branchId);
@@ -3123,18 +3567,35 @@ export async function handleSalaryDisbursement(req: express.Request, res: expres
   }
   const targetBranchId = branchCheck.targetBranchId;
   const payMethodNormalized = normalizePaymentMethod(salaryData.paymentMethod, 'bank');
-  if (!payMethodNormalized) return res.status(400).json({ error: 'Invalid salary payment method.' });
+  const disallowedSalaryPaymentMethods = new Set(['credit', 'unpaid', 'cod', 'wallet', 'accounts_payable']);
+  if (!payMethodNormalized || disallowedSalaryPaymentMethods.has(payMethodNormalized)) {
+    return res.status(400).json({ error: 'Invalid salary payment method.' });
+  }
   const db = getAdminDb();
 
   try {
     const result = await db.runTransaction(async (transaction) => {
+      const salaryIdemRef = db.collection('mutation_idempotency').doc(
+        createHash('sha256').update(`salary-disburse:${idempotencyKey}`).digest('hex')
+      );
+      const salaryIdemSnap = await transaction.get(salaryIdemRef);
+      if (salaryIdemSnap.exists) {
+        const prior = salaryIdemSnap.data() || {};
+        return { status: 'duplicate', id: prior.id, employeeName: prior.employeeName, payrollId: prior.payrollId, journalEntryId: prior.journalEntryId };
+      }
       const existingSalarySnap = await transaction.get(db.collection('salaries').where('idempotencyKey', '==', idempotencyKey).limit(1));
-      if (!existingSalarySnap.empty) return { status: 'duplicate', id: existingSalarySnap.docs[0].id, employeeName: existingSalarySnap.docs[0].data().employeeName };
+      if (!existingSalarySnap.empty) {
+        const dupData = existingSalarySnap.docs[0].data() || {};
+        return { status: 'duplicate', id: existingSalarySnap.docs[0].id, employeeName: dupData.employeeName, payrollId: dupData.payrollId, journalEntryId: dupData.journalEntryId };
+      }
       // Validate employee existence and branch in Firestore
       const empDoc = await transaction.get(db.collection('employees').doc(employeeId));
       let empData: any = {};
       if (empDoc.exists) {
         empData = empDoc.data() || {};
+        if (empData.isDeleted || empData.isArchived || empData.status === 'deleted') {
+          throw new Error(`Cannot disburse salary to deleted employee "${empData.fullName || empData.name || employeeId}".`);
+        }
       } else {
         const userDoc = await transaction.get(db.collection('users').doc(employeeId));
         if (userDoc.exists) {
@@ -3144,19 +3605,28 @@ export async function handleSalaryDisbursement(req: express.Request, res: expres
         }
       }
 
+      const empBranch = normalizeCanonicalBranchId(empData.branchId || empData.branch || '');
+      if (!empBranch) throw Object.assign(new Error('Employee has no canonical branchId. Salary disbursement rejected until migration.'), { statusCode: 409 });
+      if (targetBranchId !== 'all' && !areBranchesMatching(empBranch, targetBranchId)) {
+        throw new Error(`Unauthorized cross-branch salary disbursement! Employee belongs to branch "${empBranch}", but target branch is "${targetBranchId}".`);
+      }
+
       let payrollRef: any = null;
       let payrollSnap: any = null;
-      const payrollId = salaryData.payrollId ? String(salaryData.payrollId).trim() : '';
+      let payrollData: any = null;
+      let resolvedPayrollId = salaryData.payrollId ? String(salaryData.payrollId).trim() : '';
       let authoritativeNetPaid = submittedNetPaid;
-      let authoritativePeriod = salaryData.period || salaryData.month || '';
-      if (payrollId) {
-        payrollRef = db.collection('payroll').doc(payrollId);
+      let authoritativePeriod = String(salaryData.period || salaryData.month || salaryData.periodStart || '').trim();
+      if (resolvedPayrollId) {
+        payrollRef = db.collection('payroll').doc(resolvedPayrollId);
         payrollSnap = await transaction.get(payrollRef);
-        if (!payrollSnap.exists) throw new Error(`Payroll record \"${payrollId}\" not found.`);
-        const payrollData = payrollSnap.data() || {};
+        if (!payrollSnap.exists) throw new Error(`Payroll record \"${resolvedPayrollId}\" not found.`);
+        payrollData = payrollSnap.data() || {};
         if (payrollData.employeeId && String(payrollData.employeeId) !== employeeId) throw new Error('Payroll record employee does not match the disbursement employee.');
         if (!payrollData.branchId) throw Object.assign(new Error('Payroll record has no canonical branchId.'), { statusCode: 409 });
-        if (!areBranchesMatching(payrollData.branchId, targetBranchId)) throw new Error('Payroll record belongs to another branch.');
+        if ((targetBranchId !== 'all' && !areBranchesMatching(payrollData.branchId, targetBranchId)) || !areBranchesMatching(payrollData.branchId, empBranch)) {
+          throw Object.assign(new Error('Unauthorized cross-branch salary disbursement: Payroll record belongs to another branch.'), { statusCode: 403 });
+        }
         authoritativeNetPaid = Number(payrollData.netSalary);
         if (!Number.isFinite(authoritativeNetPaid) || authoritativeNetPaid <= 0) throw new Error('Payroll record contains an invalid netSalary.');
         if (Math.abs(authoritativeNetPaid - submittedNetPaid) > 0.005) throw Object.assign(new Error(`Submitted salary amount (${submittedNetPaid.toFixed(2)}) does not match authoritative payroll netSalary (${authoritativeNetPaid.toFixed(2)}).`), { statusCode: 400 });
@@ -3172,14 +3642,67 @@ export async function handleSalaryDisbursement(req: express.Request, res: expres
         if (submittedPeriodEnd && submittedPeriodEnd !== String(payrollData.periodEnd || '')) {
           throw Object.assign(new Error('Submitted payroll end date does not match the authoritative payroll record.'), { statusCode: 400 });
         }
-        authoritativePeriod = payrollData.periodStart || payrollData.period || payrollData.month || authoritativePeriod;
-        if (String(payrollData.paymentStatus || '').toLowerCase() === 'paid') return { status: 'duplicate', id: payrollId, employeeName: payrollData.employeeName || empData.name || 'Employee' };
+        authoritativePeriod = String(payrollData.periodStart || payrollData.period || payrollData.month || authoritativePeriod).trim();
+        if (String(payrollData.paymentStatus || '').toLowerCase() === 'paid') {
+          return {
+            status: 'duplicate',
+            id: payrollData.salaryDisbursementId || resolvedPayrollId,
+            payrollId: resolvedPayrollId,
+            journalEntryId: payrollData.journalEntryId,
+            employeeName: payrollData.employeeName || empData.name || 'Employee'
+          };
+        }
+      } else if (authoritativePeriod) {
+        const empPayrollSnap = await transaction.get(db.collection('payroll').where('employeeId', '==', employeeId));
+        const normPeriod = authoritativePeriod.toLowerCase();
+        const matchedPayrollDoc = empPayrollSnap.docs.find((d: any) => {
+          const pd = d.data() || {};
+          const pStart = String(pd.periodStart || '').trim().toLowerCase();
+          const pMonth = String(pd.month || '').trim().toLowerCase();
+          return pStart === normPeriod || (String(pd.payFrequency || 'monthly').toLowerCase() === 'monthly' && pMonth === normPeriod);
+        });
+        if (matchedPayrollDoc) {
+          const pd = matchedPayrollDoc.data() || {};
+          if (String(pd.paymentStatus || '').toLowerCase() === 'paid') {
+            return {
+              status: 'duplicate',
+              id: pd.salaryDisbursementId || matchedPayrollDoc.id,
+              payrollId: matchedPayrollDoc.id,
+              journalEntryId: pd.journalEntryId,
+              employeeName: pd.employeeName || empData.name || 'Employee'
+            };
+          }
+          if (Number.isFinite(Number(pd.netSalary)) && Math.abs(Number(pd.netSalary) - submittedNetPaid) <= 0.005) {
+            payrollRef = matchedPayrollDoc.ref;
+            payrollSnap = matchedPayrollDoc;
+            payrollData = pd;
+            resolvedPayrollId = matchedPayrollDoc.id;
+          }
+        }
       }
 
-      const empBranch = normalizeCanonicalBranchId(empData.branchId || empData.branch || '');
-      if (!empBranch) throw Object.assign(new Error('Employee has no canonical branchId. Salary disbursement rejected until migration.'), { statusCode: 409 });
-      if (targetBranchId !== 'all' && !areBranchesMatching(empBranch, targetBranchId)) {
-        throw new Error(`Unauthorized cross-branch salary disbursement! Employee belongs to branch "${empBranch}", but target branch is "${targetBranchId}".`);
+      // Guard against duplicate salary payment for the same employee + payroll/period across retries or concurrent requests with different Idempotency-Keys
+      const empSalariesSnap = await transaction.get(db.collection('salaries').where('employeeId', '==', employeeId));
+      const normAuthPeriod = authoritativePeriod.toLowerCase();
+      const normPayrollMonth = String(payrollData?.month || salaryData.month || '').trim().toLowerCase();
+      const duplicateSalaryDoc = empSalariesSnap.docs.find((d: any) => {
+        const sd = d.data() || {};
+        if (String(sd.status || sd.paymentStatus || 'paid').toLowerCase() !== 'paid') return false;
+        if (resolvedPayrollId && String(sd.payrollId || '').trim() === resolvedPayrollId) return true;
+        if (!normAuthPeriod) return false;
+        const sdPeriod = String(sd.period || '').trim().toLowerCase();
+        const sdMonth = String(sd.payrollMonth || sd.month || '').trim().toLowerCase();
+        return sdPeriod === normAuthPeriod || (normPayrollMonth && (sdPeriod === normPayrollMonth || sdMonth === normPayrollMonth));
+      });
+      if (duplicateSalaryDoc) {
+        const dupData = duplicateSalaryDoc.data() || {};
+        return {
+          status: 'duplicate',
+          id: duplicateSalaryDoc.id,
+          payrollId: dupData.payrollId || resolvedPayrollId || undefined,
+          journalEntryId: dupData.journalEntryId,
+          employeeName: dupData.employeeName || empData.name || 'Employee'
+        };
       }
 
       const authoritativeEmployeeName = empData.name || empData.fullName || empData.displayName || salaryData.employeeName || 'Employee';
@@ -3191,29 +3714,59 @@ export async function handleSalaryDisbursement(req: express.Request, res: expres
       const timestamp = new Date().toISOString();
       const dateStr = getMogadishuDateString(timestamp);
       await assertAccountingDateOpenInTransaction(transaction, db, dateStr, effectiveBranchId);
+      const rawPeriodCheck = String(payrollData?.periodStart || salaryData.periodStart || authoritativePeriod || '').trim();
+      const periodStartCheckDate = /^\d{4}-\d{2}-\d{2}$/.test(rawPeriodCheck)
+        ? rawPeriodCheck
+        : (/^\d{4}-\d{2}$/.test(rawPeriodCheck) ? `${rawPeriodCheck}-01` : '');
+      if (periodStartCheckDate && periodStartCheckDate !== dateStr) {
+        await assertAccountingDateOpenInTransaction(transaction, db, periodStartCheckDate, effectiveBranchId);
+      }
+      const rawPeriodEndCheck = String(payrollData?.periodEnd || salaryData.periodEnd || '').trim();
+      if (/^\d{4}-\d{2}-\d{2}$/.test(rawPeriodEndCheck) && rawPeriodEndCheck !== dateStr && rawPeriodEndCheck !== periodStartCheckDate) {
+        await assertAccountingDateOpenInTransaction(transaction, db, rawPeriodEndCheck, effectiveBranchId);
+      }
       const settlement = await resolveSettlementAccountInTransaction(transaction, db, effectiveBranchId, payMethodNormalized, salaryData.bankAccountId);
       const __accountState = await prepareAccountBalanceState(transaction, db, ['acc_payroll_expense', settlement.id]);
       const __cashRegisterState = (payMethodNormalized === 'cash') ? await prepareCashRegisterStateInTransaction(transaction, db, effectiveBranchId) : undefined;
+
+      const resolvedBaseSalary = payrollData
+        ? Number(payrollData.basicSalary ?? payrollData.baseSalary ?? authoritativeNetPaid)
+        : (rawBaseSalary > 0 ? rawBaseSalary : authoritativeNetPaid);
+      const resolvedOvertimePay = payrollData ? Number(payrollData.overtimePay ?? rawOvertimePay) : rawOvertimePay;
+      const resolvedBonuses = payrollData ? Number(payrollData.bonuses ?? rawBonuses) : rawBonuses;
+      const resolvedAllowances = payrollData ? Number(payrollData.allowances ?? rawAllowances) : rawAllowances;
+      const resolvedDeductions = payrollData ? Number(payrollData.deductions ?? rawDeductions) : rawDeductions;
+      const resolvedAdvances = payrollData ? Number(payrollData.advances ?? rawAdvances) : rawAdvances;
 
       const newSalaryRef = db.collection('salaries').doc();
       const fullSalaryDoc = {
         id: newSalaryRef.id,
         employeeId,
-        payrollId: salaryData.payrollId ? String(salaryData.payrollId).trim() : undefined,
+        payrollId: resolvedPayrollId || undefined,
         idempotencyKey,
         employeeName: authoritativeEmployeeName,
         period: authoritativePeriod ? String(authoritativePeriod).trim() : '',
-        baseSalary: Number(salaryData.baseSalary) || authoritativeNetPaid,
-        allowances: Number(salaryData.allowances) || 0,
-        deductions: Number(salaryData.deductions) || 0,
+        payrollMonth: payrollData?.month || undefined,
+        baseSalary: resolvedBaseSalary,
+        basicSalary: resolvedBaseSalary,
+        overtimePay: resolvedOvertimePay,
+        bonuses: resolvedBonuses,
+        allowances: resolvedAllowances,
+        deductions: resolvedDeductions,
+        advances: resolvedAdvances,
+        amount: authoritativeNetPaid,
         netPaid: authoritativeNetPaid,
+        status: 'paid',
+        paymentStatus: 'paid',
         paymentMethod: String(salaryData.paymentMethod || 'bank').trim(),
         paymentAccountId: settlement.id,
         bankAccountId: settlement.bankAccountId || salaryData.bankAccountId || undefined,
         notes: salaryData.notes ? String(salaryData.notes).trim() : undefined,
         branchId: effectiveBranchId,
         createdBy: user.name,
-        paidDate: timestamp
+        paidDate: timestamp,
+        paymentDate: dateStr,
+        createdAt: timestamp
       };
 
       transaction.set(newSalaryRef, cleanUndefined(fullSalaryDoc));
@@ -3226,7 +3779,7 @@ export async function handleSalaryDisbursement(req: express.Request, res: expres
       const lines = [
         {
           accountId: 'acc_payroll_expense',
-          accountCode: '6100',
+          accountCode: '6120',
           accountName: 'Salaries & Wages Expense',
           debit: authoritativeNetPaid,
           credit: 0,
@@ -3279,6 +3832,7 @@ export async function handleSalaryDisbursement(req: express.Request, res: expres
           id: jlRef.id,
           journalEntryId: jeRef.id,
           entryNumber,
+          date: dateStr,
           branchId: effectiveBranchId,
           ...line,
           createdAt: timestamp
@@ -3306,6 +3860,7 @@ export async function handleSalaryDisbursement(req: express.Request, res: expres
       if (payrollRef && payrollSnap?.exists) {
         transaction.update(payrollRef, cleanUndefined({
           paymentStatus: 'paid',
+          status: 'paid',
           paymentMethod: payMethodNormalized,
           paymentDate: timestamp,
           salaryDisbursementId: newSalaryRef.id,
@@ -3313,7 +3868,10 @@ export async function handleSalaryDisbursement(req: express.Request, res: expres
           updatedAt: timestamp
         }));
       }
-      return { status: 'success', id: newSalaryRef.id, employeeName: authoritativeEmployeeName, payrollId: payrollId || undefined, journalEntryId: jeRef.id };
+      const out = { status: 'success', id: newSalaryRef.id, employeeName: authoritativeEmployeeName, payrollId: resolvedPayrollId || undefined, journalEntryId: jeRef.id };
+      transaction.set(newSalaryRef, cleanUndefined({ ...fullSalaryDoc, journalEntryId: jeRef.id }));
+      transaction.set(salaryIdemRef, cleanUndefined({ ...out, idempotencyKey, branchId: effectiveBranchId, createdAt: timestamp }));
+      return out;
     });
 
     return res.json(result);
@@ -3341,10 +3899,30 @@ export async function handlePurchaseRegistration(req: express.Request, res: expr
   }
 
   const quantity = Number(purchaseData.quantity || 0);
-  const unitPrice = Number(purchaseData.unitPrice || 0);
-  const totalCost = Number(purchaseData.totalCost || (quantity * unitPrice));
+  const rawUnitPrice = Number(purchaseData.unitPrice ?? purchaseData.unitCost ?? 0);
+  const hasExplicitUnitPrice = (purchaseData.unitPrice !== undefined && purchaseData.unitPrice !== null && String(purchaseData.unitPrice) !== '') ||
+    (purchaseData.unitCost !== undefined && purchaseData.unitCost !== null && String(purchaseData.unitCost) !== '');
+  const hasExplicitTotalCost = purchaseData.totalCost !== undefined && purchaseData.totalCost !== null && String(purchaseData.totalCost) !== '';
+  const explicitTotalCost = Number(purchaseData.totalCost);
+  const computedLineTotal = Math.round(quantity * rawUnitPrice * 100) / 100;
 
-  if (!Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(totalCost) || totalCost < 0) {
+  if (!Number.isFinite(quantity) || quantity <= 0) {
+    return res.status(400).json({ error: 'Purchase quantity and total cost must be positive numeric values.' });
+  }
+  if (hasExplicitUnitPrice && (!Number.isFinite(rawUnitPrice) || rawUnitPrice < 0)) {
+    return res.status(400).json({ error: 'Purchase unitPrice must be a non-negative numeric value.' });
+  }
+  if (hasExplicitTotalCost && hasExplicitUnitPrice && rawUnitPrice > 0) {
+    if (!Number.isFinite(explicitTotalCost) || Math.abs(explicitTotalCost - computedLineTotal) > 0.05) {
+      return res.status(400).json({
+        error: `Purchase cost mismatch: totalCost (${explicitTotalCost}) does not match quantity (${quantity}) * unitPrice (${rawUnitPrice}) = ${computedLineTotal.toFixed(2)}.`
+      });
+    }
+  }
+  const totalCost = hasExplicitTotalCost ? explicitTotalCost : computedLineTotal;
+  const unitPrice = hasExplicitUnitPrice && rawUnitPrice > 0 ? rawUnitPrice : (quantity > 0 ? totalCost / quantity : 0);
+
+  if (!Number.isFinite(totalCost) || totalCost <= 0) {
     return res.status(400).json({ error: 'Purchase quantity and total cost must be positive numeric values.' });
   }
 
@@ -3370,12 +3948,15 @@ export async function handlePurchaseRegistration(req: express.Request, res: expr
       await assertAccountingDateOpenInTransaction(transaction, db, dateStr, targetBranchId);
 
       let authoritativeSupplierName = String(purchaseData.supplierName || 'Supplier').trim();
+      let purchaseSupRef: any = null;
+      let purchaseSupSnap: any = null;
       if (purchaseData.supplierId) {
-        const supDoc = await transaction.get(db.collection('suppliers').doc(String(purchaseData.supplierId).trim()));
-        if (!supDoc.exists) {
+        purchaseSupRef = db.collection('suppliers').doc(String(purchaseData.supplierId).trim());
+        purchaseSupSnap = await transaction.get(purchaseSupRef);
+        if (!purchaseSupSnap.exists) {
           throw new Error(`Supplier with ID "${purchaseData.supplierId}" not found in Firestore.`);
         }
-        const supData = supDoc.data() || {};
+        const supData = purchaseSupSnap.data() || {};
         const supplierBranchId = normalizeCanonicalBranchId(supData.branchId || '');
         if (!supplierBranchId || supplierBranchId === 'all') {
           throw new Error('Supplier has no canonical branchId; purchase registration rejected until the supplier is migrated to a concrete branch.');
@@ -3440,11 +4021,24 @@ export async function handlePurchaseRegistration(req: express.Request, res: expr
 
       transaction.set(newPurchaseRef, cleanUndefined(fullPurchaseDoc));
 
-      // 1. Inventory movement
+      // 1. Inventory movement & 2. Ingredient stock + weighted average cost update
+      const currentStock = Number(matchedIngredient.currentStockUsageUnit ?? matchedIngredient.stock ?? 0);
+      const newStock = currentStock + usageQuantity;
+      if (!Number.isFinite(currentStock) || currentStock < 0 || !Number.isFinite(newStock)) {
+        throw new Error(`Ingredient "${matchedIngredient.name || matched.id}" has invalid stock state.`);
+      }
+      const convFactor = Number(ingredientWithDefaults.conversionFactor || 1) > 0 ? Number(ingredientWithDefaults.conversionFactor || 1) : 1;
+      const oldCostPerUsage = Number(matchedIngredient.costPerUsageUnit ?? matchedIngredient.costPerUnit ?? matchedIngredient.costPrice ?? (convFactor > 0 ? Number(matchedIngredient.purchaseCost || 0) / convFactor : 0));
+      const newWeightedCostPerUsage = newStock > 0
+        ? ((Math.max(0, currentStock) * Math.max(0, oldCostPerUsage)) + totalCost) / newStock
+        : (usageQuantity > 0 ? totalCost / usageQuantity : oldCostPerUsage);
+      const newPurchaseUnitCost = newWeightedCostPerUsage * convFactor;
+      const nextIngStatus = getIngredientStockStatus(newStock, Number(matchedIngredient.minStockUsageUnit || 0));
+
       const movementRef = db.collection('inventory_movements').doc();
       transaction.set(movementRef, cleanUndefined({
         id: movementRef.id,
-        type: 'order_restoration',
+        type: 'stock_in',
         itemType: 'ingredient',
         itemId: matched ? matched.id : '',
         itemName: purchaseData.itemName || 'Purchase Item',
@@ -3452,27 +4046,47 @@ export async function handlePurchaseRegistration(req: express.Request, res: expr
         unit: usageUnit,
         purchaseQuantity: quantity,
         purchaseUnit,
-        unitCost: unitPrice,
+        unitCost: newWeightedCostPerUsage,
+        costPrice: newWeightedCostPerUsage,
+        totalCost,
+        previousQuantity: currentStock,
+        newQuantity: newStock,
         branchId: targetBranchId,
         reason: `Registered purchase from ${authoritativeSupplierName}`,
         createdBy: user.name,
         createdAt: timestamp
       }));
 
-      // 2. Ingredient stock update if matching within authorized target branch
       if (matched) {
-        const currentStock = Number(matchedIngredient.currentStockUsageUnit ?? matchedIngredient.stock ?? 0);
-        const newStock = currentStock + usageQuantity;
-        if (!Number.isFinite(currentStock) || currentStock < 0 || !Number.isFinite(newStock)) {
-          throw new Error(`Ingredient "${matchedIngredient.name || matched.id}" has invalid stock state.`);
-        }
         transaction.update(matched.ref, {
           stock: newStock,
           currentStockUsageUnit: newStock,
-          status: getIngredientStockStatus(newStock, Number(matchedIngredient.minStockUsageUnit || 0)),
+          purchaseCost: newPurchaseUnitCost,
+          costPerUsageUnit: newWeightedCostPerUsage,
+          costPrice: newWeightedCostPerUsage,
+          costPerUnit: newWeightedCostPerUsage,
+          status: nextIngStatus,
           lastPurchasePrice: unitPrice,
           updatedAt: timestamp
         });
+        const invProjectionRef = db.collection('inventory').doc(matched.id);
+        transaction.set(invProjectionRef, cleanUndefined({
+          id: matched.id,
+          itemType: 'ingredient',
+          itemName: matchedIngredient.name || purchaseData.itemName || 'Purchase Item',
+          itemCode: matchedIngredient.code || '',
+          currentQuantity: newStock,
+          unit: usageUnit,
+          purchaseUnit,
+          usageUnit,
+          conversionFactor: convFactor,
+          purchaseCost: newPurchaseUnitCost,
+          costPrice: newWeightedCostPerUsage,
+          costPerUsageUnit: newWeightedCostPerUsage,
+          branchId: targetBranchId,
+          status: newStock <= 0 ? 'out_of_stock' : newStock <= Number(matchedIngredient.minStockUsageUnit || 0) ? 'low_stock' : 'in_stock',
+          updatedAt: timestamp
+        }), { merge: true });
       }
 
       // 3. Journal Entry
@@ -3531,6 +4145,7 @@ export async function handlePurchaseRegistration(req: express.Request, res: expr
           id: jlRef.id,
           journalEntryId: jeRef.id,
           entryNumber,
+          date: dateStr,
           branchId: targetBranchId,
           ...line,
           createdAt: timestamp
@@ -3555,6 +4170,39 @@ export async function handlePurchaseRegistration(req: express.Request, res: expr
       }
 
       applyAccountBalanceDeltasInTransaction(transaction, __purchaseAccountState, lines, timestamp);
+      if (settlement.id === 'acc_ap') {
+        const payableRef = db.collection('payables').doc(`ap_pur_${newPurchaseRef.id}`);
+        transaction.set(payableRef, cleanUndefined({
+          id: payableRef.id,
+          purchaseId: newPurchaseRef.id,
+          billNumber: `PUR-${newPurchaseRef.id.slice(0, 6).toUpperCase()}`,
+          vendorName: authoritativeSupplierName,
+          supplierName: authoritativeSupplierName,
+          vendorId: purchaseData.supplierId ? String(purchaseData.supplierId).trim() : undefined,
+          supplierId: purchaseData.supplierId ? String(purchaseData.supplierId).trim() : undefined,
+          totalAmount: totalCost,
+          amount: totalCost,
+          paidAmount: 0,
+          remainingBalance: totalCost,
+          status: 'Unpaid',
+          payments: [],
+          branchId: targetBranchId,
+          journalEntryId: jeRef.id,
+          date: dateStr,
+          createdBy: user.name,
+          createdAt: timestamp
+        }));
+        if (purchaseSupRef && purchaseSupSnap && purchaseSupSnap.exists) {
+          const sData = purchaseSupSnap.data() || {};
+          const curOut = Number(sData.outstandingBalance || 0);
+          const curPend = Number(sData.pendingAmount || 0);
+          transaction.update(purchaseSupRef, {
+            outstandingBalance: Math.round((curOut + totalCost) * 100) / 100,
+            pendingAmount: Math.round((curPend + totalCost) * 100) / 100,
+            updatedAt: timestamp
+          });
+        }
+      }
       if (normalizedPurchaseStatus === 'completed' && settlement.id === 'acc_cash') applyCashRegisterMovementInTransaction(transaction, db, targetBranchId, -totalCost, 'purchase cash payment', __purchaseCash);
       const out = { status: 'success', id: newPurchaseRef.id };
       transaction.set(idemRef, cleanUndefined({ ...out, createdAt: timestamp }));
@@ -3578,7 +4226,7 @@ export async function handleBankTransaction(req: express.Request, res: express.R
     return res.status(403).json({ error: roleCheck.error });
   }
 
-  const { bankTransactionData } = req.body || {};
+  const bankTransactionData = req.body?.bankTransactionData || req.body?.transactionData || (req.body?.amount && req.body?.bankAccountId ? req.body : undefined);
   if (!bankTransactionData) {
     return res.status(400).json({ error: 'Bank transaction data is required.' });
   }
@@ -3637,11 +4285,16 @@ export async function handleBankTransaction(req: express.Request, res: express.R
           primaryAccData.__bankRef = bankRef;
           primaryAccData.__bankData = bankData;
         } else {
-          // Legacy compatibility: accept an account ID only when it is itself a valid branch-scoped GL account.
-          primaryAccRef = db.collection('accounts').doc(bankTransactionData.bankAccountId);
+          // Legacy compatibility: accept an account ID only when it is itself a valid branch-scoped Bank/Cash GL account.
+          primaryAccRef = db.collection('accounts').doc(String(bankTransactionData.bankAccountId).trim());
           const accDoc = await transaction.get(primaryAccRef);
-          if (!accDoc.exists) throw new Error(`Bank account with ID "${bankTransactionData.bankAccountId}" not found.`);
+          if (!accDoc.exists) throw Object.assign(new Error(`Bank account with ID "${bankTransactionData.bankAccountId}" not found.`), { statusCode: 404 });
           primaryAccData = accDoc.data() || {};
+          const accType = String(primaryAccData.type || '').toLowerCase();
+          const accCode = String(primaryAccData.code || '');
+          if (accType !== 'bank' && accType !== 'cash' && accType !== 'asset' && !accCode.startsWith('10')) {
+            throw Object.assign(new Error(`Account "${primaryAccData.name || bankTransactionData.bankAccountId}" is not a valid bank or cash account.`), { statusCode: 400 });
+          }
         }
         if (primaryAccData.branchId) {
           const accBranchCheck = checkBranchAuthorization(user, primaryAccData.branchId);
@@ -3692,6 +4345,10 @@ export async function handleBankTransaction(req: express.Request, res: express.R
         }
         const destBal = Number(destAccData.balance || 0);
         destNewBal = destBal + amount;
+      }
+
+      if (isTransfer && destAccRef && primaryAccRef && destAccRef.id === primaryAccRef.id) {
+        throw Object.assign(new Error('Source and destination bank accounts must be different for a bank transfer.'), { statusCode: 400 });
       }
 
       if (!primaryAccRef || !primaryAccData) throw Object.assign(new Error('bankAccountId is required and must reference a valid branch-owned bank account.'), { statusCode: 400 });
@@ -3769,7 +4426,7 @@ export async function handleBankTransaction(req: express.Request, res: express.R
           },
           {
             accountId: primaryAccRef?.id || '',
-            accountCode: '1020',
+            accountCode: String(primaryAccData?.code || '1020'),
             accountName: srcName,
             debit: 0,
             credit: amount,
@@ -3789,7 +4446,7 @@ export async function handleBankTransaction(req: express.Request, res: express.R
           },
           {
             accountId: primaryAccRef?.id || '',
-            accountCode: '1020',
+            accountCode: String(primaryAccData?.code || '1020'),
             accountName: primaryAccData?.name || bankTransactionData.accountName || 'Main Bank Account',
             debit: 0,
             credit: amount,
@@ -3801,7 +4458,7 @@ export async function handleBankTransaction(req: express.Request, res: express.R
         lines = [
           {
             accountId: primaryAccRef?.id || '',
-            accountCode: '1020',
+            accountCode: String(primaryAccData?.code || '1020'),
             accountName: primaryAccData?.name || bankTransactionData.accountName || 'Main Bank Account',
             debit: amount,
             credit: 0,
@@ -3847,6 +4504,7 @@ export async function handleBankTransaction(req: express.Request, res: express.R
           id: jlRef.id,
           journalEntryId: jeRef.id,
           entryNumber,
+          date: dateStr,
           branchId: targetBranchId,
           ...line,
           createdAt: timestamp
@@ -4076,12 +4734,12 @@ export async function handleInventoryAdjustment(req: express.Request, res: expre
       if (totalAdjustmentCost > 0) {
         const effectiveOut = rawMode === 'set' ? effectiveDelta < 0 : isOut;
         const debitAccountId = effectiveOut ? (movementData.type === 'waste' ? 'acc_waste' : 'acc_inventory_adjustment') : 'acc_inventory';
-        const debitAccountCode = effectiveOut ? (movementData.type === 'waste' ? '5030' : '5040') : '1030';
-        const debitAccountName = effectiveOut ? (movementData.type === 'waste' ? 'Kitchen Waste & Shrinkage Expense' : 'Inventory Adjustment & Reconciliation') : 'Food & Beverage Inventory Asset';
+        const debitAccountCode = effectiveOut ? (movementData.type === 'waste' ? '6300' : '6310') : '1030';
+        const debitAccountName = effectiveOut ? (movementData.type === 'waste' ? 'Inventory Waste Expense' : 'Inventory Adjustment Expense') : 'Food & Beverage Inventory Asset';
 
         const creditAccountId = effectiveOut ? 'acc_inventory' : (movementData.type === 'waste' ? 'acc_waste' : 'acc_inventory_adjustment');
-        const creditAccountCode = effectiveOut ? '1030' : (movementData.type === 'waste' ? '5030' : '5040');
-        const creditAccountName = effectiveOut ? 'Food & Beverage Inventory Asset' : (movementData.type === 'waste' ? 'Kitchen Waste & Shrinkage Expense' : 'Inventory Adjustment & Reconciliation');
+        const creditAccountCode = effectiveOut ? '1030' : (movementData.type === 'waste' ? '6300' : '6310');
+        const creditAccountName = effectiveOut ? 'Food & Beverage Inventory Asset' : (movementData.type === 'waste' ? 'Inventory Waste Expense' : 'Inventory Adjustment Expense');
 
         const lines = [
           {
@@ -4128,6 +4786,7 @@ export async function handleInventoryAdjustment(req: express.Request, res: expre
             id: jlRef.id,
             journalEntryId: jeRef.id,
             entryNumber,
+            date: dateStr,
             branchId: targetBranchId,
             ...line,
             createdAt: timestamp
@@ -4162,6 +4821,214 @@ export async function handleInventoryAdjustment(req: express.Request, res: expre
   } catch (err: any) {
     console.error('Inventory Adjustment Error:', err?.message || err);
     return res.status(err?.message?.includes('Insufficient') ? 400 : 500).json({ error: err?.message || 'Inventory Adjustment Failed' });
+  }
+}
+
+export async function handleApplyStockCount(req: express.Request, res: express.Response) {
+  const user = await authenticateTrustedUser(req, res);
+  if (!user) return;
+
+  const roleCheck = checkRoleAuthorization(user, ['Owner', 'owner', 'Admin', 'admin', 'Manager', 'manager', 'Accountant', 'accountant']);
+  if (!roleCheck.authorized) {
+    return res.status(403).json({ error: roleCheck.error });
+  }
+
+  const { stockCountId } = req.body || {};
+  if (!stockCountId || typeof stockCountId !== 'string') {
+    return res.status(400).json({ error: 'stockCountId is required.' });
+  }
+
+  let idempotencyKey: string;
+  try { idempotencyKey = getRequiredIdempotencyKey(req, req.body?.idempotencyKey); }
+  catch (e: any) { return res.status(e?.statusCode || 400).json({ error: e?.message || 'Idempotency-Key is required.' }); }
+
+  const db = getAdminDb();
+  const idemRef = db.collection('mutation_idempotency').doc(createHash('sha256').update(`stock-count-apply:${user.uid}:${stockCountId}:${idempotencyKey}`).digest('hex'));
+
+  try {
+    const result = await db.runTransaction(async (transaction) => {
+      const idemSnap = await transaction.get(idemRef);
+      if (idemSnap.exists) return idemSnap.data();
+
+      const scRef = db.collection('stock_counts').doc(stockCountId);
+      const scSnap = await transaction.get(scRef);
+      if (!scSnap.exists) {
+        throw Object.assign(new Error(`Stock count "${stockCountId}" not found.`), { statusCode: 404 });
+      }
+
+      const scData = scSnap.data() as any;
+      const targetBranchId = normalizeCanonicalBranchId(scData.branchId || user.branchId || '');
+      const branchCheck = checkBranchAuthorization(user, targetBranchId);
+      if (!branchCheck.authorized) {
+        throw Object.assign(new Error(branchCheck.error), { statusCode: 403 });
+      }
+
+      if (scData.status === 'adjusted') {
+        return { status: 'already_adjusted', stockCountId, idempotencyKey };
+      }
+
+      const timestamp = new Date().toISOString();
+      const items = Array.isArray(scData.items) ? scData.items : [];
+      
+      // Phase 1: All Reads
+      const dateStr = getMogadishuDateString(timestamp);
+      await assertAccountingDateOpenInTransaction(transaction, db, dateStr, targetBranchId);
+      const itemsToAdjust = items.filter((it: any) => Number(it.difference || 0) !== 0 || it.actualQuantity !== undefined || it.actualCount !== undefined || it.countedStock !== undefined);
+      const ingReads: Array<{ item: any; ref: any; snap: any; invRef: any; invSnap: any }> = [];
+      for (const item of itemsToAdjust) {
+        const ingId = String(item.ingredientId || item.itemId || item.id || '').trim();
+        if (!ingId) continue;
+        const ingRef = db.collection('ingredients').doc(ingId);
+        const ingSnap = await transaction.get(ingRef);
+        const invRef = db.collection('inventory').doc(ingId);
+        const invSnap = await transaction.get(invRef);
+        ingReads.push({ item, ref: ingRef, snap: ingSnap, invRef, invSnap });
+      }
+      const __scAccountState = ingReads.length > 0
+        ? await prepareAccountBalanceState(transaction, db, ['acc_inventory', 'acc_inventory_adjustment'])
+        : null;
+
+      // Phase 2: All Writes
+      let totalDecreaseCost = 0;
+      let totalIncreaseCost = 0;
+      let adjustedItemsCount = 0;
+      for (const { item, ref, snap, invRef, invSnap } of ingReads) {
+        if (!snap.exists && !invSnap.exists) continue;
+        const isIngredient = snap.exists;
+        const baseData = isIngredient ? (snap.data() || {}) : (invSnap.data() || {});
+        const prevStock = isIngredient
+          ? Number(baseData.stock ?? baseData.currentStockUsageUnit ?? 0)
+          : Number(baseData.currentQuantity ?? baseData.stock ?? 0);
+        const newStock = Math.max(
+          0,
+          Number(
+            item.actualQuantity ??
+            item.actualCount ??
+            item.countedStock ??
+            (prevStock + Number(item.difference || 0))
+          )
+        );
+        const diff = newStock - prevStock;
+        if (Math.abs(diff) < 0.000001) continue;
+        adjustedItemsCount += 1;
+        const unitCost = isIngredient
+          ? Number(baseData.costPerUsageUnit ?? baseData.costPerUnit ?? baseData.costPrice ?? baseData.cost ?? item.costPerUnit ?? 0)
+          : Number(baseData.costPrice ?? baseData.purchaseCost ?? baseData.cost ?? item.costPerUnit ?? 0);
+        const deltaCost = Math.abs(diff) * Math.max(0, unitCost);
+        if (diff < 0) totalDecreaseCost += deltaCost;
+        else if (diff > 0) totalIncreaseCost += deltaCost;
+
+        const movRef = db.collection('inventory_movements').doc();
+        transaction.set(movRef, cleanUndefined({
+          id: movRef.id,
+          type: diff < 0 ? 'out' : 'in',
+          mode: 'delta',
+          itemType: isIngredient ? 'ingredient' : 'inventory',
+          itemId: ref.id,
+          itemName: baseData.name || baseData.itemName || item.ingredientName || item.itemName || 'Inventory Item',
+          quantity: Math.abs(diff),
+          unit: baseData.usageUnit || baseData.unit || item.unit || 'unit',
+          unitCost,
+          totalCost: deltaCost,
+          previousQuantity: prevStock,
+          newQuantity: newStock,
+          reason: `Physical Stock Count Adjustment (${diff > 0 ? '+' : ''}${diff} ${item.unit || ''})`,
+          branchId: targetBranchId,
+          createdBy: user.name,
+          createdAt: timestamp
+        }));
+
+        if (isIngredient) {
+          const nextStatus = getIngredientStockStatus(newStock, Number(baseData.minStockUsageUnit || 0));
+          transaction.update(ref, cleanUndefined({
+            stock: newStock,
+            currentStockUsageUnit: newStock,
+            status: nextStatus,
+            updatedAt: timestamp
+          }));
+        }
+
+        const minQty = Number(baseData.minStockUsageUnit ?? baseData.minimumQuantity ?? 0);
+        const invStatus = newStock <= 0 ? 'out_of_stock' : newStock <= minQty ? 'low_stock' : 'in_stock';
+        transaction.set(invRef, cleanUndefined({
+          id: ref.id,
+          itemType: isIngredient ? 'ingredient' : (baseData.itemType || 'inventory'),
+          itemName: baseData.name || baseData.itemName || item.ingredientName || item.itemName || 'Inventory Item',
+          itemCode: baseData.code || baseData.itemCode || '',
+          currentQuantity: newStock,
+          unit: baseData.usageUnit || baseData.unit || item.unit || 'unit',
+          costPerUsageUnit: unitCost,
+          costPrice: unitCost,
+          branchId: targetBranchId,
+          status: invStatus,
+          updatedAt: timestamp
+        }), { merge: true });
+      }
+
+      const netAdjustmentCost = totalIncreaseCost - totalDecreaseCost;
+      if (Math.abs(netAdjustmentCost) > 0.0001 && __scAccountState) {
+        const isNetOut = netAdjustmentCost < 0;
+        const absCost = Math.abs(netAdjustmentCost);
+        const scLines = [
+          {
+            accountId: isNetOut ? 'acc_inventory_adjustment' : 'acc_inventory',
+            accountCode: isNetOut ? '6310' : '1030',
+            accountName: isNetOut ? 'Inventory Adjustment Expense' : 'Food & Beverage Inventory Asset',
+            debit: absCost,
+            credit: 0,
+            memo: `Physical Stock Count Reconciliation #${stockCountId}`
+          },
+          {
+            accountId: isNetOut ? 'acc_inventory' : 'acc_inventory_adjustment',
+            accountCode: isNetOut ? '1030' : '6310',
+            accountName: isNetOut ? 'Food & Beverage Inventory Asset' : 'Inventory Adjustment Expense',
+            debit: 0,
+            credit: absCost,
+            memo: `Physical Stock Count Reconciliation #${stockCountId}`
+          }
+        ];
+        const jeRef = db.collection('journal_entries').doc();
+        const entryNumber = `JE-SC-${stockCountId.slice(0, 6)}`;
+        transaction.set(jeRef, cleanUndefined({
+          id: jeRef.id,
+          entryNumber,
+          date: dateStr,
+          reference: stockCountId,
+          description: `Stock Count Adjustment Reconciliation #${stockCountId}`,
+          source: 'InventoryAdjustment',
+          status: 'Posted',
+          totalDebit: absCost,
+          totalCredit: absCost,
+          lines: scLines,
+          branchId: targetBranchId,
+          createdBy: user.name,
+          createdAt: timestamp
+        }));
+        for (const line of scLines) {
+          const jlRef = db.collection('journal_lines').doc();
+          transaction.set(jlRef, cleanUndefined({ id: jlRef.id, journalEntryId: jeRef.id, entryNumber, date: dateStr, branchId: targetBranchId, ...line, createdAt: timestamp }));
+          const ledgerRef = db.collection('ledger').doc();
+          transaction.set(ledgerRef, cleanUndefined({ id: ledgerRef.id, accountId: line.accountId, accountCode: line.accountCode, accountName: line.accountName, journalEntryId: jeRef.id, entryNumber, date: dateStr, reference: stockCountId, description: line.memo, debit: line.debit, credit: line.credit, branchId: targetBranchId, createdAt: timestamp }));
+        }
+        applyAccountBalanceDeltasInTransaction(transaction, __scAccountState, scLines, timestamp);
+      }
+
+      transaction.update(scRef, {
+        status: 'adjusted',
+        adjustedBy: user.name,
+        adjustedAt: timestamp,
+        updatedAt: timestamp
+      });
+
+      const out = { status: 'success', stockCountId, itemsAdjusted: adjustedItemsCount, idempotencyKey };
+      transaction.set(idemRef, cleanUndefined({ ...out, createdAt: timestamp }));
+      return out;
+    });
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error('Stock Count Adjustment Error:', err?.message || err);
+    return res.status(err?.statusCode || 500).json({ error: err?.message || 'Stock Count Adjustment Failed' });
   }
 }
 
@@ -4207,9 +5074,15 @@ export async function handleStockUpdate(req: express.Request, res: express.Respo
       if (!stockBranchId) throw Object.assign(new Error('Product canonical branchId is missing. Stock update rejected until the product is migrated.'), { statusCode: 409 });
       const stockBranchCheck = checkBranchAuthorization(user, stockBranchId);
       if (!stockBranchCheck.authorized) throw Object.assign(new Error(stockBranchCheck.error), { statusCode: 403 });
-      await assertAccountingDateOpenInTransaction(transaction, db, getMogadishuDateString(timestamp), stockBranchId);
+      const dateStr = getMogadishuDateString(timestamp);
+      await assertAccountingDateOpenInTransaction(transaction, db, dateStr, stockBranchId);
       const currentStock = Number(prodData.stock || 0);
       const diff = targetStock - currentStock;
+      const unitCost = Math.max(0, Number(prodData.costPrice ?? prodData.cost ?? prodData.purchaseCost ?? 0));
+      const adjustmentCost = Math.round(Math.abs(diff) * unitCost * 100) / 100;
+      const __stockAccountState = adjustmentCost > 0
+        ? await prepareAccountBalanceState(transaction, db, ['acc_inventory', 'acc_inventory_adjustment'])
+        : null;
 
       const targetBranchId = stockBranchId;
 
@@ -4222,7 +5095,10 @@ export async function handleStockUpdate(req: express.Request, res: express.Respo
         id: productId,
         itemType: 'product',
         itemId: productId,
+        itemName: prodData.name || 'Product',
         currentQuantity: targetStock,
+        costPrice: unitCost,
+        purchaseCost: unitCost,
         branchId: targetBranchId,
         updatedAt: timestamp
       }), { merge: true });
@@ -4236,6 +5112,9 @@ export async function handleStockUpdate(req: express.Request, res: express.Respo
         itemId: productId,
         itemName: prodData.name || 'Product',
         quantity: Math.abs(diff),
+        unitCost,
+        costPrice: unitCost,
+        totalCost: adjustmentCost,
         previousQuantity: currentStock,
         newQuantity: targetStock,
         branchId: targetBranchId,
@@ -4244,6 +5123,52 @@ export async function handleStockUpdate(req: express.Request, res: express.Respo
         createdAt: timestamp,
         idempotencyKey
       }));
+
+      if (adjustmentCost > 0 && __stockAccountState) {
+        const isOut = diff < 0;
+        const lines = [
+          {
+            accountId: isOut ? 'acc_inventory_adjustment' : 'acc_inventory',
+            accountCode: isOut ? '6310' : '1030',
+            accountName: isOut ? 'Inventory Adjustment Expense' : 'Food & Beverage Inventory Asset',
+            debit: adjustmentCost,
+            credit: 0,
+            memo: `Physical Stock Update (${isOut ? 'Reduction' : 'Addition'}) for ${prodData.name || productId}`
+          },
+          {
+            accountId: isOut ? 'acc_inventory' : 'acc_inventory_adjustment',
+            accountCode: isOut ? '1030' : '6310',
+            accountName: isOut ? 'Food & Beverage Inventory Asset' : 'Inventory Adjustment Expense',
+            debit: 0,
+            credit: adjustmentCost,
+            memo: `Physical Stock Update (${isOut ? 'Reduction' : 'Addition'}) for ${prodData.name || productId}`
+          }
+        ];
+        const jeRef = db.collection('journal_entries').doc();
+        const entryNumber = `JE-STK-${movementRef.id.slice(0, 6).toUpperCase()}`;
+        transaction.set(jeRef, cleanUndefined({
+          id: jeRef.id,
+          entryNumber,
+          date: dateStr,
+          reference: movementRef.id,
+          description: `Physical Stock Reconciliation for ${prodData.name || productId} (${diff >= 0 ? '+' : ''}${diff})`,
+          source: 'InventoryAdjustment',
+          status: 'Posted',
+          totalDebit: adjustmentCost,
+          totalCredit: adjustmentCost,
+          lines,
+          branchId: targetBranchId,
+          createdBy: user.name,
+          createdAt: timestamp
+        }));
+        for (const line of lines) {
+          const jlRef = db.collection('journal_lines').doc();
+          transaction.set(jlRef, cleanUndefined({ id: jlRef.id, journalEntryId: jeRef.id, entryNumber, date: dateStr, branchId: targetBranchId, ...line, createdAt: timestamp }));
+          const ledgerRef = db.collection('ledger').doc();
+          transaction.set(ledgerRef, cleanUndefined({ id: ledgerRef.id, accountId: line.accountId, accountCode: line.accountCode, accountName: line.accountName, journalEntryId: jeRef.id, entryNumber, date: dateStr, reference: movementRef.id, description: line.memo, debit: line.debit, credit: line.credit, branchId: targetBranchId, createdAt: timestamp }));
+        }
+        applyAccountBalanceDeltasInTransaction(transaction, __stockAccountState, lines, timestamp);
+      }
 
       // Atomic Update 3: Audit Log
       const auditRef = db.collection('activity_logs').doc();
@@ -4309,20 +5234,26 @@ export async function handleKitchenStatusUpdate(req: express.Request, res: expre
 
   const db = getAdminDb();
   const timestamp = new Date().toISOString();
+  const rawKitchenIdemKey = req.headers['idempotency-key'] || req.headers['x-idempotency-key'] || req.body?.idempotencyKey;
+  const kitchenIdemKey = typeof rawKitchenIdemKey === 'string' && rawKitchenIdemKey.trim() ? rawKitchenIdemKey.trim() : '';
+  const kitchenIdemRef = kitchenIdemKey
+    ? db.collection('mutation_idempotency').doc(createHash('sha256').update(`kitchen-status:${user.uid}:${ticketId}:${kitchenIdemKey}`).digest('hex'))
+    : null;
 
   try {
-    await runTransactionWithRetry(db, async (transaction) => {
-      console.log(`[KITCHEN STATUS STEP 1] kitchen_orders/${ticketId} ADMIN SDK READ`);
+    const txResult = await runTransactionWithRetry(db, async (transaction) => {
+      if (kitchenIdemRef) {
+        const idemSnap = await transaction.get(kitchenIdemRef);
+        if (idemSnap.exists) return idemSnap.data();
+      }
       const ticketRef = db.collection('kitchen_orders').doc(ticketId);
       const ticketSnap = await transaction.get(ticketRef);
 
       if (!ticketSnap.exists) {
-        console.log(`[KITCHEN STATUS STEP 1] kitchen_orders/${ticketId} ADMIN SDK READ: FAIL (not found)`);
         const notFoundErr: any = new Error(`Kitchen ticket #${ticketId} not found.`);
         notFoundErr.statusCode = 404;
         throw notFoundErr;
       }
-      console.log(`[KITCHEN STATUS STEP 1] kitchen_orders/${ticketId} ADMIN SDK READ: SUCCESS`);
 
       const kitchenData = ticketSnap.data() || {};
       const targetBranchId = normalizeCanonicalBranchId(kitchenData.branchId || user.branchId);
@@ -4365,15 +5296,11 @@ export async function handleKitchenStatusUpdate(req: express.Request, res: expre
 
       // Read linked order and deliveries BEFORE any transaction writes (Firestore Read-Before-Write Rule)
       const targetOrderId = kitchenData.orderId || ticketId;
-      console.log(`[KITCHEN STATUS STEP 2] orders/${targetOrderId} ADMIN SDK READ`);
       const orderRef = db.collection('orders').doc(targetOrderId);
       const orderSnap = await transaction.get(orderRef);
-      console.log(`[KITCHEN STATUS STEP 2] orders/${targetOrderId} ADMIN SDK READ: ${orderSnap.exists ? 'SUCCESS (exists)' : 'SKIPPED (not exists)'}`);
 
-      console.log(`[KITCHEN STATUS STEP 3] deliveries?orderId=${targetOrderId} ADMIN SDK QUERY`);
       const deliveryQuery = db.collection('deliveries').where('orderId', '==', targetOrderId);
       const delSnap = await transaction.get(deliveryQuery);
-      console.log(`[KITCHEN STATUS STEP 3] deliveries?orderId=${targetOrderId} ADMIN SDK QUERY: SUCCESS (${delSnap.docs.length} found)`);
 
       if (orderSnap.exists) {
         const linkedOrderData = orderSnap.data() || {};
@@ -4406,7 +5333,6 @@ export async function handleKitchenStatusUpdate(req: express.Request, res: expre
         updates.rejectedAt = timestamp;
       }
 
-      console.log(`[KITCHEN STATUS STEP 4] kitchen_orders/${ticketId} ADMIN SDK UPDATE`);
       transaction.update(ticketRef, cleanUndefined(updates));
 
       // Sync to main sales order in `orders`
@@ -4433,13 +5359,11 @@ export async function handleKitchenStatusUpdate(req: express.Request, res: expre
           orderUpdates.completedAt = timestamp;
         }
 
-        console.log(`[KITCHEN STATUS STEP 5] orders/${targetOrderId} ADMIN SDK UPDATE`);
         transaction.update(orderRef, cleanUndefined(orderUpdates));
       }
 
       // Sync to linked delivery if exists
       if (!delSnap.empty) {
-        console.log(`[KITCHEN STATUS STEP 6] deliveries (${delSnap.docs.length} docs) ADMIN SDK UPDATE`);
         delSnap.docs.forEach((delDoc) => {
           const delUpdates: any = {
             kitchenStatus: normalizedStatus,
@@ -4451,9 +5375,14 @@ export async function handleKitchenStatusUpdate(req: express.Request, res: expre
           transaction.update(delDoc.ref, delUpdates);
         });
       }
+      const out = { status: 'success', ticketId, prepStatus: normalizedStatus };
+      if (kitchenIdemRef) {
+        transaction.set(kitchenIdemRef, cleanUndefined({ ...out, idempotencyKey: kitchenIdemKey, createdAt: timestamp }));
+      }
+      return out;
     });
 
-    return res.json({ status: 'success', ticketId, prepStatus: normalizedStatus });
+    return res.json(txResult || { status: 'success', ticketId, prepStatus: normalizedStatus });
   } catch (err: any) {
     const rawMsg = err?.message || 'Kitchen Status Update Failed';
     const statusCode = err.statusCode || (rawMsg.includes('not found') ? 404 : rawMsg.includes('Unauthorized') || rawMsg.includes('cross-branch') ? 403 : rawMsg.includes('Invalid') ? 400 : 500);
@@ -4483,25 +5412,31 @@ export async function handleDeliveryStatusUpdate(req: express.Request, res: expr
 
   const db = getAdminDb();
   const now = new Date().toISOString();
+  const rawDelIdemKey = req.headers['idempotency-key'] || req.headers['x-idempotency-key'] || req.body?.idempotencyKey;
+  const delIdemKey = typeof rawDelIdemKey === 'string' && rawDelIdemKey.trim() ? rawDelIdemKey.trim() : '';
+  const delIdemRef = delIdemKey
+    ? db.collection('mutation_idempotency').doc(createHash('sha256').update(`delivery-status:${user.uid}:${deliveryId}:${delIdemKey}`).digest('hex'))
+    : null;
 
   try {
-    await runTransactionWithRetry(db, async (transaction) => {
+    const txResult = await runTransactionWithRetry(db, async (transaction) => {
       // ----------------------------------------------------
       // PHASE 1 — ALL READS & VALIDATIONS
       // ----------------------------------------------------
+      if (delIdemRef) {
+        const idemSnap = await transaction.get(delIdemRef);
+        if (idemSnap.exists) return idemSnap.data();
+      }
 
       // [DELIVERY STATUS READ 1] Read delivery document
-      console.log(`[DELIVERY STATUS READ 1] deliveries/${deliveryId} ADMIN SDK READ`);
       const delRef = db.collection('deliveries').doc(deliveryId);
       const delSnap = await transaction.get(delRef);
 
       if (!delSnap.exists) {
-        console.log(`[DELIVERY STATUS READ 1] deliveries/${deliveryId} ADMIN SDK READ: FAIL (not found)`);
         const notFoundErr: any = new Error(`Delivery #${deliveryId} not found.`);
         notFoundErr.statusCode = 404;
         throw notFoundErr;
       }
-      console.log(`[DELIVERY STATUS READ 1] deliveries/${deliveryId} ADMIN SDK READ: SUCCESS`);
 
       const delData = delSnap.data() || {};
       const targetBranchId = delData.branchId || user.branchId;
@@ -4578,24 +5513,16 @@ export async function handleDeliveryStatusUpdate(req: express.Request, res: expr
       let drvRef: any = null;
       let drvSnap: any = { exists: false };
       if (effectiveDriverId && ['delivered', 'failed', 'returned', 'cancelled'].includes(newStatus)) {
-        console.log(`[DELIVERY STATUS READ 2] drivers/${effectiveDriverId} ADMIN SDK READ`);
         drvRef = db.collection('drivers').doc(effectiveDriverId);
         drvSnap = await transaction.get(drvRef);
-        console.log(`[DELIVERY STATUS READ 2] drivers/${effectiveDriverId} ADMIN SDK READ: ${drvSnap.exists ? 'SUCCESS (exists)' : 'SKIPPED (not exists)'}`);
-      } else {
-        console.log(`[DELIVERY STATUS READ 2] drivers/(not applicable for status "${newStatus}"): SKIPPED`);
       }
 
       // [DELIVERY STATUS READ 3] Read linked sales order document
       let orderRef: any = null;
       let orderSnap: any = { exists: false };
       if (delData.orderId) {
-        console.log(`[DELIVERY STATUS READ 3] orders/${delData.orderId} ADMIN SDK READ`);
         orderRef = db.collection('orders').doc(delData.orderId);
         orderSnap = await transaction.get(orderRef);
-        console.log(`[DELIVERY STATUS READ 3] orders/${delData.orderId} ADMIN SDK READ: ${orderSnap.exists ? 'SUCCESS (exists)' : 'SKIPPED (not exists)'}`);
-      } else {
-        console.log(`[DELIVERY STATUS READ 3] orders/(no linked order): SKIPPED`);
       }
 
       if (orderSnap.exists) {
@@ -4688,7 +5615,6 @@ export async function handleDeliveryStatusUpdate(req: express.Request, res: expr
         updates.failureReason = failureReason || 'Delivery issue encountered';
       }
 
-      console.log(`[DELIVERY STATUS WRITE 1] deliveries/${deliveryId} ADMIN SDK UPDATE (status: ${newStatus})`);
       transaction.update(delRef, updates);
 
       // [DELIVERY STATUS WRITE 2] Update driver availability (if applicable)
@@ -4698,7 +5624,6 @@ export async function handleDeliveryStatusUpdate(req: express.Request, res: expr
         const deliveryBranch = normalizeCanonicalBranchId(delData.branchId || targetBranchId || '');
         if (!drvBranch || !deliveryBranch) { throw new Error('Driver and delivery branch are required for secure release.'); }
         if (areBranchesMatching(drvBranch, deliveryBranch) || user.role === 'Owner' || (user.role === 'Admin' && user.branchId === 'all')) {
-          console.log(`[DELIVERY STATUS WRITE 2] drivers/${effectiveDriverId} ADMIN SDK UPDATE (availability: available)`);
           const driverUpdates: any = { availability: 'available', activeDeliveryId: null, updatedAt: now };
           if (newStatus === 'delivered') {
             driverUpdates.totalDeliveries = (drvData.totalDeliveries || 0) + 1;
@@ -4732,7 +5657,6 @@ export async function handleDeliveryStatusUpdate(req: express.Request, res: expr
         } else if (['failed', 'returned', 'cancelled'].includes(newStatus)) {
           orderUpdates.deliveryStatus = 'failed';
         }
-        console.log(`[DELIVERY STATUS WRITE 3] orders/${delData.orderId} ADMIN SDK UPDATE (deliveryStatus: ${orderUpdates.deliveryStatus})`);
         transaction.update(orderRef, orderUpdates);
       }
 
@@ -4806,6 +5730,7 @@ export async function handleDeliveryStatusUpdate(req: express.Request, res: expr
             id: jlRef.id,
             journalEntryId: jeRef.id,
             entryNumber,
+            date: dateStr,
             branchId: targetBranchId,
             ...line,
             createdAt: now
@@ -4831,9 +5756,14 @@ export async function handleDeliveryStatusUpdate(req: express.Request, res: expr
 
         applyAccountBalanceDeltasInTransaction(transaction, __codAccountState, lines, now);
       }
+      const out = { status: 'success', deliveryId, deliveryStatus: newStatus };
+      if (delIdemRef) {
+        transaction.set(delIdemRef, cleanUndefined({ ...out, idempotencyKey: delIdemKey, createdAt: now }));
+      }
+      return out;
     });
 
-    return res.json({ status: 'success', deliveryId, deliveryStatus: newStatus });
+    return res.json(txResult || { status: 'success', deliveryId, deliveryStatus: newStatus });
   } catch (err: any) {
     const rawMsg = err?.message || 'Delivery Status Update Failed';
     const statusCode = err.statusCode || (rawMsg.includes('not found') ? 404 : rawMsg.includes('Unauthorized') || rawMsg.includes('cross-branch') ? 403 : rawMsg.includes('Invalid') ? 400 : 500);
@@ -4866,30 +5796,42 @@ export async function handleDeliveryAssignDriver(req: express.Request, res: expr
   const db = getAdminDb();
   const now = new Date().toISOString();
   let assignedDeliveryBranchId = '';
+  const rawAssignIdemKey = req.headers['idempotency-key'] || req.headers['x-idempotency-key'] || req.body?.idempotencyKey;
+  const assignIdemKey = typeof rawAssignIdemKey === 'string' && rawAssignIdemKey.trim() ? rawAssignIdemKey.trim() : '';
+  const assignIdemRef = assignIdemKey
+    ? db.collection('mutation_idempotency').doc(createHash('sha256').update(`delivery-assign:${user.uid}:${deliveryId}:${assignIdemKey}`).digest('hex'))
+    : null;
 
   try {
     let authoritativeDriverName = 'Assigned Driver';
     let authoritativeDriverPhone = '';
 
-    console.log(`[ASSIGN STEP 1] READ delivery deliveries/${deliveryId}`);
-    await runTransactionWithRetry(db, async (transaction) => {
+    const txResult = await runTransactionWithRetry(db, async (transaction) => {
       // ----------------------------------------------------
       // PHASE 1 — ALL READS & VALIDATIONS
       // ----------------------------------------------------
+      if (assignIdemRef) {
+        const idemSnap = await transaction.get(assignIdemRef);
+        if (idemSnap.exists) return idemSnap.data();
+      }
 
       // [ASSIGN STEP 1] READ delivery
       const delRef = db.collection('deliveries').doc(deliveryId);
       const delSnap = await transaction.get(delRef);
 
       if (!delSnap.exists) {
-        console.log(`[ASSIGN STEP 1] READ delivery deliveries/${deliveryId}: FAIL (not found)`);
         const notFoundErr: any = new Error(`Delivery #${deliveryId} not found.`);
         notFoundErr.statusCode = 404;
         throw notFoundErr;
       }
-      console.log(`[ASSIGN STEP 1] READ delivery deliveries/${deliveryId}: SUCCESS`);
 
       const delData = delSnap.data() || {};
+      const currentDeliveryStatus = String(delData.status || 'unassigned').toLowerCase();
+      if (['delivered', 'cancelled', 'failed', 'returned'].includes(currentDeliveryStatus)) {
+        const termErr: any = new Error(`Cannot assign driver to delivery #${deliveryId} in terminal status "${delData.status}".`);
+        termErr.statusCode = 409;
+        throw termErr;
+      }
       const targetBranchId = delData.branchId;
       if (!targetBranchId) {
         const branchMissingErr: any = new Error('Delivery order branch identification missing. Cannot assign driver.');
@@ -4906,9 +5848,10 @@ export async function handleDeliveryAssignDriver(req: express.Request, res: expr
       }
 
       // [ASSIGN STEP 2] READ driver
-      console.log(`[ASSIGN STEP 2] READ driver drivers/${driverId}`);
       const drvRef = db.collection('drivers').doc(String(driverId).trim());
       const drvSnap = await transaction.get(drvRef);
+      let userDrvRef: any = null;
+      let userDrvSnap: any = { exists: false };
       let driverBranchId = '';
       let isDriverFound = false;
 
@@ -4929,8 +5872,8 @@ export async function handleDeliveryAssignDriver(req: express.Request, res: expr
         authoritativeDriverName = drvData.fullName || drvData.name || authoritativeDriverName;
         authoritativeDriverPhone = drvData.phoneNumber || drvData.phone || authoritativeDriverPhone;
       } else {
-        const userDrvRef = db.collection('users').doc(String(driverId).trim());
-        const userDrvSnap = await transaction.get(userDrvRef);
+        userDrvRef = db.collection('users').doc(String(driverId).trim());
+        userDrvSnap = await transaction.get(userDrvRef);
         if (userDrvSnap.exists) {
           isDriverFound = true;
           const userDrvData = userDrvSnap.data() || {};
@@ -4951,12 +5894,10 @@ export async function handleDeliveryAssignDriver(req: express.Request, res: expr
       }
 
       if (!isDriverFound) {
-        console.log(`[ASSIGN STEP 2] READ driver drivers/${driverId}: FAIL (not found)`);
         const notFoundErr: any = new Error(`Driver #${driverId} not found in system.`);
         notFoundErr.statusCode = 404;
         throw notFoundErr;
       }
-      console.log(`[ASSIGN STEP 2] READ driver drivers/${driverId}: SUCCESS`);
 
       // Canonical branch is mandatory for a driver; do not silently assign legacy branchless identities.
       if (!driverBranchId) {
@@ -4980,21 +5921,31 @@ export async function handleDeliveryAssignDriver(req: express.Request, res: expr
       // [ASSIGN STEP 3] READ previous driver (if reassignment)
       let oldDrvSnap: any = { exists: false };
       let oldDrvRef: any = null;
+      let oldUserDrvSnap: any = { exists: false };
+      let oldUserDrvRef: any = null;
       if (delData.driverId && delData.driverId !== String(driverId).trim()) {
-        console.log(`[ASSIGN STEP 3] READ previous driver drivers/${delData.driverId}`);
         oldDrvRef = db.collection('drivers').doc(String(delData.driverId).trim());
         oldDrvSnap = await transaction.get(oldDrvRef);
-        console.log(`[ASSIGN STEP 3] READ previous driver drivers/${delData.driverId}: ${oldDrvSnap.exists ? 'SUCCESS (exists)' : 'SKIPPED (not exists)'}`);
+        if (!oldDrvSnap.exists) {
+          oldUserDrvRef = db.collection('users').doc(String(delData.driverId).trim());
+          oldUserDrvSnap = await transaction.get(oldUserDrvRef);
+        }
       }
 
       // [ASSIGN STEP 4] READ order (if applicable)
       let orderSnap: any = { exists: false };
       let orderRef: any = null;
       if (delData.orderId) {
-        console.log(`[ASSIGN STEP 4] READ order orders/${delData.orderId}`);
         orderRef = db.collection('orders').doc(delData.orderId);
         orderSnap = await transaction.get(orderRef);
-        console.log(`[ASSIGN STEP 4] READ order orders/${delData.orderId}: ${orderSnap.exists ? 'SUCCESS (exists)' : 'SKIPPED (not exists)'}`);
+        if (orderSnap.exists) {
+          const ordStatus = String(orderSnap.data()?.status || '').toLowerCase();
+          if (['cancelled', 'refunded'].includes(ordStatus)) {
+            const ordTermErr: any = new Error(`Cannot assign driver because linked Order #${delData.orderId} is ${ordStatus}.`);
+            ordTermErr.statusCode = 409;
+            throw ordTermErr;
+          }
+        }
       }
 
       // ----------------------------------------------------
@@ -5002,19 +5953,45 @@ export async function handleDeliveryAssignDriver(req: express.Request, res: expr
       // ----------------------------------------------------
 
       // [ASSIGN WRITE STEP 1] UPDATE new driver
-      console.log(`[ASSIGN WRITE STEP 1] UPDATE new driver drivers/${driverId}`);
+      const isSameDriver = delData.driverId === String(driverId).trim();
       if (drvSnap.exists) {
-        transaction.update(drvRef, { availability: 'on_delivery', activeDeliveryId: deliveryId, updatedAt: now });
+        const curLoad = Number(drvSnap.data()?.currentLoad || 0);
+        transaction.update(drvRef, {
+          availability: 'on_delivery',
+          activeDeliveryId: deliveryId,
+          currentLoad: isSameDriver ? Math.max(1, curLoad) : curLoad + 1,
+          updatedAt: now
+        });
+      } else if (userDrvSnap.exists && userDrvRef) {
+        const curLoad = Number(userDrvSnap.data()?.currentLoad || 0);
+        transaction.update(userDrvRef, {
+          availability: 'on_delivery',
+          activeDeliveryId: deliveryId,
+          currentLoad: isSameDriver ? Math.max(1, curLoad) : curLoad + 1,
+          updatedAt: now
+        });
       }
 
       // [ASSIGN WRITE STEP 2] UPDATE previous driver
       if (oldDrvSnap.exists && oldDrvRef) {
-        console.log(`[ASSIGN WRITE STEP 2] UPDATE previous driver drivers/${delData.driverId}`);
-        transaction.update(oldDrvRef, { availability: 'available', activeDeliveryId: null, updatedAt: now });
+        const oldLoad = Math.max(0, Number(oldDrvSnap.data()?.currentLoad || 1) - 1);
+        transaction.update(oldDrvRef, {
+          availability: 'available',
+          activeDeliveryId: null,
+          currentLoad: oldLoad,
+          updatedAt: now
+        });
+      } else if (oldUserDrvSnap.exists && oldUserDrvRef) {
+        const oldLoad = Math.max(0, Number(oldUserDrvSnap.data()?.currentLoad || 1) - 1);
+        transaction.update(oldUserDrvRef, {
+          availability: 'available',
+          activeDeliveryId: null,
+          currentLoad: oldLoad,
+          updatedAt: now
+        });
       }
 
       // [ASSIGN WRITE STEP 3] UPDATE delivery
-      console.log(`[ASSIGN WRITE STEP 3] UPDATE delivery deliveries/${deliveryId}`);
       transaction.update(delRef, {
         driverId: String(driverId).trim(),
         driverName: authoritativeDriverName,
@@ -5026,12 +6003,10 @@ export async function handleDeliveryAssignDriver(req: express.Request, res: expr
 
       // [ASSIGN WRITE STEP 4] UPDATE order
       if (orderSnap.exists && orderRef) {
-        console.log(`[ASSIGN WRITE STEP 4] UPDATE order orders/${delData.orderId}`);
         transaction.update(orderRef, { deliveryStatus: 'assigned', updatedAt: now });
       }
 
       // [ASSIGN WRITE STEP 5] CREATE notification
-      console.log(`[ASSIGN WRITE STEP 5] CREATE notification notifications/DELIVERY_ASSIGNED_${deliveryId}_${driverId}`);
       const notifId = `DELIVERY_ASSIGNED_${deliveryId}_${driverId}`;
       const notifRef = db.collection('notifications').doc(notifId);
       const notifData = {
@@ -5049,6 +6024,11 @@ export async function handleDeliveryAssignDriver(req: express.Request, res: expr
         createdAt: now
       };
       transaction.set(notifRef, cleanUndefined(notifData), { merge: true });
+      const out = { status: 'success', deliveryId, driverId };
+      if (assignIdemRef) {
+        transaction.set(assignIdemRef, cleanUndefined({ ...out, idempotencyKey: assignIdemKey, createdAt: now }));
+      }
+      return out;
     });
 
     // Non-blocking post-commit push notification dispatch
@@ -5056,7 +6036,7 @@ export async function handleDeliveryAssignDriver(req: express.Request, res: expr
       console.warn('Post-commit FCM push error:', err?.message || err);
     });
 
-    return res.json({ status: 'success', deliveryId, driverId });
+    return res.json(txResult || { status: 'success', deliveryId, driverId });
   } catch (err: any) {
     const rawMsg = err?.message || 'Delivery Driver Assignment Failed';
     console.error('Delivery Assign Driver Error:', rawMsg);
@@ -5110,9 +6090,18 @@ export async function handleOrderUpdate(req: express.Request, res: express.Respo
   } = req.body || {};
 
   const db = getAdminDb();
+  const rawOrderUpdIdemKey = req.headers['idempotency-key'] || req.headers['x-idempotency-key'] || req.body?.idempotencyKey;
+  const orderUpdIdemKey = typeof rawOrderUpdIdemKey === 'string' && rawOrderUpdIdemKey.trim() ? rawOrderUpdIdemKey.trim() : '';
+  const orderUpdIdemRef = orderUpdIdemKey
+    ? db.collection('mutation_idempotency').doc(createHash('sha256').update(`order-update:${user.uid}:${orderId}:${orderUpdIdemKey}`).digest('hex'))
+    : null;
 
   try {
-    await db.runTransaction(async (transaction) => {
+    const txResult = await db.runTransaction(async (transaction) => {
+      if (orderUpdIdemRef) {
+        const idemSnap = await transaction.get(orderUpdIdemRef);
+        if (idemSnap.exists) return idemSnap.data();
+      }
       const orderRef = db.collection('orders').doc(orderId);
       const orderSnap = await transaction.get(orderRef);
       if (!orderSnap.exists) {
@@ -5186,9 +6175,14 @@ export async function handleOrderUpdate(req: express.Request, res: express.Respo
         if (tableNumber !== undefined) kitchenUpdates.tableNumber = String(tableNumber);
         transaction.update(kitchenRef, cleanUndefined(kitchenUpdates));
       }
+      const out = { status: 'success', orderId };
+      if (orderUpdIdemRef) {
+        transaction.set(orderUpdIdemRef, cleanUndefined({ ...out, idempotencyKey: orderUpdIdemKey, createdAt: new Date().toISOString() }));
+      }
+      return out;
     });
 
-    return res.json({ status: 'success', orderId });
+    return res.json(txResult || { status: 'success', orderId });
   } catch (err: any) {
     console.error('Order Update Error:', err?.message || err);
     return res.status(500).json({ error: err?.message || 'Order Update Failed' });
@@ -5322,6 +6316,13 @@ export async function handleUpdateAccount(req: express.Request, res: express.Res
         return res.status(400).json({ error: 'Account type cannot be changed after posted journal lines exist.' });
       }
     }
+    const idempotencyKey = getRequiredIdempotencyKey(
+      req,
+      req.body?.idempotencyKey || `account-update:${user.uid}:${id}:${createHash('sha256').update(JSON.stringify(cleanUndefined(req.body || {}))).digest('hex')}`
+    );
+    const idemRef = db.collection('mutation_idempotency').doc(
+      createHash('sha256').update(`account-update:${user.uid}:${id}:${idempotencyKey}`).digest('hex')
+    );
     const updates = cleanUndefined({
       code: req.body.code ? String(req.body.code).trim() : undefined,
       name: req.body.name ? String(req.body.name).trim() : undefined,
@@ -5331,8 +6332,15 @@ export async function handleUpdateAccount(req: express.Request, res: express.Res
       description: req.body.description ? String(req.body.description).trim() : undefined,
       updatedAt: new Date().toISOString()
     });
-    await accountRef.update(updates);
-    return res.json({ status: 'success', id });
+    const out = await db.runTransaction(async (transaction) => {
+      const priorIdem = await transaction.get(idemRef);
+      if (priorIdem.exists) return priorIdem.data()?.result || priorIdem.data();
+      transaction.update(accountRef, updates);
+      const result = { status: 'success', id };
+      transaction.set(idemRef, { status: 'success', result, createdAt: new Date().toISOString() });
+      return result;
+    });
+    return res.json(out);
   } catch (err: any) {
     console.error('Update Account Error:', err);
     return res.status(500).json({ error: 'Update Account Failed' });
@@ -5455,6 +6463,7 @@ export async function handleCreateJournalEntry(req: express.Request, res: expres
           credit: lineCredit,
           memo: line.memo ? String(line.memo).trim() : '',
           branchId,
+          date: postingDate,
           createdAt: now
         }));
 
@@ -5534,7 +6543,7 @@ export async function handleCreateRevenue(req: express.Request, res: express.Res
       transaction.set(jeRef, cleanUndefined({ id:jeRef.id, entryNumber, date:dateStr, reference:revenueRef.id, description:`Manual revenue: ${String(req.body?.description || 'General Sales').trim()}`, source:'Revenue', status:'Posted', totalDebit:amount, totalCredit:amount, lines, branchId:targetBranchId, createdBy:user.name, createdAt:now }));
       for (const line of lines) {
         const jlRef = db.collection('journal_lines').doc();
-        transaction.set(jlRef, cleanUndefined({ id:jlRef.id, journalEntryId:jeRef.id, entryNumber, ...line, branchId:targetBranchId, createdAt:now }));
+        transaction.set(jlRef, cleanUndefined({ id:jlRef.id, journalEntryId:jeRef.id, entryNumber, date:dateStr, ...line, branchId:targetBranchId, createdAt:now }));
         const ledgerRef = db.collection('ledger').doc();
         transaction.set(ledgerRef, cleanUndefined({ id:ledgerRef.id, accountId:line.accountId, accountCode:line.accountCode, accountName:line.accountName, journalEntryId:jeRef.id, entryNumber, date:dateStr, reference:revenueRef.id, description:line.memo, debit:line.debit, credit:line.credit, branchId:targetBranchId, createdAt:now }));
       }
@@ -5593,7 +6602,7 @@ export async function handleCreateReceivable(req: express.Request, res: express.
       transaction.set(jeRef,cleanUndefined({id:jeRef.id,entryNumber:`JE-AR-${ref.id.slice(0,8).toUpperCase()}`,date:dateStr,reference:invoiceNumber,description:`Receivable Invoice ${invoiceNumber}`,source:'Receivables',status:'Posted',totalDebit:totalAmount,totalCredit:totalAmount,lines,branchId:targetBranchId,createdBy:user.name,createdAt:now,idempotencyKey}));
       for(const line of lines){
         const jl= db.collection('journal_lines').doc(); const led=db.collection('ledger').doc();
-        transaction.set(jl,cleanUndefined({id:jl.id,journalEntryId:jeRef.id,entryNumber:`JE-AR-${ref.id.slice(0,8).toUpperCase()}`,branchId:targetBranchId,...line,createdAt:now}));
+        transaction.set(jl,cleanUndefined({id:jl.id,journalEntryId:jeRef.id,entryNumber:`JE-AR-${ref.id.slice(0,8).toUpperCase()}`,date:dateStr,branchId:targetBranchId,...line,createdAt:now}));
         transaction.set(led,cleanUndefined({id:led.id,accountId:line.accountId,accountCode:line.accountCode,accountName:line.accountName,journalEntryId:jeRef.id,entryNumber:`JE-AR-${ref.id.slice(0,8).toUpperCase()}`,date:dateStr,reference:invoiceNumber,description:line.memo,debit:line.debit,credit:line.credit,branchId:targetBranchId,createdAt:now}));
       }
       applyAccountBalanceDeltasInTransaction(transaction,__accountState,lines,now);
@@ -5773,6 +6782,7 @@ export async function handleRecordARPayment(req: express.Request, res: express.R
           id: jlRef.id,
           journalEntryId: jeRef.id,
           entryNumber,
+          date: dateStr,
           branchId: targetBranchId,
           ...line,
           createdAt: timestamp
@@ -5842,10 +6852,10 @@ export async function handleCreatePayable(req: express.Request, res: express.Res
       const __accountState=await prepareAccountBalanceState(transaction,db,['acc_expense','acc_ap']);
       const billNumber=String(req.body.billNumber||`BILL-${Date.now().toString().slice(-6)}`).trim();
       const payload=cleanUndefined({id:ref.id,vendorName:String(req.body.vendorName||req.body.supplierName||'Vendor').trim(),vendorId:req.body.vendorId?String(req.body.vendorId).trim():undefined,billNumber,totalAmount,paidAmount:0,remainingBalance:totalAmount,status:'Unpaid',dueDate:req.body.dueDate?String(req.body.dueDate).trim():undefined,notes:req.body.notes?String(req.body.notes).trim():undefined,payments:[],branchId:targetBranchId,createdBy:user.name,createdAt:now,date:dateStr,idempotencyKey,journalEntryId:jeRef.id});
-      const lines=[{accountId:'acc_expense',accountCode:'6010',accountName:'Operating Expense',debit:totalAmount,credit:0,memo:`AP Invoice ${billNumber}`},{accountId:'acc_ap',accountCode:'2010',accountName:'Accounts Payable',debit:0,credit:totalAmount,memo:`AP Invoice ${billNumber}`}];
+      const lines=[{accountId:'acc_expense',accountCode:'6100',accountName:'Operating Expense',debit:totalAmount,credit:0,memo:`AP Invoice ${billNumber}`},{accountId:'acc_ap',accountCode:'2010',accountName:'Accounts Payable',debit:0,credit:totalAmount,memo:`AP Invoice ${billNumber}`}];
       const entryNumber=`JE-AP-${ref.id.slice(0,8).toUpperCase()}`;
       transaction.set(ref,payload); transaction.set(jeRef,cleanUndefined({id:jeRef.id,entryNumber,date:dateStr,reference:billNumber,description:`Payable Invoice ${billNumber}`,source:'Payables',status:'Posted',totalDebit:totalAmount,totalCredit:totalAmount,lines,branchId:targetBranchId,createdBy:user.name,createdAt:now,idempotencyKey}));
-      for(const line of lines){const jl=db.collection('journal_lines').doc(),led=db.collection('ledger').doc();transaction.set(jl,cleanUndefined({id:jl.id,journalEntryId:jeRef.id,entryNumber,branchId:targetBranchId,...line,createdAt:now}));transaction.set(led,cleanUndefined({id:led.id,accountId:line.accountId,accountCode:line.accountCode,accountName:line.accountName,journalEntryId:jeRef.id,entryNumber,date:dateStr,reference:billNumber,description:line.memo,debit:line.debit,credit:line.credit,branchId:targetBranchId,createdAt:now}));}
+      for(const line of lines){const jl=db.collection('journal_lines').doc(),led=db.collection('ledger').doc();transaction.set(jl,cleanUndefined({id:jl.id,journalEntryId:jeRef.id,entryNumber,date:dateStr,branchId:targetBranchId,...line,createdAt:now}));transaction.set(led,cleanUndefined({id:led.id,accountId:line.accountId,accountCode:line.accountCode,accountName:line.accountName,journalEntryId:jeRef.id,entryNumber,date:dateStr,reference:billNumber,description:line.memo,debit:line.debit,credit:line.credit,branchId:targetBranchId,createdAt:now}));}
       applyAccountBalanceDeltasInTransaction(transaction,__accountState,lines,now); const out={status:'success',id:ref.id,billNumber,totalAmount,branchId:targetBranchId,journalEntryId:jeRef.id}; transaction.set(idemRef,cleanUndefined({...out,createdAt:now})); return out;
     }); return res.json(result);
   }catch(err:any){return res.status(err?.statusCode||500).json({error:err?.message||'Create Payable Failed'});}
@@ -5913,6 +6923,9 @@ export async function handleRecordAPPayment(req: express.Request, res: express.R
       const settlement = await resolveSettlementAccountInTransaction(transaction, db, targetBranchId, normalizedPayMethod, payment.bankAccountId);
       const __accountState = await prepareAccountBalanceState(transaction, db, ['acc_ap', settlement.id]);
       const __cashRegisterState = (normalizedPayMethod === 'cash') ? await prepareCashRegisterStateInTransaction(transaction, db, targetBranchId) : undefined;
+      const linkedSupplierId = String(item.supplierId || item.vendorId || '').trim();
+      const apSupRef = linkedSupplierId ? db.collection('suppliers').doc(linkedSupplierId) : null;
+      const apSupSnap = apSupRef ? await transaction.get(apSupRef) : null;
 
       const newPayment = {
         id: `pay-${Date.now()}-${randomInt(100, 999)}`,
@@ -5932,6 +6945,17 @@ export async function handleRecordAPPayment(req: express.Request, res: express.R
         payments: [...(item.payments || []), newPayment],
         updatedAt: timestamp
       });
+
+      if (apSupRef && apSupSnap && apSupSnap.exists) {
+        const sData = apSupSnap.data() || {};
+        const curOut = Number(sData.outstandingBalance || 0);
+        const curPend = Number(sData.pendingAmount || 0);
+        transaction.update(apSupRef, {
+          outstandingBalance: Math.max(0, Math.round((curOut - paymentAmount) * 100) / 100),
+          pendingAmount: Math.max(0, Math.round((curPend - paymentAmount) * 100) / 100),
+          updatedAt: timestamp
+        });
+      }
 
       // Post Double-Entry Journal Entry
       const payMethod = normalizedPayMethod;
@@ -5983,6 +7007,7 @@ export async function handleRecordAPPayment(req: express.Request, res: express.R
           id: jlRef.id,
           journalEntryId: jeRef.id,
           entryNumber,
+          date: dateStr,
           branchId: targetBranchId,
           ...line,
           createdAt: timestamp
@@ -6006,7 +7031,7 @@ export async function handleRecordAPPayment(req: express.Request, res: express.R
         }));
       }
 
-      if (normalizedPayMethod === 'cash') await applyCashRegisterMovementInTransaction(transaction, db, targetBranchId, paymentAmount, 'accounts payable cash settlement', __cashRegisterState);
+      if (normalizedPayMethod === 'cash') await applyCashRegisterMovementInTransaction(transaction, db, targetBranchId, -paymentAmount, 'accounts payable cash settlement', __cashRegisterState);
       applyAccountBalanceDeltasInTransaction(transaction, __accountState, lines, timestamp);
       const out = { status: 'success', id, paidAmount: newPaidAmount, remainingBalance: newRemaining };
       transaction.set(idemRef, cleanUndefined({ ...out, createdAt: timestamp }));
@@ -6016,7 +7041,15 @@ export async function handleRecordAPPayment(req: express.Request, res: express.R
     return res.json(result);
   } catch (err: any) {
     console.error('Record AP Payment Error:', err?.message || err);
-    return res.status(500).json({ error: err?.message || 'Record AP Payment Failed' });
+    const statusCode = err?.statusCode || (
+      err?.message?.includes('exceeds remaining') ||
+      err?.message?.includes('already been fully paid') ||
+      err?.message?.includes('not found') ||
+      err?.message?.includes('rejected')
+        ? 400
+        : 500
+    );
+    return res.status(statusCode).json({ error: err?.message || 'Record AP Payment Failed' });
   }
 }
 
@@ -6083,7 +7116,7 @@ export async function handleOpenCashRegister(req: express.Request, res: express.
         const entryNumber = `JE-FLOAT-${docRef.id.slice(0, 6)}`;
         const lines = [
           { accountId: 'acc_cash', accountCode: '1010', accountName: 'Cash on Hand (Register)', debit: openingBalance, credit: 0, memo: `Opening cash register float for ${payload.openedBy}` },
-          { accountId: 'acc_equity', accountCode: '3010', accountName: "Owner's Capital / Opening Balance Equity", debit: 0, credit: openingBalance, memo: 'Opening float equity/capital introduction' }
+          { accountId: 'acc_equity', accountCode: '3000', accountName: "Owner's Capital / Opening Balance Equity", debit: 0, credit: openingBalance, memo: 'Opening float equity/capital introduction' }
         ];
         transaction.set(jeRef, cleanUndefined({
           id: jeRef.id,
@@ -6100,6 +7133,12 @@ export async function handleOpenCashRegister(req: express.Request, res: express.
           createdBy: user.name,
           createdAt: timestamp
         }));
+        for (const line of lines) {
+          const jlRef = db.collection('journal_lines').doc();
+          transaction.set(jlRef, cleanUndefined({ id: jlRef.id, journalEntryId: jeRef.id, entryNumber, date: dateStr, branchId: targetBranchId, ...line, createdAt: timestamp }));
+          const ledgerRef = db.collection('ledger').doc();
+          transaction.set(ledgerRef, cleanUndefined({ id: ledgerRef.id, accountId: line.accountId, accountCode: line.accountCode, accountName: line.accountName, journalEntryId: jeRef.id, entryNumber, date: dateStr, reference: docRef.id, description: line.memo, debit: line.debit, credit: line.credit, branchId: targetBranchId, createdAt: timestamp }));
+        }
         applyAccountBalanceDeltasInTransaction(transaction, __openRegisterAccountState, lines, timestamp);
       }
 
@@ -6215,6 +7254,12 @@ export async function handleCloseCashRegister(req: express.Request, res: express
           createdBy: user.name,
           createdAt: timestamp
         }));
+        for (const line of lines) {
+          const jlRef = db.collection('journal_lines').doc();
+          transaction.set(jlRef, cleanUndefined({ id: jlRef.id, journalEntryId: jeRef.id, entryNumber, date: dateStr, branchId: reg.branchId, ...line, createdAt: timestamp }));
+          const ledgerRef = db.collection('ledger').doc();
+          transaction.set(ledgerRef, cleanUndefined({ id: ledgerRef.id, accountId: line.accountId, accountCode: line.accountCode, accountName: line.accountName, journalEntryId: jeRef.id, entryNumber, date: dateStr, reference: ref.id, description: line.memo, debit: line.debit, credit: line.credit, branchId: reg.branchId, createdAt: timestamp }));
+        }
         applyAccountBalanceDeltasInTransaction(transaction, __closeRegisterAccountState!, lines, timestamp);
       }
 
@@ -6319,7 +7364,7 @@ export async function handleCreateBankAccount(req: express.Request, res: express
         const entryNumber = `JE-BANK-OPEN-${docRef.id.slice(0,6)}`;
         const lines = [
           { accountId: glRef.id, accountCode: glAccountCode, accountName, debit: initialBalance, credit: 0, memo: 'Bank opening balance' },
-          { accountId: 'acc_equity', accountCode: '3010', accountName: "Owner's Capital / Opening Balance Equity", debit: 0, credit: initialBalance, memo: 'Bank opening balance equity' }
+          { accountId: 'acc_equity', accountCode: '3000', accountName: "Owner's Capital / Opening Balance Equity", debit: 0, credit: initialBalance, memo: 'Bank opening balance equity' }
         ];
         transaction.set(jeRef, cleanUndefined({
           id: jeRef.id, entryNumber, date: dateStr, reference: docRef.id,
@@ -6330,7 +7375,7 @@ export async function handleCreateBankAccount(req: express.Request, res: express
         }));
         for (const line of lines) {
           const jlRef = db.collection('journal_lines').doc();
-          transaction.set(jlRef, cleanUndefined({ id: jlRef.id, journalEntryId: jeRef.id, entryNumber, branchId: targetBranchId, ...line, createdAt: timestamp }));
+          transaction.set(jlRef, cleanUndefined({ id: jlRef.id, journalEntryId: jeRef.id, entryNumber, date: dateStr, branchId: targetBranchId, ...line, createdAt: timestamp }));
           const ledgerRef = db.collection('ledger').doc();
           transaction.set(ledgerRef, cleanUndefined({ id: ledgerRef.id, accountId: line.accountId, accountCode: line.accountCode, accountName: line.accountName, journalEntryId: jeRef.id, entryNumber, date: dateStr, reference: docRef.id, description: line.memo, debit: line.debit, credit: line.credit, branchId: targetBranchId, createdAt: timestamp }));
         }
@@ -6359,23 +7404,49 @@ export async function handleCreateTax(req: express.Request, res: express.Respons
 
   const db = getAdminDb();
   try {
-    const taxRate = Number(req.body.rate ?? 0);
-    if (!Number.isFinite(taxRate) || taxRate < 0 || taxRate > 100) return res.status(400).json({ error: 'Tax rate must be a number between 0 and 100.' });
+    const rawRate = Number(req.body.rate ?? req.body.taxRate ?? 0);
+    if (!Number.isFinite(rawRate) || rawRate < 0 || rawRate > 100) return res.status(400).json({ error: 'Tax rate must be a number between 0 and 100.' });
     const requestedBranch = String(req.body.branchId || user.branchId || '').trim();
     const branchCheck = checkBranchAuthorization(user, requestedBranch);
     if (!branchCheck.authorized || !branchCheck.targetBranchId || branchCheck.targetBranchId === 'all') return res.status(400).json({ error: 'A concrete branchId is required for tax configuration.' });
+    const isActiveFlag = req.body.isActive !== undefined
+      ? Boolean(req.body.isActive)
+      : (req.body.status ? String(req.body.status).toLowerCase() === 'active' : true);
+    const statusStr = isActiveFlag ? 'Active' : 'Inactive';
+    const taxDecimal = rawRate > 1 ? rawRate / 100 : rawRate;
+    const taxPercent = rawRate <= 1 && rawRate > 0 ? rawRate * 100 : rawRate;
     const payload = cleanUndefined({
       name: req.body.name ? String(req.body.name).trim() : 'Tax',
-      rate: taxRate,
+      code: req.body.code ? String(req.body.code).trim() : 'VAT',
+      rate: rawRate,
+      taxRate: taxDecimal,
+      ratePercent: taxPercent,
       type: req.body.type ? String(req.body.type).trim() : 'percentage',
-      isActive: req.body.isActive !== undefined ? Boolean(req.body.isActive) : true,
+      isInclusive: Boolean(req.body.isInclusive ?? false),
+      appliesTo: Array.isArray(req.body.appliesTo) ? req.body.appliesTo : ['all'],
+      isActive: isActiveFlag,
+      status: statusStr,
       branchId: branchCheck.targetBranchId,
       createdAt: new Date().toISOString()
     });
-    const docRef = db.collection('taxes').doc();
-    await docRef.set({ id: docRef.id, ...payload });
+    const idempotencyKey = getRequiredIdempotencyKey(
+      req,
+      req.body?.idempotencyKey || `tax-create:${user.uid}:${createHash('sha256').update(JSON.stringify(cleanUndefined(req.body || {}))).digest('hex')}`
+    );
+    const idemRef = db.collection('mutation_idempotency').doc(
+      createHash('sha256').update(`tax-create:${user.uid}:${idempotencyKey}`).digest('hex')
+    );
+    const out = await db.runTransaction(async (transaction) => {
+      const priorIdem = await transaction.get(idemRef);
+      if (priorIdem.exists) return priorIdem.data()?.result || priorIdem.data();
+      const docRef = db.collection('taxes').doc();
+      const result = { id: docRef.id, ...payload };
+      transaction.set(docRef, result);
+      transaction.set(idemRef, { status: 'success', result, createdAt: new Date().toISOString() });
+      return result;
+    });
 
-    return res.json({ id: docRef.id, ...payload });
+    return res.json(out);
   } catch (err: any) {
     console.error('Create Tax Error:', err?.message || err);
     return res.status(500).json({ error: process.env.NODE_ENV === 'production' ? 'Create Tax Failed' : (err?.message || 'Create Tax Failed') });
@@ -6395,25 +7466,54 @@ export async function handleUpdateTax(req: express.Request, res: express.Respons
   const db = getAdminDb();
   try {
     let normalizedRate: number | undefined;
-    if (req.body.rate !== undefined) {
-      normalizedRate = Number(req.body.rate);
+    let taxDecimal: number | undefined;
+    let taxPercent: number | undefined;
+    const rawRateInput = req.body.rate !== undefined ? req.body.rate : req.body.taxRate;
+    if (rawRateInput !== undefined) {
+      normalizedRate = Number(rawRateInput);
       if (!Number.isFinite(normalizedRate) || normalizedRate < 0 || normalizedRate > 100) return res.status(400).json({ error: 'Tax rate must be a number between 0 and 100.' });
+      taxDecimal = normalizedRate > 1 ? normalizedRate / 100 : normalizedRate;
+      taxPercent = normalizedRate <= 1 && normalizedRate > 0 ? normalizedRate * 100 : normalizedRate;
     }
     const existingSnap = await db.collection('taxes').doc(id).get();
     if (!existingSnap.exists) return res.status(404).json({ error: 'Tax configuration not found.' });
     const existingBranch = String(existingSnap.data()?.branchId || '').trim();
     const branchCheck = checkBranchAuthorization(user, existingBranch);
     if (!branchCheck.authorized || !existingBranch) return res.status(403).json({ error: 'Tax configuration must belong to a concrete authorized branch.' });
+    const hasActiveUpdate = req.body.isActive !== undefined || req.body.status !== undefined;
+    const nextIsActive = req.body.isActive !== undefined
+      ? Boolean(req.body.isActive)
+      : (req.body.status !== undefined ? String(req.body.status).toLowerCase() === 'active' : undefined);
     const updates = cleanUndefined({
       name: req.body.name ? String(req.body.name).trim() : undefined,
+      code: req.body.code ? String(req.body.code).trim() : undefined,
       rate: normalizedRate,
+      taxRate: taxDecimal,
+      ratePercent: taxPercent,
       type: req.body.type ? String(req.body.type).trim() : undefined,
-      isActive: req.body.isActive !== undefined ? Boolean(req.body.isActive) : undefined,
+      isInclusive: req.body.isInclusive !== undefined ? Boolean(req.body.isInclusive) : undefined,
+      appliesTo: Array.isArray(req.body.appliesTo) ? req.body.appliesTo : undefined,
+      isActive: hasActiveUpdate ? nextIsActive : undefined,
+      status: hasActiveUpdate ? (nextIsActive ? 'Active' : 'Inactive') : undefined,
       branchId: existingBranch,
       updatedAt: new Date().toISOString()
     });
-    await db.collection('taxes').doc(id).update(updates);
-    return res.json({ status: 'success', id });
+    const idempotencyKey = getRequiredIdempotencyKey(
+      req,
+      req.body?.idempotencyKey || `tax-update:${user.uid}:${id}:${createHash('sha256').update(JSON.stringify(cleanUndefined(req.body || {}))).digest('hex')}`
+    );
+    const idemRef = db.collection('mutation_idempotency').doc(
+      createHash('sha256').update(`tax-update:${user.uid}:${id}:${idempotencyKey}`).digest('hex')
+    );
+    const out = await db.runTransaction(async (transaction) => {
+      const priorIdem = await transaction.get(idemRef);
+      if (priorIdem.exists) return priorIdem.data()?.result || priorIdem.data();
+      transaction.update(db.collection('taxes').doc(id), updates);
+      const result = { status: 'success', id, ...updates };
+      transaction.set(idemRef, { status: 'success', result, createdAt: new Date().toISOString() });
+      return result;
+    });
+    return res.json(out);
   } catch (err: any) {
     console.error('Update Tax Error:', err?.message || err);
     return res.status(500).json({ error: process.env.NODE_ENV === 'production' ? 'Update Tax Failed' : (err?.message || 'Update Tax Failed') });
@@ -6479,6 +7579,7 @@ export async function handleCreateRecipe(req: express.Request, res: express.Resp
       const ref = db.collection('recipes').doc();
       const now = new Date().toISOString();
       let productRef:any = null; let product:any = null;
+      let existingActiveRecipesSnap:any = null;
       if (recipe.productId) {
         productRef = db.collection('products').doc(String(recipe.productId));
         const ps = await tx.get(productRef);
@@ -6486,10 +7587,25 @@ export async function handleCreateRecipe(req: express.Request, res: express.Resp
         product = ps.data() || {};
         const productBranch = normalizeCanonicalBranchId(product.branchId || '');
         if (!productBranch || !areBranchesMatching(productBranch, branch.targetBranchId)) throw Object.assign(new Error('Recipe product belongs to a different branch.'),{statusCode:403});
+        if (recipe.isActive !== false) {
+          existingActiveRecipesSnap = await tx.get(
+            db.collection('recipes').where('productId', '==', String(recipe.productId)).where('isActive', '==', true)
+          );
+        }
       }
-      const newRecipe = cleanUndefined({ ...recipe, id: ref.id, branchId: branch.targetBranchId, version: Number(recipe.version || 1), isActive: recipe.isActive !== false, createdAt: now, updatedAt: now, createdBy: user.name });
+      const newRecipe = cleanUndefined({ ...recipe, id: ref.id, branchId: branch.targetBranchId, version: Number(recipe.version || 1), isActive: recipe.isActive !== false, isDeleted: false, isArchived: false, createdAt: now, updatedAt: now, createdBy: user.name });
+      if (existingActiveRecipesSnap && !existingActiveRecipesSnap.empty) {
+        for (const oldDoc of existingActiveRecipesSnap.docs) {
+          const oldData = oldDoc.data() || {};
+          const oldBranch = normalizeCanonicalBranchId(oldData.branchId || '');
+          if (oldDoc.id !== ref.id && (!oldBranch || oldBranch === 'all' || areBranchesMatching(oldBranch, branch.targetBranchId))) {
+            tx.update(oldDoc.ref, { isActive: false, isArchived: true, supersededBy: ref.id, updatedAt: now });
+          }
+        }
+      }
       tx.set(ref, newRecipe);
-      if (productRef) tx.update(productRef, { activeRecipeId: ref.id, recipe: items, updatedAt: now });
+      const resolvedPortionCost = Number(recipe.costPerPortion ?? recipe.totalCost);
+      if (productRef) tx.update(productRef, cleanUndefined({ activeRecipeId: ref.id, recipe: items, ...(Number.isFinite(resolvedPortionCost) && resolvedPortionCost >= 0 ? { cost: resolvedPortionCost, costPrice: resolvedPortionCost } : {}), updatedAt: now }));
       const hist = db.collection('recipe_versions').doc();
       tx.set(hist, cleanUndefined({ id: hist.id, recipeId: ref.id, productId: recipe.productId, productName: recipe.productName, version: newRecipe.version, items, totalCost: recipe.totalCost, foodCostPercentage: recipe.foodCostPercentage, sellingPrice: recipe.sellingPrice, changedBy: user.name || 'System', changeReason: 'Initial Recipe Creation', branchId: branch.targetBranchId, createdAt: now }));
       const out = {status:'success', recipe:newRecipe, id:ref.id}; tx.set(idemRef, cleanUndefined({...out, createdAt:now})); return out;
@@ -6509,7 +7625,7 @@ export async function handleUpdateRecipe(req: express.Request, res: express.Resp
 }
 
 export async function handleDeleteRecipe(req: express.Request, res: express.Response) {
-  const user=await authenticateTrustedUser(req,res);if(!user)return;const role=checkRoleAuthorization(user,['Owner','owner','Admin','admin','Manager','manager']);if(!role.authorized)return res.status(403).json({error:role.error});const recipeId=String(req.params.id||'').trim();if(!recipeId)return res.status(400).json({error:'Recipe ID is required.'});let key:string;try{key=getRequiredIdempotencyKey(req);}catch(e:any){return res.status(e?.statusCode||400).json({error:e?.message||'Idempotency-Key is required.'});}const db=getAdminDb();const idemRef=db.collection('mutation_idempotency').doc(createHash('sha256').update(`recipe-delete:${user.uid}:${recipeId}:${key}`).digest('hex'));try{const out=await db.runTransaction(async(tx:any)=>{const idem=await tx.get(idemRef);if(idem.exists)return idem.data();const ref=db.collection('recipes').doc(recipeId);const snap=await tx.get(ref);if(!snap.exists)throw Object.assign(new Error('Recipe not found.'),{statusCode:404});const existing=snap.data()||{};const branch=checkBranchAuthorization(user,existing.branchId);if(!branch.authorized)throw Object.assign(new Error(branch.error||'Unauthorized recipe branch.'),{statusCode:403});const now=new Date().toISOString();tx.update(ref,{isActive:false,isArchived:true,deletedAt:now,updatedAt:now});if(existing.productId){const pr=db.collection('products').doc(existing.productId);const ps=await tx.get(pr);if(ps.exists)tx.update(pr,{activeRecipeId:null,recipe:[],updatedAt:now});}const result={status:'success',id:recipeId};tx.set(idemRef,{...result,createdAt:now});return result;});return res.json(out);}catch(e:any){return res.status(e?.statusCode||500).json({error:e?.message||'Recipe deletion failed.'});}
+  const user=await authenticateTrustedUser(req,res);if(!user)return;const role=checkRoleAuthorization(user,['Owner','owner','Admin','admin','Manager','manager']);if(!role.authorized)return res.status(403).json({error:role.error});const recipeId=String(req.params.id||'').trim();if(!recipeId)return res.status(400).json({error:'Recipe ID is required.'});let key:string;try{key=getRequiredIdempotencyKey(req);}catch(e:any){return res.status(e?.statusCode||400).json({error:e?.message||'Idempotency-Key is required.'});}const db=getAdminDb();const idemRef=db.collection('mutation_idempotency').doc(createHash('sha256').update(`recipe-delete:${user.uid}:${recipeId}:${key}`).digest('hex'));try{const out=await db.runTransaction(async(tx:any)=>{const idem=await tx.get(idemRef);if(idem.exists)return idem.data();const ref=db.collection('recipes').doc(recipeId);const snap=await tx.get(ref);if(!snap.exists)throw Object.assign(new Error('Recipe not found.'),{statusCode:404});const existing=snap.data()||{};const branch=checkBranchAuthorization(user,existing.branchId);if(!branch.authorized)throw Object.assign(new Error(branch.error||'Unauthorized recipe branch.'),{statusCode:403});const pr=existing.productId?db.collection('products').doc(existing.productId):null;const ps=pr?await tx.get(pr):null;const now=new Date().toISOString();tx.update(ref,{isActive:false,isArchived:true,deletedAt:now,updatedAt:now});if(pr&&ps?.exists)tx.update(pr,{activeRecipeId:null,recipe:[],updatedAt:now});const result={status:'success',id:recipeId};tx.set(idemRef,{...result,createdAt:now});return result;});return res.json(out);}catch(e:any){return res.status(e?.statusCode||500).json({error:e?.message||'Recipe deletion failed.'});}
 }
 
 export async function handleReceiveGoods(req: express.Request, res: express.Response) {
@@ -6542,8 +7658,13 @@ export async function handleReceiveGoods(req: express.Request, res: express.Resp
       }
 
       const po = poSnap.data() as any;
-      if (po.status === 'completed' || po.status === 'received') {
+      const currentPoStatus = String(po.status || '').toLowerCase().trim();
+      if (currentPoStatus === 'completed' || currentPoStatus === 'received') {
         throw new Error(`Purchase Order #${po.poNumber || poId} is already completed / fully received.`);
+      }
+      const allowedReceivingStatuses = ['approved', 'ordered', 'pending_delivery', 'partially_received'];
+      if (!allowedReceivingStatuses.includes(currentPoStatus)) {
+        throw new Error(`Purchase Order #${po.poNumber || poId} cannot be received in status "${po.status || 'unknown'}". Only approved, ordered, or partially received purchase orders can be received.`);
       }
 
       const targetBranchId = normalizeCanonicalBranchId(po.branchId || user.branchId || '');
@@ -6562,6 +7683,10 @@ export async function handleReceiveGoods(req: express.Request, res: express.Resp
       for (const rec of recs) {
         const recItemId = String(rec?.itemId || '').trim();
         if (!recItemId) throw new Error('Received item is missing itemId.');
+        const rawRecQty = Number(rec?.receivedQty);
+        if (!Number.isFinite(rawRecQty) || rawRecQty < 0) {
+          throw Object.assign(new Error(`Invalid received quantity for item "${recItemId}": must be a finite non-negative number.`), { statusCode: 400 });
+        }
         if (!poItemIds.has(recItemId)) {
           throw new Error(`Received item "${recItemId}" is not present in Purchase Order #${po.poNumber || poId}.`);
         }
@@ -6661,6 +7786,14 @@ export async function handleReceiveGoods(req: express.Request, res: express.Resp
         });
       }
 
+      await assertAccountingDateOpenInTransaction(transaction, db, dateStr, targetBranchId);
+      const __receiveAccountState = sessionReceivedCost > 0
+        ? await prepareAccountBalanceState(transaction, db, ['acc_inventory', 'acc_ap'])
+        : null;
+      const poSupplierId = po.supplierId ? String(po.supplierId).trim() : '';
+      const receiveSupRef = (sessionReceivedCost > 0 && poSupplierId) ? db.collection('suppliers').doc(poSupplierId) : null;
+      const receiveSupSnap = receiveSupRef ? await transaction.get(receiveSupRef) : null;
+
       // Phase 2 (All Writes)
       transaction.update(poRef, cleanUndefined({
         items: updatedItems,
@@ -6670,6 +7803,7 @@ export async function handleReceiveGoods(req: express.Request, res: express.Resp
 
       // Maintain synchronization on purchases projection doc
       transaction.set(db.collection('purchases').doc(poId), cleanUndefined({
+        items: updatedItems,
         status: nextStatus,
         updatedAt: now
       }), { merge: true });
@@ -6707,17 +7841,32 @@ export async function handleReceiveGoods(req: express.Request, res: express.Resp
           throw Object.assign(new Error(`Inventory usage unit missing for "${itemName}".`), { statusCode: 409 });
         }
 
+        const orderedItemMatch = (items.find((orderedItem: any) => orderedItem.itemId === itemId || orderedItem.id === itemId) || {}) as any;
+        const poPurchaseUnitCost = Number(orderedItemMatch.unitCost ?? orderedItemMatch.unitPrice ?? 0);
+        const receivedTotalItemCost = purchaseQty * Math.max(0, poPurchaseUnitCost);
+        const convFactor = isIngredient
+          ? (Number(invEntry.ingData?.conversionFactor || 1) > 0 ? Number(invEntry.ingData?.conversionFactor || 1) : 1)
+          : 1;
+        const oldUnitCost = isIngredient
+          ? Number(invEntry.ingData?.costPerUsageUnit ?? invEntry.ingData?.costPerUnit ?? invEntry.ingData?.costPrice ?? (convFactor > 0 ? Number(invEntry.ingData?.purchaseCost || 0) / convFactor : 0))
+          : Number(invEntry.invData?.purchaseCost ?? invEntry.invData?.costPrice ?? poPurchaseUnitCost ?? 0);
+        const newWeightedUnitCost = newQty > 0 && receivedTotalItemCost > 0
+          ? ((Math.max(0, currentQty) * Math.max(0, oldUnitCost)) + receivedTotalItemCost) / newQty
+          : (usageQty > 0 && receivedTotalItemCost > 0 ? receivedTotalItemCost / usageQty : oldUnitCost);
+        const newPurchaseUnitCost = isIngredient ? newWeightedUnitCost * convFactor : newWeightedUnitCost;
+
         if (invEntry.invData) {
           transaction.update(invEntry.invRef, {
             currentQuantity: newQty,
+            purchaseCost: newPurchaseUnitCost,
+            costPrice: newWeightedUnitCost,
             ...(isIngredient ? {
               itemType: 'ingredient',
               unit,
               purchaseUnit: invEntry.ingData?.purchaseUnit,
               usageUnit: invEntry.ingData?.usageUnit,
-              conversionFactor: Number(invEntry.ingData?.conversionFactor),
-              purchaseCost: Number(invEntry.ingData?.purchaseCost || 0),
-              costPerUsageUnit: Number(invEntry.ingData?.costPerUsageUnit || 0)
+              conversionFactor: convFactor,
+              costPerUsageUnit: newWeightedUnitCost
             } : {}),
             batchNumber: invEntry.batchNumber || invEntry.invData.batchNumber || '',
             expirationDate: invEntry.expirationDate || invEntry.invData.expirationDate || '',
@@ -6731,13 +7880,14 @@ export async function handleReceiveGoods(req: express.Request, res: express.Resp
             itemCode,
             currentQuantity: newQty,
             unit,
+            purchaseCost: newPurchaseUnitCost,
+            costPrice: newWeightedUnitCost,
             ...(isIngredient ? {
               itemType: 'ingredient',
               purchaseUnit: invEntry.ingData?.purchaseUnit,
               usageUnit: invEntry.ingData?.usageUnit,
-              conversionFactor: Number(invEntry.ingData?.conversionFactor),
-              purchaseCost: Number(invEntry.ingData?.purchaseCost || 0),
-              costPerUsageUnit: Number(invEntry.ingData?.costPerUsageUnit || 0)
+              conversionFactor: convFactor,
+              costPerUsageUnit: newWeightedUnitCost
             } : {}),
             branchId: targetBranchId,
             batchNumber: invEntry.batchNumber || '',
@@ -6750,30 +7900,45 @@ export async function handleReceiveGoods(req: express.Request, res: express.Resp
 
         // Canonical synchronization with ingredients collection (consumed by POS and Recipe Engine)
         if (invEntry.ingData) {
-          transaction.update(invEntry.ingRef, {
+          transaction.update(invEntry.ingRef, cleanUndefined({
             stock: newQty,
             currentStockUsageUnit: newQty,
+            purchaseCost: newPurchaseUnitCost,
+            costPerUsageUnit: newWeightedUnitCost,
+            costPrice: newWeightedUnitCost,
+            costPerUnit: newWeightedUnitCost,
+            batchNumber: invEntry.batchNumber || invEntry.ingData.batchNumber || undefined,
+            expirationDate: invEntry.expirationDate || invEntry.ingData.expirationDate || undefined,
+            expiryDate: invEntry.expirationDate || invEntry.ingData.expiryDate || undefined,
             status: getIngredientStockStatus(newQty, Number(invEntry.ingData?.minStockUsageUnit || 0)),
             updatedAt: now
-          });
+          }));
         } else {
-          transaction.set(invEntry.ingRef, {
+          transaction.set(invEntry.ingRef, cleanUndefined({
             id: itemId,
             name: itemName,
             stock: newQty,
             currentStockUsageUnit: newQty,
+            purchaseCost: newPurchaseUnitCost,
+            costPerUsageUnit: newWeightedUnitCost,
+            costPrice: newWeightedUnitCost,
+            costPerUnit: newWeightedUnitCost,
+            batchNumber: invEntry.batchNumber || undefined,
+            expirationDate: invEntry.expirationDate || undefined,
+            expiryDate: invEntry.expirationDate || undefined,
             status: getIngredientStockStatus(newQty, Number(invEntry.ingData?.minStockUsageUnit || 0)),
             unit,
             usageUnit: unit,
             branchId: targetBranchId,
             updatedAt: now
-          }, { merge: true });
+          }), { merge: true });
         }
 
         const movRef = db.collection('inventory_movements').doc();
         transaction.set(movRef, cleanUndefined({
           id: movRef.id,
           type: 'purchase_receive',
+          itemType: isIngredient ? 'ingredient' : 'inventory',
           itemId,
           itemName,
           itemCode,
@@ -6781,9 +7946,13 @@ export async function handleReceiveGoods(req: express.Request, res: express.Resp
           unit,
           purchaseQuantity: purchaseQty,
           purchaseUnit: isIngredient ? invEntry.ingData?.purchaseUnit : unit,
-          unitCost: Number(((items.find((orderedItem: any) => orderedItem.itemId === itemId || orderedItem.id === itemId) || {}) as any).unitCost ?? ((items.find((orderedItem: any) => orderedItem.itemId === itemId || orderedItem.id === itemId) || {}) as any).unitPrice ?? 0),
+          unitCost: newWeightedUnitCost,
+          costPrice: newWeightedUnitCost,
+          totalCost: receivedTotalItemCost,
           previousQuantity: currentQty,
           newQuantity: newQty,
+          batchNumber: invEntry.batchNumber || undefined,
+          expirationDate: invEntry.expirationDate || undefined,
           branchId: targetBranchId,
           reason: `Goods Receiving from PO #${po.poNumber || poId}`,
           createdBy: receivedBy || user.name,
@@ -6838,6 +8007,7 @@ export async function handleReceiveGoods(req: express.Request, res: express.Resp
             id: jlRef.id,
             journalEntryId: jeRef.id,
             entryNumber,
+            date: dateStr,
             branchId: targetBranchId,
             ...line,
             createdAt: now
@@ -6859,6 +8029,46 @@ export async function handleReceiveGoods(req: express.Request, res: express.Resp
             branchId: targetBranchId,
             createdAt: now
           }));
+        }
+        if (__receiveAccountState) {
+          applyAccountBalanceDeltasInTransaction(transaction, __receiveAccountState, lines, now);
+        }
+
+        const payableRef = db.collection('payables').doc();
+        const billNumber = `BILL-${po.poNumber || poId.slice(0, 6).toUpperCase()}-${payableRef.id.slice(0, 4).toUpperCase()}`;
+        transaction.set(payableRef, cleanUndefined({
+          id: payableRef.id,
+          poId,
+          poNumber: po.poNumber || poId,
+          billNumber,
+          vendorName: po.supplierName || 'Supplier',
+          supplierName: po.supplierName || 'Supplier',
+          vendorId: poSupplierId || undefined,
+          supplierId: poSupplierId || undefined,
+          totalAmount: sessionReceivedCost,
+          amount: sessionReceivedCost,
+          paidAmount: 0,
+          remainingBalance: sessionReceivedCost,
+          status: 'Unpaid',
+          dueDate: po.expectedDeliveryDate || po.dueDate || undefined,
+          notes: `Auto-generated payable for Goods Receiving on PO #${po.poNumber || poId}`,
+          payments: [],
+          branchId: targetBranchId,
+          journalEntryId: jeRef.id,
+          date: dateStr,
+          createdBy: user.name,
+          createdAt: now
+        }));
+
+        if (receiveSupRef && receiveSupSnap && receiveSupSnap.exists) {
+          const sData = receiveSupSnap.data() || {};
+          const curOut = Number(sData.outstandingBalance || 0);
+          const curPend = Number(sData.pendingAmount || 0);
+          transaction.update(receiveSupRef, {
+            outstandingBalance: Math.round((curOut + sessionReceivedCost) * 100) / 100,
+            pendingAmount: Math.round((curPend + sessionReceivedCost) * 100) / 100,
+            updatedAt: now
+          });
         }
       }
 
@@ -6937,6 +8147,9 @@ export async function handleRecordSupplierPayment(req: express.Request, res: exp
       await assertAccountingDateOpenInTransaction(transaction, db, dateStr, targetBranchId);
       const __accountState = await prepareAccountBalanceState(transaction, db, ['acc_ap', settlement.id]);
       const __cashRegisterState = (normalizedPayMethod === 'cash') ? await prepareCashRegisterStateInTransaction(transaction, db, targetBranchId) : undefined;
+      const openPayablesSnap = await transaction.get(
+        db.collection('payables').where('branchId', '==', targetBranchId)
+      );
 
       // Phase 2 (All Writes)
       const newRef = db.collection('supplier_payments').doc();
@@ -6945,6 +8158,8 @@ export async function handleRecordSupplierPayment(req: express.Request, res: exp
         supplierId: paymentData.supplierId ? String(paymentData.supplierId).trim() : '',
         supplierName: paymentData.supplierName ? String(paymentData.supplierName).trim() : 'Supplier',
         amount: paymentAmount,
+        paymentDate: dateStr,
+        date: dateStr,
         paymentMethod: normalizedPayMethod,
         paymentAccountId: settlement.id,
         bankAccountId: settlement.bankAccountId || paymentData.bankAccountId || undefined,
@@ -6958,7 +8173,62 @@ export async function handleRecordSupplierPayment(req: express.Request, res: exp
       transaction.set(newRef, payment);
 
       if (supRef && supSnap && supSnap.exists) {
-        transaction.update(supRef, { outstandingBalance: newBalance, updatedAt: now });
+        const curPend = Number((supSnap.data() as any)?.pendingAmount || 0);
+        transaction.update(supRef, {
+          outstandingBalance: Math.max(0, Math.round(newBalance * 100) / 100),
+          pendingAmount: Math.max(0, Math.round((curPend - paymentAmount) * 100) / 100),
+          updatedAt: now
+        });
+      }
+
+      if (openPayablesSnap && !openPayablesSnap.empty) {
+        const targetSupId = paymentData.supplierId ? String(paymentData.supplierId).trim() : '';
+        const targetSupName = String(paymentData.supplierName || '').trim().toLowerCase();
+        const candidatePayables = openPayablesSnap.docs
+          .map((d: any) => ({ ref: d.ref, data: d.data() || {} }))
+          .filter((p: any) => {
+            const pStatus = String(p.data.status || '').toLowerCase();
+            if (pStatus === 'paid' || pStatus === 'cancelled') return false;
+            const pTotal = Number(p.data.totalAmount ?? p.data.amount ?? 0);
+            const pPaid = Number(p.data.paidAmount || 0);
+            if (pTotal - pPaid <= 0.001) return false;
+            if (targetSupId && (p.data.supplierId === targetSupId || p.data.vendorId === targetSupId)) return true;
+            if (!targetSupId && targetSupName && (String(p.data.vendorName || p.data.supplierName || '').trim().toLowerCase() === targetSupName)) return true;
+            return false;
+          })
+          .sort((a: any, b: any) => String(a.data.createdAt || a.data.date || '').localeCompare(String(b.data.createdAt || b.data.date || '')));
+
+        let remainingToAllocate = paymentAmount;
+        for (const p of candidatePayables) {
+          if (remainingToAllocate <= 0.001) break;
+          const pTotal = Number(p.data.totalAmount ?? p.data.amount ?? 0);
+          const pPaid = Number(p.data.paidAmount || 0);
+          const pRem = Math.max(0, pTotal - pPaid);
+          const alloc = Math.min(pRem, remainingToAllocate);
+          if (alloc > 0) {
+            const nextPaid = Math.round((pPaid + alloc) * 100) / 100;
+            const nextRem = Math.max(0, Math.round((pTotal - nextPaid) * 100) / 100);
+            const nextStatus = nextRem <= 0.001 ? 'Paid' : 'Partial';
+            const payRecord = {
+              id: newRef.id,
+              date: dateStr,
+              amount: alloc,
+              paymentMethod: normalizedPayMethod,
+              paymentAccountId: settlement.id,
+              bankAccountId: settlement.bankAccountId || paymentData.bankAccountId || undefined,
+              reference: paymentData.reference ? String(paymentData.reference).trim() : '',
+              notes: paymentData.notes ? String(paymentData.notes).trim() : ''
+            };
+            transaction.update(p.ref, cleanUndefined({
+              paidAmount: nextPaid,
+              remainingBalance: nextRem,
+              status: nextStatus,
+              payments: [...(Array.isArray(p.data.payments) ? p.data.payments : []), payRecord],
+              updatedAt: now
+            }));
+            remainingToAllocate = Math.round((remainingToAllocate - alloc) * 100) / 100;
+          }
+        }
       }
 
       // Double-Entry Journal Entry
@@ -7011,6 +8281,7 @@ export async function handleRecordSupplierPayment(req: express.Request, res: exp
           id: jlRef.id,
           journalEntryId: jeRef.id,
           entryNumber,
+          date: dateStr,
           branchId: targetBranchId,
           ...line,
           createdAt: now
@@ -7046,7 +8317,8 @@ export async function handleRecordSupplierPayment(req: express.Request, res: exp
     return res.json(result);
   } catch (err: any) {
     console.error('Record Supplier Payment Error:', err?.message || err);
-    return res.status(500).json({ error: err?.message || 'Record Supplier Payment Failed' });
+    const statusCode = err?.statusCode || (err?.message?.includes('exceeds') || err?.message?.includes('rejected') || err?.message?.includes('missing') ? 400 : 500);
+    return res.status(statusCode).json({ error: err?.message || 'Record Supplier Payment Failed' });
   }
 }
 
@@ -7065,6 +8337,43 @@ export async function handleCreateInventoryItem(req: express.Request, res: expre
     return res.status(400).json({ error: 'Item data is required.' });
   }
 
+  if (!itemData.itemName || typeof itemData.itemName !== 'string' || itemData.itemName.trim() === '') {
+    return res.status(400).json({ error: 'Item name is required and cannot be empty.' });
+  }
+
+  const rawCost = itemData.purchaseCost ?? itemData.costPrice;
+  if (rawCost === undefined || rawCost === null || rawCost === '') {
+    return res.status(400).json({ error: 'Cost price / purchase cost is required.' });
+  }
+  const cost = Number(rawCost);
+  if (!Number.isFinite(cost) || cost < 0) {
+    return res.status(400).json({ error: 'Cost price must be a valid non-negative number.' });
+  }
+
+  const rawSelling = itemData.sellingCost ?? itemData.sellingPrice;
+  const selling = rawSelling !== undefined && rawSelling !== null && rawSelling !== '' ? Number(rawSelling) : 0;
+  if (!Number.isFinite(selling) || selling < 0) {
+    return res.status(400).json({ error: 'Selling price must be a valid non-negative number.' });
+  }
+
+  const rawMin = itemData.minimumQuantity ?? itemData.reorderLevel;
+  const minQty = rawMin !== undefined && rawMin !== null && rawMin !== '' ? Number(rawMin) : 0;
+  if (!Number.isFinite(minQty) || minQty < 0) {
+    return res.status(400).json({ error: 'Minimum quantity must be a valid non-negative number.' });
+  }
+
+  const rawMax = itemData.maximumQuantity;
+  const maxQty = rawMax !== undefined && rawMax !== null && rawMax !== '' ? Number(rawMax) : 0;
+  if (!Number.isFinite(maxQty) || maxQty < 0) {
+    return res.status(400).json({ error: 'Maximum quantity must be a valid non-negative number.' });
+  }
+
+  const rawCurrent = itemData.currentQuantity;
+  const currentQty = rawCurrent !== undefined && rawCurrent !== null && rawCurrent !== '' ? Number(rawCurrent) : 0;
+  if (!Number.isFinite(currentQty) || currentQty < 0) {
+    return res.status(400).json({ error: 'Current quantity must be a valid non-negative number.' });
+  }
+
   const branchCheck = checkBranchAuthorization(user, itemData.branchId || user.branchId);
   if (!branchCheck.authorized) {
     return res.status(403).json({ error: branchCheck.error });
@@ -7081,34 +8390,120 @@ export async function handleCreateInventoryItem(req: express.Request, res: expre
     const fullItem = {
       ...itemData,
       id: newRef.id,
+      itemName: String(itemData.itemName).trim(),
+      purchaseCost: cost,
+      costPrice: cost,
+      sellingCost: selling,
+      sellingPrice: selling,
+      minimumQuantity: minQty,
+      reorderLevel: minQty,
+      maximumQuantity: maxQty,
+      currentQuantity: currentQty,
       branchId: targetBranchId,
       createdBy: user.name,
       createdAt: timestamp,
-      updatedAt: timestamp
+      updatedAt: timestamp,
+      isDeleted: false,
+      isArchived: false
     };
 
     const result = await db.runTransaction(async (transaction) => {
       const idemSnap = await transaction.get(idemRef);
       if (idemSnap.exists) return idemSnap.data();
+      const openingValue = Math.round(currentQty * cost * 100) / 100;
+      const dateStr = getMogadishuDateString(timestamp);
+      const __invOpeningAccountState = openingValue > 0
+        ? await prepareAccountBalanceState(transaction, db, ['acc_inventory', 'acc_equity'])
+        : null;
       transaction.set(newRef, cleanUndefined(fullItem));
-      if (Number(itemData.currentQuantity || 0) > 0) {
+      if (currentQty > 0) {
         const movementRef = db.collection('inventory_movements').doc();
         const movement = {
           id: movementRef.id,
           type: 'adjustment',
+          itemType: itemData.itemType || 'inventory',
           itemId: newRef.id,
           itemName: itemData.itemName || 'Inventory Item',
           itemCode: itemData.itemCode || '',
-          quantity: Number(itemData.currentQuantity),
+          quantity: currentQty,
           unit: itemData.unit || 'pcs',
+          unitCost: cost,
+          costPrice: cost,
+          totalCost: openingValue,
           previousQuantity: 0,
-          newQuantity: Number(itemData.currentQuantity),
+          newQuantity: currentQty,
           reason: 'Initial stock intake upon item creation',
           branchId: targetBranchId,
           createdBy: user.name,
           createdAt: timestamp
         };
         transaction.set(movementRef, cleanUndefined(movement));
+        if (openingValue > 0 && __invOpeningAccountState) {
+          const jeRef = db.collection('journal_entries').doc();
+          const entryNumber = `JE-INV-OPEN-${newRef.id.slice(0, 6).toUpperCase()}`;
+          const lines = [
+            {
+              accountId: 'acc_inventory',
+              accountCode: '1030',
+              accountName: 'Food & Beverage Inventory Asset',
+              debit: openingValue,
+              credit: 0,
+              memo: `Opening inventory stock for ${fullItem.itemName}`
+            },
+            {
+              accountId: 'acc_equity',
+              accountCode: '3000',
+              accountName: "Owner's Capital / Opening Balance Equity",
+              debit: 0,
+              credit: openingValue,
+              memo: `Opening inventory balance equity for ${fullItem.itemName}`
+            }
+          ];
+          transaction.set(jeRef, cleanUndefined({
+            id: jeRef.id,
+            entryNumber,
+            date: dateStr,
+            reference: newRef.id,
+            description: `Opening Inventory Balance: ${fullItem.itemName} (${currentQty} ${itemData.unit || 'pcs'})`,
+            source: 'Opening Balance',
+            status: 'Posted',
+            totalDebit: openingValue,
+            totalCredit: openingValue,
+            lines,
+            branchId: targetBranchId,
+            createdBy: user.name,
+            createdAt: timestamp
+          }));
+          for (const line of lines) {
+            const jlRef = db.collection('journal_lines').doc();
+            transaction.set(jlRef, cleanUndefined({
+              id: jlRef.id,
+              journalEntryId: jeRef.id,
+              entryNumber,
+              date: dateStr,
+              branchId: targetBranchId,
+              ...line,
+              createdAt: timestamp
+            }));
+            const ledgerRef = db.collection('ledger').doc();
+            transaction.set(ledgerRef, cleanUndefined({
+              id: ledgerRef.id,
+              accountId: line.accountId,
+              accountCode: line.accountCode,
+              accountName: line.accountName,
+              journalEntryId: jeRef.id,
+              entryNumber,
+              date: dateStr,
+              reference: newRef.id,
+              description: line.memo,
+              debit: line.debit,
+              credit: line.credit,
+              branchId: targetBranchId,
+              createdAt: timestamp
+            }));
+          }
+          applyAccountBalanceDeltasInTransaction(transaction, __invOpeningAccountState, lines, timestamp);
+        }
       }
       const out = { status: 'success', item: { ...fullItem, idempotencyKey }, idempotencyKey };
       transaction.set(idemRef, cleanUndefined({ ...out, createdAt: timestamp }));
@@ -7167,8 +8562,12 @@ export async function handleUpdateInventoryItem(req: express.Request, res: expre
       category,
       unit,
       minimumQuantity,
+      reorderLevel,
       costPrice,
+      purchaseCost,
       sellingPrice,
+      sellingCost,
+      maximumQuantity,
       supplierId,
       supplierName,
       batchNumber,
@@ -7182,13 +8581,51 @@ export async function handleUpdateInventoryItem(req: express.Request, res: expre
       updatedAt: new Date().toISOString()
     };
 
-    if (itemName !== undefined) payload.itemName = String(itemName).trim();
+    if (itemName !== undefined) {
+      if (typeof itemName !== 'string' || itemName.trim() === '') {
+        return res.status(400).json({ error: 'Item name cannot be empty.' });
+      }
+      payload.itemName = String(itemName).trim();
+    }
     if (itemCode !== undefined) payload.itemCode = String(itemCode).trim();
     if (category !== undefined) payload.category = String(category).trim();
     if (unit !== undefined) payload.unit = String(unit).trim();
-    if (minimumQuantity !== undefined) payload.minimumQuantity = Number(minimumQuantity) || 0;
-    if (costPrice !== undefined) payload.costPrice = Number(costPrice) || 0;
-    if (sellingPrice !== undefined) payload.sellingPrice = Number(sellingPrice) || 0;
+
+    if (costPrice !== undefined || purchaseCost !== undefined) {
+      const c = Number(costPrice ?? purchaseCost);
+      if (!Number.isFinite(c) || c < 0) {
+        return res.status(400).json({ error: 'Cost price / purchase cost must be a valid non-negative number.' });
+      }
+      payload.costPrice = c;
+      payload.purchaseCost = c;
+    }
+
+    if (sellingPrice !== undefined || sellingCost !== undefined) {
+      const s = Number(sellingPrice ?? sellingCost);
+      if (!Number.isFinite(s) || s < 0) {
+        return res.status(400).json({ error: 'Selling price / selling cost must be a valid non-negative number.' });
+      }
+      payload.sellingPrice = s;
+      payload.sellingCost = s;
+    }
+
+    if (minimumQuantity !== undefined || reorderLevel !== undefined) {
+      const m = Number(minimumQuantity ?? reorderLevel);
+      if (!Number.isFinite(m) || m < 0) {
+        return res.status(400).json({ error: 'Minimum quantity / reorder level must be a valid non-negative number.' });
+      }
+      payload.minimumQuantity = m;
+      payload.reorderLevel = m;
+    }
+
+    if (maximumQuantity !== undefined) {
+      const mx = Number(maximumQuantity);
+      if (!Number.isFinite(mx) || mx < 0) {
+        return res.status(400).json({ error: 'Maximum quantity must be a valid non-negative number.' });
+      }
+      payload.maximumQuantity = mx;
+    }
+
     if (supplierId !== undefined) payload.supplierId = String(supplierId).trim();
     if (supplierName !== undefined) payload.supplierName = String(supplierName).trim();
     if (batchNumber !== undefined) payload.batchNumber = String(batchNumber).trim();
@@ -7197,12 +8634,17 @@ export async function handleUpdateInventoryItem(req: express.Request, res: expre
     if (status !== undefined) payload.status = String(status).trim();
     if (notes !== undefined) payload.notes = String(notes).trim();
 
-    const priorIdem = await idemRef.get();
-    if (priorIdem.exists) return res.json(priorIdem.data());
-    await itemRef.update(cleanUndefined(payload));
-    const out = { status: 'success', id, idempotencyKey };
-    await idemRef.set(cleanUndefined({ ...out, createdAt: new Date().toISOString() }));
-    return res.json(out);
+    const result = await db.runTransaction(async (transaction) => {
+      const priorIdem = await transaction.get(idemRef);
+      if (priorIdem.exists) return priorIdem.data();
+      const txSnap = await transaction.get(itemRef);
+      if (!txSnap.exists) throw Object.assign(new Error('Inventory item not found.'), { statusCode: 404 });
+      transaction.update(itemRef, cleanUndefined(payload));
+      const out = { status: 'success', id, idempotencyKey };
+      transaction.set(idemRef, cleanUndefined({ ...out, createdAt: new Date().toISOString() }));
+      return out;
+    });
+    return res.json(result);
   } catch (err: any) {
     console.error('Update Inventory Item Error:', err?.message || err);
     return res.status(500).json({ error: err?.message || 'Update Inventory Item Failed' });
@@ -7240,12 +8682,23 @@ export async function handleDeleteInventoryItem(req: express.Request, res: expre
       return res.status(403).json({ error: branchCheck.error });
     }
 
-    const priorIdem = await idemRef.get();
-    if (priorIdem.exists) return res.json(priorIdem.data());
-    await itemRef.update({ isDeleted: true, status: 'deleted', deletedAt: new Date().toISOString(), deletedBy: user.name, idempotencyKey });
-    const out = { status: 'success', id, idempotencyKey };
-    await idemRef.set(cleanUndefined({ ...out, createdAt: new Date().toISOString() }));
-    return res.json(out);
+    const result = await db.runTransaction(async (transaction) => {
+      const priorIdem = await transaction.get(idemRef);
+      if (priorIdem.exists) return priorIdem.data();
+      const txSnap = await transaction.get(itemRef);
+      if (!txSnap.exists) throw Object.assign(new Error('Inventory item not found.'), { statusCode: 404 });
+      const linkedIngRef = db.collection('ingredients').doc(id);
+      const linkedIngSnap = await transaction.get(linkedIngRef);
+      const nowIso = new Date().toISOString();
+      transaction.update(itemRef, { isDeleted: true, isArchived: true, isActive: false, status: 'deleted', deletedAt: nowIso, updatedAt: nowIso, deletedBy: user.name, idempotencyKey });
+      if (linkedIngSnap.exists) {
+        transaction.update(linkedIngRef, { isDeleted: true, isArchived: true, isActive: false, status: 'deleted', deletedAt: nowIso, updatedAt: nowIso, deletedBy: user.name });
+      }
+      const out = { status: 'success', id, idempotencyKey };
+      transaction.set(idemRef, cleanUndefined({ ...out, createdAt: nowIso }));
+      return out;
+    });
+    return res.json(result);
   } catch (err: any) {
     console.error('Delete Inventory Item Error:', err?.message || err);
     return res.status(500).json({ error: err?.message || 'Delete Inventory Item Failed' });
@@ -7266,6 +8719,39 @@ export async function handleCreatePurchaseOrder(req: express.Request, res: expre
     return res.status(400).json({ error: 'Purchase Order data is required.' });
   }
 
+  const items = Array.isArray(poData.items) ? poData.items : [];
+  if (items.length === 0) {
+    return res.status(400).json({ error: 'Purchase Order must include at least one item.' });
+  }
+
+  let computedTotalCost = 0;
+  let totalQuantity = 0;
+  for (let idx = 0; idx < items.length; idx++) {
+    const itm = items[idx];
+    const itemId = String(itm?.itemId || itm?.id || '').trim();
+    if (!itemId) {
+      return res.status(400).json({ error: `Item at index ${idx} is missing a valid itemId.` });
+    }
+    const rawQty = itm?.requestedQuantity ?? itm?.quantity;
+    if (rawQty === undefined || rawQty === null || rawQty === '') {
+      return res.status(400).json({ error: `Item "${itm?.itemName || itemId}" is missing quantity.` });
+    }
+    const qty = Number(rawQty);
+    if (!Number.isFinite(qty) || qty <= 0) {
+      return res.status(400).json({ error: `Item "${itm?.itemName || itemId}" must have a positive finite quantity.` });
+    }
+    const rawPrice = itm?.unitCost ?? itm?.unitPrice;
+    if (rawPrice === undefined || rawPrice === null || rawPrice === '') {
+      return res.status(400).json({ error: `Item "${itm?.itemName || itemId}" is missing unit price / cost.` });
+    }
+    const price = Number(rawPrice);
+    if (!Number.isFinite(price) || price < 0) {
+      return res.status(400).json({ error: `Item "${itm?.itemName || itemId}" must have a non-negative finite unit price.` });
+    }
+    totalQuantity += qty;
+    computedTotalCost += qty * price;
+  }
+
   const branchCheck = checkBranchAuthorization(user, poData.branchId || user.branchId);
   if (!branchCheck.authorized) {
     return res.status(403).json({ error: branchCheck.error });
@@ -7282,9 +8768,21 @@ export async function handleCreatePurchaseOrder(req: express.Request, res: expre
       if (idemSnap.exists) return idemSnap.data();
       const timestamp = new Date().toISOString();
       const newRef = db.collection('purchase_orders').doc();
+      const datePart = getMogadishuDateString(timestamp).replace(/-/g, '');
+      const uniqueSuffix = newRef.id.slice(0, 6).toUpperCase();
+      const poNumber = poData.poNumber && !poData.poNumber.match(/^PO-\d{5}$/)
+        ? poData.poNumber
+        : `PO-${datePart}-${uniqueSuffix}`;
+      const initialStatus = poData.status === 'draft' ? 'draft' : 'pending_approval';
       const fullPo = {
         ...poData,
         id: newRef.id,
+        poNumber,
+        items,
+        totalAmount: computedTotalCost,
+        totalCost: computedTotalCost,
+        status: initialStatus,
+        approvalStatus: initialStatus === 'draft' ? 'draft' : 'pending',
         idempotencyKey,
         branchId: targetBranchId,
         createdBy: user.name,
@@ -7295,20 +8793,21 @@ export async function handleCreatePurchaseOrder(req: express.Request, res: expre
       transaction.set(newRef, cleanUndefined(fullPo));
 
       // Maintain projection in purchases collection for dashboards, reporting and live subscriptions
-      const poItems = Array.isArray(fullPo.items) ? fullPo.items : [];
-      const firstItem = poItems[0] || {};
+      const firstItem = items[0] || {};
       const purchaseProjection = {
         id: newRef.id,
+        poNumber,
         supplierId: fullPo.supplierId || '',
-        supplierName: fullPo.supplierName || 'Supplier',
+        supplierName: fullPo.supplierName || fullPo.companyName || 'Supplier',
         itemName: firstItem.itemName || firstItem.name || 'Purchase Order Items',
-        quantity: poItems.reduce((sum: number, itm: any) => sum + (Number(itm.quantity ?? itm.requestedQuantity ?? 0) || 0), 0) || 1,
+        items,
+        quantity: totalQuantity,
         unit: firstItem.unit || 'pcs',
         unitPrice: Number(firstItem.unitCost ?? firstItem.unitPrice ?? 0),
-        totalCost: Number(fullPo.totalCost ?? fullPo.totalAmount ?? 0),
-        status: fullPo.status || 'pending',
+        totalCost: computedTotalCost,
+        status: initialStatus,
         branchId: targetBranchId,
-        dueDate: fullPo.expectedDeliveryDate || fullPo.dueDate,
+        dueDate: fullPo.expectedDeliveryDate || fullPo.dueDate || '',
         createdAt: timestamp,
         updatedAt: timestamp
       };
@@ -7374,12 +8873,22 @@ export async function handleUpdatePurchaseOrder(req: express.Request, res: expre
     if (supplierContact !== undefined) payload.supplierContact = String(supplierContact).trim();
     if (supplierPhone !== undefined) payload.supplierPhone = String(supplierPhone).trim();
 
-    const priorIdem = await idemRef.get();
-    if (priorIdem.exists) return res.json(priorIdem.data());
-    await poRef.update(cleanUndefined(payload));
-    const out = { status:'success', id, idempotencyKey };
-    await idemRef.set(cleanUndefined({ ...out, createdAt: new Date().toISOString() }));
-    return res.json(out);
+    const result = await db.runTransaction(async (transaction) => {
+      const priorIdem = await transaction.get(idemRef);
+      if (priorIdem.exists) return priorIdem.data();
+      const nowIso = new Date().toISOString();
+      transaction.update(poRef, cleanUndefined(payload));
+      if (expectedDeliveryDate !== undefined) {
+        transaction.set(db.collection('purchases').doc(id), cleanUndefined({
+          dueDate: String(expectedDeliveryDate).trim(),
+          updatedAt: nowIso
+        }), { merge: true });
+      }
+      const out = { status:'success', id, idempotencyKey };
+      transaction.set(idemRef, cleanUndefined({ ...out, createdAt: nowIso }));
+      return out;
+    });
+    return res.json(result);
   } catch (err: any) {
     console.error('Update Purchase Order Error:', err?.message || err);
     return res.status(500).json({ error: err?.message || 'Update Purchase Order Failed' });
@@ -7417,20 +8926,53 @@ export async function handleApprovePurchaseOrder(req: express.Request, res: expr
       return res.status(403).json({ error: branchCheck.error });
     }
 
-    const timestamp = new Date().toISOString();
-    const priorIdem = await idemRef.get();
-    if (priorIdem.exists) return res.json(priorIdem.data());
-    await poRef.update({
-      approvalStatus: 'approved',
-      status: 'approved',
-      approvedBy: user.name,
-      approvedAt: timestamp,
-      updatedAt: timestamp
-    });
+    const currentStatus = String(poData.status || '').toLowerCase().trim();
+    if (currentStatus === 'approved') {
+      return res.json({ status: 'success', id, message: 'Purchase Order is already approved.', idempotencyKey });
+    }
+    if (['cancelled', 'rejected'].includes(currentStatus)) {
+      return res.status(409).json({ error: `Cannot approve Purchase Order #${poData.poNumber || id} with status "${poData.status}".` });
+    }
+    if (['received', 'completed', 'partially_received'].includes(currentStatus)) {
+      return res.status(409).json({ error: `Purchase Order #${poData.poNumber || id} has already been received.` });
+    }
+    const validApprovalStatuses = ['pending_approval', 'pending', 'draft'];
+    if (!validApprovalStatuses.includes(currentStatus)) {
+      return res.status(409).json({ error: `Purchase Order #${poData.poNumber || id} cannot be approved from status "${poData.status}".` });
+    }
 
-    const out = { status:'success', id, idempotencyKey };
-    await idemRef.set(cleanUndefined({ ...out, createdAt: new Date().toISOString() }));
-    return res.json(out);
+    const timestamp = new Date().toISOString();
+    const result = await db.runTransaction(async (transaction) => {
+      const priorIdem = await transaction.get(idemRef);
+      if (priorIdem.exists) return priorIdem.data();
+      const txPoSnap = await transaction.get(poRef);
+      if (!txPoSnap.exists) throw Object.assign(new Error('Purchase Order not found.'), { statusCode: 404 });
+      const txStatus = String(txPoSnap.data()?.status || '').toLowerCase().trim();
+      if (txStatus === 'approved') {
+        return { status: 'success', id, message: 'Purchase Order is already approved.', idempotencyKey };
+      }
+      if (!validApprovalStatuses.includes(txStatus)) {
+        throw Object.assign(new Error(`Purchase Order #${poData.poNumber || id} cannot be approved from status "${txPoSnap.data()?.status}".`), { statusCode: 409 });
+      }
+      transaction.update(poRef, {
+        approvalStatus: 'approved',
+        status: 'approved',
+        approvedBy: user.name,
+        approvedAt: timestamp,
+        updatedAt: timestamp
+      });
+
+      // Also update purchases projection atomically in the same transaction
+      transaction.set(db.collection('purchases').doc(id), {
+        status: 'approved',
+        updatedAt: timestamp
+      }, { merge: true });
+
+      const out = { status:'success', id, idempotencyKey };
+      transaction.set(idemRef, cleanUndefined({ ...out, createdAt: timestamp }));
+      return out;
+    });
+    return res.json(result);
   } catch (err: any) {
     console.error('Approve Purchase Order Error:', err?.message || err);
     return res.status(500).json({ error: err?.message || 'Approve Purchase Order Failed' });
@@ -7582,7 +9124,14 @@ export async function handleCreateDeliveryOrder(req: express.Request, res: expre
       idempotencyKey
     };
 
+    const idemRef = db.collection('mutation_idempotency').doc(
+      createHash('sha256').update(`delivery-create:${user.uid}:${idempotencyKey}`).digest('hex').slice(0, 48)
+    );
     const result = await db.runTransaction(async (transaction) => {
+      const priorIdem = await transaction.get(idemRef);
+      if (priorIdem.exists) {
+        return priorIdem.data();
+      }
       const existingByKey = await transaction.get(newRef);
       if (existingByKey.exists) {
         const existingData = existingByKey.data() || {};
@@ -7616,7 +9165,9 @@ export async function handleCreateDeliveryOrder(req: express.Request, res: expre
         id: trackingRef.id, deliveryId: newRef.id, driverId: '', branchId: targetBranchId, statusUpdate: 'unassigned', timestamp
       }));
       if (orderLockRef) transaction.set(orderLockRef, cleanUndefined({ deliveryId: newRef.id, branchId: targetBranchId, status: 'active', orderId: String(deliveryData.orderId).trim(), updatedAt: timestamp }), { merge: true });
-      return { status: 'success', id: newRef.id, deliveryNumber };
+      const payload = { status: 'success', id: newRef.id, deliveryNumber };
+      transaction.set(idemRef, cleanUndefined({ ...payload, createdAt: timestamp, idempotencyKey }));
+      return payload;
     });
 
     if (result?.status === 'conflict') return res.status(409).json(result);
@@ -7814,18 +9365,13 @@ export async function handleKitchenTicketUpdate(req: express.Request, res: expre
 
       // Synchronize to orders and deliveries if prepStatus changed (Read BEFORE writes)
       if (effectivePrepStatus !== undefined) {
-        console.log(`[KITCHEN TICKET STEP 2] orders/${targetOrderId} ADMIN SDK READ`);
         const orderRef = db.collection('orders').doc(targetOrderId);
         orderSnap = await transaction.get(orderRef);
-        console.log(`[KITCHEN TICKET STEP 2] orders/${targetOrderId} ADMIN SDK READ: ${orderSnap.exists ? 'SUCCESS (exists)' : 'SKIPPED (not exists)'}`);
 
-        console.log(`[KITCHEN TICKET STEP 3] deliveries?orderId=${targetOrderId} ADMIN SDK QUERY`);
         const deliveryQuery = db.collection('deliveries').where('orderId', '==', targetOrderId);
         delSnap = await transaction.get(deliveryQuery);
-        console.log(`[KITCHEN TICKET STEP 3] deliveries?orderId=${targetOrderId} ADMIN SDK QUERY: SUCCESS (${delSnap.docs.length} found)`);
       }
 
-      console.log(`[KITCHEN TICKET STEP 4] kitchen_orders/${ticketId} ADMIN SDK UPDATE`);
       transaction.update(ticketRef, cleanUndefined(allowedUpdates));
       updatedFields.push(...Object.keys(allowedUpdates));
 
@@ -7849,13 +9395,11 @@ export async function handleKitchenTicketUpdate(req: express.Request, res: expre
           if (effectivePrepStatus === 'completed' && !isDeliveryOrder) {
             orderUpdates.completedAt = timestamp;
           }
-          console.log(`[KITCHEN TICKET STEP 5] orders/${targetOrderId} ADMIN SDK UPDATE`);
           const orderRef = db.collection('orders').doc(targetOrderId);
           transaction.update(orderRef, cleanUndefined(orderUpdates));
         }
 
         if (!delSnap.empty) {
-          console.log(`[KITCHEN TICKET STEP 6] deliveries (${delSnap.docs.length} docs) ADMIN SDK UPDATE`);
           delSnap.docs.forEach((delDoc: any) => {
             const delUpdates: any = {
               kitchenStatus: effectivePrepStatus,
@@ -7904,6 +9448,19 @@ export async function handleAttendanceClockIn(req: express.Request, res: express
       if (!isManagerial && !actorEmployeeId && String(user.uid || '') !== String(emp.userId || emp.uid || '')) {
         throw Object.assign(new Error('You are not authorized to clock in this employee record.'), { statusCode: 403 });
       }
+      // Phase 1 (Reads) - Resolve shift configuration dynamically for authoritative shift parameters
+      let assignedShift: any = null;
+      if (emp.shiftId) {
+        const sSnap = await transaction.get(db.collection('shifts').doc(emp.shiftId));
+        if (sSnap.exists) assignedShift = { id: sSnap.id, ...sSnap.data() };
+      }
+      if (!assignedShift) {
+        const shiftsSnap = await transaction.get(db.collection('shifts').where('branchId', '==', branchId).where('status', '==', 'active'));
+        assignedShift = shiftsSnap.docs.map(d => ({ id: d.id, ...d.data() })).find((s: any) => 
+          Array.isArray(s.assignedEmployeeIds) && s.assignedEmployeeIds.includes(empId)
+        ) || null;
+      }
+
       const now = new Date();
       const date = getMogadishuDateString(now.toISOString());
       const existing = await transaction.get(db.collection('employee_attendance').where('employeeId','==',empId).where('date','==',date));
@@ -7912,10 +9469,39 @@ export async function handleAttendanceClockIn(req: express.Request, res: express
       const idRef = db.collection('employee_attendance').doc();
       const mogadishu = new Intl.DateTimeFormat('en-GB',{timeZone:'Africa/Mogadishu',hour:'2-digit',minute:'2-digit',hour12:false}).formatToParts(now);
       const hour=Number(mogadishu.find(p=>p.type==='hour')?.value||0), minute=Number(mogadishu.find(p=>p.type==='minute')?.value||0);
-      const isLate = hour > 8 || (hour===8 && minute>30);
-      const record={ id:idRef.id, employeeId:empId, employeeName:emp.fullName||emp.name||empId, branchId, branch:emp.branch||branchId, date, clockIn:now.toISOString(), breakTimeMinutes:0, workingHours:0, overtimeHours:0, isLate, isEarlyLeave:false, status:'present', notes:String(req.body?.notes||'').trim(), createdAt:now.toISOString() };
+
+      const shiftStartStr = assignedShift?.startTime || '08:00';
+      const shiftEndStr = assignedShift?.endTime || '16:00';
+      const expectedWorkingHours = Number(assignedShift?.workingHours || 8);
+      const [shiftH, shiftM] = shiftStartStr.split(':').map((v: string) => Number(v) || 0);
+      const shiftStartMinutes = shiftH * 60 + shiftM;
+      const clockInMinutes = hour * 60 + minute;
+      const isLate = clockInMinutes > (shiftStartMinutes + 15);
+
+      const record = {
+        id: idRef.id,
+        employeeId: empId,
+        employeeName: emp.fullName || emp.name || empId,
+        branchId,
+        branch: emp.branch || branchId,
+        shiftId: assignedShift?.id || undefined,
+        shiftName: assignedShift?.name || undefined,
+        expectedWorkingHours,
+        shiftStartTime: shiftStartStr,
+        shiftEndTime: shiftEndStr,
+        date,
+        clockIn: now.toISOString(),
+        breakTimeMinutes: 0,
+        workingHours: 0,
+        overtimeHours: 0,
+        isLate,
+        isEarlyLeave: false,
+        status: 'present',
+        notes: String(req.body?.notes || '').trim(),
+        createdAt: now.toISOString()
+      };
       transaction.set(idRef, cleanUndefined(record));
-      return {status:'success',attendance:record,alreadyClockedIn:false};
+      return { status: 'success', attendance: record, alreadyClockedIn: false };
     });
     return res.json(result);
   } catch(e:any) { return res.status(e?.statusCode||500).json({error:e?.message||'Attendance clock-in failed.'}); }
@@ -7936,9 +9522,20 @@ export async function handleAttendanceClockOut(req: express.Request, res: expres
       if(!isManagerial && ((actorEmployeeId && actorEmployeeId !== String(data.employeeId||'')) || (!actorEmployeeId && String(user.uid||'') !== String(data.userId||'')))) throw Object.assign(new Error('You can only clock out your own employee record.'),{statusCode:403});
       if(data.clockOut) return {status:'success',attendance:{id:snap.id,...data},alreadyClockedOut:true};
       const now=new Date(); const start=new Date(data.clockIn).getTime(); if(!Number.isFinite(start)||start>now.getTime()) throw Object.assign(new Error('Invalid clock-in time.'),{statusCode:409});
-      const breakMinutes=Math.max(0,Number(data.breakTimeMinutes)||0); const workingHours=Number(Math.max(0,(now.getTime()-start)/3600000-breakMinutes/60).toFixed(2)); const overtimeHours=Number(Math.max(0,workingHours-8).toFixed(2));
-      const parts=new Intl.DateTimeFormat('en-GB',{timeZone:'Africa/Mogadishu',hour:'2-digit',minute:'2-digit',hour12:false}).formatToParts(now); const hour=Number(parts.find(p=>p.type==='hour')?.value||0);
-      const updated={clockOut:now.toISOString(),workingHours,overtimeHours,isEarlyLeave:hour<16,notes:req.body?.notes?`${data.notes?data.notes+' | ':''}${String(req.body.notes).trim()}`:data.notes,updatedAt:now.toISOString()};
+      const breakMinutes=Math.max(0,Number(data.breakTimeMinutes)||0); const workingHours=Number(Math.max(0,(now.getTime()-start)/3600000-breakMinutes/60).toFixed(2));
+      const expectedHours = Number(data.expectedWorkingHours || 8);
+      const overtimeHours=Number(Math.max(0,workingHours-expectedHours).toFixed(2));
+      const parts=new Intl.DateTimeFormat('en-GB',{timeZone:'Africa/Mogadishu',hour:'2-digit',minute:'2-digit',hour12:false}).formatToParts(now); const hour=Number(parts.find(p=>p.type==='hour')?.value||0); const minute=Number(parts.find(p=>p.type==='minute')?.value||0);
+      const clockOutMinutes = hour * 60 + minute;
+      let isEarlyLeave = false;
+      if (data.shiftEndTime) {
+        const [endH, endM] = String(data.shiftEndTime).split(':').map(v => Number(v) || 0);
+        const shiftEndMinutes = endH * 60 + endM;
+        isEarlyLeave = clockOutMinutes < shiftEndMinutes && workingHours < expectedHours;
+      } else {
+        isEarlyLeave = workingHours < expectedHours;
+      }
+      const updated={clockOut:now.toISOString(),workingHours,overtimeHours,isEarlyLeave,notes:req.body?.notes?`${data.notes?data.notes+' | ':''}${String(req.body.notes).trim()}`:data.notes,updatedAt:now.toISOString()};
       transaction.update(ref,cleanUndefined(updated)); return {status:'success',attendance:{id:snap.id,...data,...updated},alreadyClockedOut:false};
     }); return res.json(result);
   } catch(e:any){return res.status(e?.statusCode||500).json({error:e?.message||'Attendance clock-out failed.'});}
@@ -7948,7 +9545,77 @@ export async function handleAttendanceManual(req: express.Request, res: express.
   const user = await authenticateTrustedUser(req, res); if (!user) return;
   const role=checkRoleAuthorization(user,['Owner','owner','Admin','admin','Manager','manager']); if(!role.authorized)return res.status(403).json({error:role.error});
   const body=req.body?.record||req.body||{}; const empId=String(body.employeeId||'').trim(); if(!empId)return res.status(400).json({error:'employeeId is required.'});
-  const db=getAdminDb(); try{const result=await db.runTransaction(async(transaction)=>{const empSnap=await transaction.get(db.collection('employees').doc(empId)); if(!empSnap.exists)throw Object.assign(new Error('Employee not found.'),{statusCode:404}); const emp=empSnap.data()||{}; const branchId=normalizeCanonicalBranchId(emp.branchId||emp.branch||''); const auth=checkBranchAuthorization(user,branchId); if(!auth.authorized)throw Object.assign(new Error(auth.error),{statusCode:403}); const clockIn=String(body.clockIn||'').trim(); const clockOut=String(body.clockOut||'').trim(); const inMs=new Date(clockIn).getTime(); if(!Number.isFinite(inMs))throw Object.assign(new Error('Valid clockIn is required.'),{statusCode:400}); let workingHours=0,overtimeHours=0; if(clockOut){const outMs=new Date(clockOut).getTime(); if(!Number.isFinite(outMs)||outMs<inMs)throw Object.assign(new Error('Valid clockOut after clockIn is required.'),{statusCode:400}); const breakMin=Math.max(0,Number(body.breakTimeMinutes)||0); workingHours=Number(Math.max(0,(outMs-inMs)/3600000-breakMin/60).toFixed(2)); overtimeHours=Number(Math.max(0,workingHours-8).toFixed(2));} const ref=db.collection('employee_attendance').doc(); const record=cleanUndefined({id:ref.id,employeeId:empId,employeeName:emp.fullName||emp.name||empId,branchId,branch:emp.branch||branchId,date:body.date||getMogadishuDateString(clockIn),clockIn,clockOut:clockOut||undefined,breakTimeMinutes:Math.max(0,Number(body.breakTimeMinutes)||0),workingHours,overtimeHours,isLate:Boolean(body.isLate),isEarlyLeave:Boolean(body.isEarlyLeave),status:String(body.status||'present'),notes:String(body.notes||''),createdAt:new Date().toISOString(),createdBy:user.name}); transaction.set(ref,record); return {status:'success',attendance:record};}); return res.json(result);}catch(e:any){return res.status(e?.statusCode||500).json({error:e?.message||'Manual attendance failed.'});}
+  const rawKey = getRequiredIdempotencyKey(req, req.body?.idempotencyKey || body.idempotencyKey || `attendance-manual:${empId}:${String(body.date||'')}:${String(body.clockIn||'')}:${String(body.clockOut||'')}`);
+  const db=getAdminDb(); try{const result=await db.runTransaction(async(transaction)=>{
+    const idemRef = db.collection('mutation_idempotency').doc(
+      createHash('sha256').update(`attendance-manual:${user.uid}:${rawKey}`).digest('hex').slice(0, 48)
+    );
+    const priorIdem = await transaction.get(idemRef);
+    if (priorIdem.exists) return priorIdem.data();
+    const empSnap=await transaction.get(db.collection('employees').doc(empId));
+    if(!empSnap.exists)throw Object.assign(new Error('Employee not found.'),{statusCode:404});
+    const emp=empSnap.data()||{};
+    const branchId=normalizeCanonicalBranchId(emp.branchId||emp.branch||'');
+    const auth=checkBranchAuthorization(user,branchId);
+    if(!auth.authorized)throw Object.assign(new Error(auth.error),{statusCode:403});
+    let assignedShift: any = null;
+    if (emp.shiftId) {
+      const sSnap = await transaction.get(db.collection('shifts').doc(emp.shiftId));
+      if (sSnap.exists) assignedShift = { id: sSnap.id, ...sSnap.data() };
+    }
+    if (!assignedShift) {
+      const shiftsSnap = await transaction.get(db.collection('shifts').where('branchId', '==', branchId).where('status', '==', 'active'));
+      assignedShift = shiftsSnap.docs.map(d => ({ id: d.id, ...d.data() })).find((s: any) =>
+        Array.isArray(s.assignedEmployeeIds) && s.assignedEmployeeIds.includes(empId)
+      ) || null;
+    }
+    const expectedWorkingHours = Number(assignedShift?.workingHours || 8);
+    const clockIn=String(body.clockIn||'').trim();
+    const clockOut=String(body.clockOut||'').trim();
+    const inMs=new Date(clockIn).getTime();
+    if(!Number.isFinite(inMs))throw Object.assign(new Error('Valid clockIn is required.'),{statusCode:400});
+    const resolvedStatus = String(body.status||'present').trim();
+    const isNonWorkingStatus = ['absent', 'on_leave'].includes(resolvedStatus.toLowerCase());
+    let workingHours=0,overtimeHours=0;
+    if(clockOut && !isNonWorkingStatus){
+      const outMs=new Date(clockOut).getTime();
+      if(!Number.isFinite(outMs)||outMs<inMs)throw Object.assign(new Error('Valid clockOut after clockIn is required.'),{statusCode:400});
+      const breakMin=Math.max(0,Number(body.breakTimeMinutes)||0);
+      workingHours=Number(Math.max(0,(outMs-inMs)/3600000-breakMin/60).toFixed(2));
+      overtimeHours=Number(Math.max(0,workingHours-expectedWorkingHours).toFixed(2));
+    }
+    const resolvedDate = String(body.date||getMogadishuDateString(clockIn)).slice(0, 10);
+    const existingForDateSnap = await transaction.get(
+      db.collection('employee_attendance').where('employeeId', '==', empId).where('date', '==', resolvedDate)
+    );
+    const ref = !existingForDateSnap.empty ? existingForDateSnap.docs[0].ref : db.collection('employee_attendance').doc();
+    const record=cleanUndefined({
+      id:ref.id,
+      employeeId:empId,
+      employeeName:emp.fullName||emp.name||empId,
+      branchId,
+      branch:emp.branch||branchId,
+      shiftId: assignedShift?.id || undefined,
+      expectedWorkingHours,
+      date:resolvedDate,
+      clockIn,
+      clockOut:clockOut||undefined,
+      breakTimeMinutes:Math.max(0,Number(body.breakTimeMinutes)||0),
+      workingHours,
+      overtimeHours,
+      isLate:Boolean(body.isLate),
+      isEarlyLeave:Boolean(body.isEarlyLeave),
+      status:resolvedStatus,
+      notes:String(body.notes||''),
+      createdAt: !existingForDateSnap.empty ? (existingForDateSnap.docs[0].data()?.createdAt || new Date().toISOString()) : new Date().toISOString(),
+      updatedAt:new Date().toISOString(),
+      createdBy:user.name
+    });
+    transaction.set(ref,record);
+    const payload = {status:'success',attendance:record};
+    transaction.set(idemRef, cleanUndefined({...payload, idempotencyKey: rawKey}));
+    return payload;
+  }); return res.json(result);}catch(e:any){return res.status(e?.statusCode||500).json({error:e?.message||'Manual attendance failed.'});}
 }
 
 export type PayrollPayFrequency = 'daily' | 'weekly' | 'monthly';
@@ -8010,18 +9677,28 @@ export async function handlePayrollProcess(req: express.Request, res: express.Re
       const idemSnap = await transaction.get(idemRef);
       if (idemSnap.exists) return idemSnap.data();
       await assertAccountingDateOpenInTransaction(transaction, db, periodInfo.periodStart, targetBranchId);
+      if (periodInfo.periodEnd !== periodInfo.periodStart) {
+        await assertAccountingDateOpenInTransaction(transaction, db, periodInfo.periodEnd, targetBranchId);
+      }
 
       const employeeQuery = db.collection('employees').where('branchId', '==', targetBranchId);
       const attendanceQuery = db.collection('employee_attendance').where('branchId', '==', targetBranchId);
+      const leaveQuery = db.collection('leave_requests').where('branchId', '==', targetBranchId);
       const employeeSnap = await transaction.get(employeeQuery);
       const attendanceSnap = await transaction.get(attendanceQuery);
+      const leaveSnap = await transaction.get(leaveQuery);
 
       const employees = employeeSnap.docs.filter(d => {
         const data = d.data() || {};
         const employeeFrequency = String(data.payFrequency || 'monthly').toLowerCase();
-        return data.employmentStatus !== 'Terminated' && data.employmentStatus !== 'Inactive' && data.status !== 'inactive' && data.branchId === targetBranchId && employeeFrequency === frequency;
+        return !data.isDeleted && !data.isArchived && data.status !== 'deleted' &&
+          data.employmentStatus !== 'Terminated' && data.employmentStatus !== 'Inactive' &&
+          data.employmentStatus !== 'Suspended' &&
+          data.status !== 'inactive' && data.status !== 'suspended' &&
+          data.branchId === targetBranchId && employeeFrequency === frequency;
       });
-      const attendance = attendanceSnap.docs.map(d => d.data() || {});
+      const attendance = attendanceSnap.docs.map(d => ({ id: d.id, ...(d.data() || {}) }));
+      const leaveRequests = leaveSnap.docs.map(d => ({ id: d.id, ...(d.data() || {}) }));
       const employeeRefs = employees.map(d => ({
         ref: db.collection('payroll').doc(`${frequency}_${periodInfo.periodStart}_${periodInfo.periodEnd}_${d.id}`),
         emp: d
@@ -8031,6 +9708,8 @@ export async function handlePayrollProcess(req: express.Request, res: express.Re
 
       const timestamp = new Date().toISOString();
       const generated: any[] = [];
+      const adjustmentsMap = (req.body?.adjustments && typeof req.body.adjustments === 'object' ? req.body.adjustments : req.body?.employeeAdjustments && typeof req.body.employeeAdjustments === 'object' ? req.body.employeeAdjustments : {}) as Record<string, any>;
+
       for (let i = 0; i < employeeRefs.length; i++) {
         const { ref, emp } = employeeRefs[i];
         const empData = emp.data() || {};
@@ -8040,22 +9719,76 @@ export async function handlePayrollProcess(req: express.Request, res: express.Re
           continue;
         }
 
-        const salary = Number(empData.salary);
+        const existingData = existingSnap.exists ? (existingSnap.data() || {}) : {};
+        const empAdj = adjustmentsMap[emp.id] || {};
+        const salary = Number(empData.salary ?? empData.baseSalary ?? empData.salaryAmount);
         if (!Number.isFinite(salary) || salary < 0) throw new Error(`Employee ${emp.id} has an invalid salary value; payroll generation was stopped.`);
         const inPeriod = (dateValue: unknown) => {
           const date = String(dateValue || '').slice(0, 10);
           return date >= periodInfo.periodStart && date <= periodInfo.periodEnd;
         };
+        const seenAttendanceKeys = new Set<string>();
         const totalOvertimeHours = attendance
-          .filter(a => a.employeeId === emp.id && inPeriod(a.date || a.clockIn))
-          .reduce((sum, a) => sum + (Number(a.overtimeHours) || 0), 0);
+          .filter((a: any) => {
+            if (a.employeeId !== emp.id || !inPeriod(a.date || a.clockIn)) return false;
+            const attStatus = String(a.status || 'present').toLowerCase();
+            if (attStatus === 'absent' || attStatus === 'on_leave') return false;
+            const dateKey = String(a.date || a.clockIn || '').slice(0, 10);
+            const dedupeKey = dateKey ? `${a.employeeId}:${dateKey}` : String(a.id || '');
+            if (dedupeKey && seenAttendanceKeys.has(dedupeKey)) return false;
+            if (dedupeKey) seenAttendanceKeys.add(dedupeKey);
+            return true;
+          })
+          .reduce((sum: number, a: any) => sum + Math.max(0, Number(a.overtimeHours) || 0), 0);
         const divisor = frequency === 'daily' ? 8 : frequency === 'weekly' ? 40 : 160;
         const hourlyRate = salary / divisor;
         const overtimePay = Number((totalOvertimeHours * hourlyRate * 1.5).toFixed(2));
-        const bonuses = 0;
-        const deductions = 0;
-        const advances = 0;
-        const netSalary = Number((salary + overtimePay + bonuses - deductions - advances).toFixed(2));
+
+        // Approved unpaid leave overlapping the payroll period reduces pay proportionally (8 working hours/day)
+        const unpaidLeaveDays = leaveRequests
+          .filter((l: any) => {
+            if (l.employeeId !== emp.id) return false;
+            const isApproved = String(l.status || '').toLowerCase() === 'approved' ||
+              String(l.approvalStatus || '').toLowerCase() === 'approved' ||
+              l.workflowStatus === 'Completed';
+            if (!isApproved) return false;
+            return String(l.leaveType || '').toLowerCase().includes('unpaid');
+          })
+          .reduce((days: number, l: any) => {
+            const lStart = String(l.startDate || '').slice(0, 10);
+            const lEnd = String(l.endDate || '').slice(0, 10);
+            const overlapStart = lStart > periodInfo.periodStart ? lStart : periodInfo.periodStart;
+            const overlapEnd = lEnd < periodInfo.periodEnd ? lEnd : periodInfo.periodEnd;
+            if (overlapStart <= overlapEnd) {
+              const msDiff = Date.parse(`${overlapEnd}T00:00:00Z`) - Date.parse(`${overlapStart}T00:00:00Z`);
+              if (Number.isFinite(msDiff) && msDiff >= 0) {
+                return days + Math.floor(msDiff / 86400000) + 1;
+              }
+            }
+            return days;
+          }, 0);
+        const unpaidLeaveDeduction = Number((unpaidLeaveDays * 8 * hourlyRate).toFixed(2));
+
+        const bonuses = Number(empAdj.bonuses ?? existingData.bonuses ?? empData.bonuses ?? req.body?.bonuses ?? 0);
+        const allowances = Number(empAdj.allowances ?? existingData.allowances ?? empData.allowances ?? req.body?.allowances ?? 0);
+        const manualDeductions = Number(
+          empAdj.deductions ??
+          (existingData.manualDeductions !== undefined ? existingData.manualDeductions : (existingData.deductions ?? empData.deductions ?? req.body?.deductions ?? 0))
+        );
+        const deductions = Number((manualDeductions + unpaidLeaveDeduction).toFixed(2));
+        const advances = Number(empAdj.advances ?? existingData.advances ?? empData.advances ?? req.body?.advances ?? 0);
+        if (
+          !Number.isFinite(bonuses) || bonuses < 0 ||
+          !Number.isFinite(allowances) || allowances < 0 ||
+          !Number.isFinite(manualDeductions) || manualDeductions < 0 ||
+          !Number.isFinite(advances) || advances < 0
+        ) {
+          throw Object.assign(new Error(`Invalid payroll adjustments (bonuses/allowances/deductions/advances) for employee ${emp.id}.`), { statusCode: 400 });
+        }
+        const netSalary = Number((salary + overtimePay + bonuses + allowances - deductions - advances).toFixed(2));
+        if (!Number.isFinite(netSalary) || netSalary < 0) {
+          throw Object.assign(new Error(`Invalid net salary (${netSalary}) for employee ${emp.id}: deductions/advances exceed gross pay.`), { statusCode: 400 });
+        }
         const record = cleanUndefined({
           id: ref.id,
           payrollNumber: `PAY-${frequency.toUpperCase()}-${periodInfo.periodStart}-${empData.employeeId || emp.id.substring(0, 5)}`,
@@ -8070,12 +9803,18 @@ export async function handlePayrollProcess(req: express.Request, res: express.Re
           periodStart: periodInfo.periodStart,
           periodEnd: periodInfo.periodEnd,
           basicSalary: salary,
+          baseSalary: salary,
           overtimePay,
           bonuses,
+          allowances,
+          manualDeductions,
+          unpaidLeaveDays,
+          unpaidLeaveDeduction,
           deductions,
           advances,
           netSalary,
-          paymentStatus: existingSnap.exists ? (existingSnap.data()?.paymentStatus || 'pending') : 'pending',
+          status: existingSnap.exists ? (existingData.status || existingData.paymentStatus || 'pending') : 'pending',
+          paymentStatus: existingSnap.exists ? (existingData.paymentStatus || 'pending') : 'pending',
           createdAt: existingSnap.exists ? (existingSnap.data()?.createdAt || timestamp) : timestamp,
           updatedAt: timestamp
         });
@@ -8095,7 +9834,7 @@ export async function handlePayrollProcess(req: express.Request, res: express.Re
     return res.json(result);
   } catch (err: any) {
     const raw = err?.message || 'Payroll processing failed';
-    const statusCode = err?.statusCode || (/invalid|must use|required|branch|frequency|period|monday/i.test(String(raw)) ? 400 : 500);
+    const statusCode = err?.statusCode || (/invalid|must use|required|branch|frequency|period|monday|closed/i.test(String(raw)) ? 400 : 500);
     console.error('Payroll Process Error:', raw);
     return res.status(statusCode).json({ error: raw });
   }
@@ -8131,6 +9870,14 @@ export async function handleWalletRecharge(req: express.Request, res: express.Re
 
   try {
     const result = await db.runTransaction(async (transaction) => {
+      const walletIdemRef = db.collection('mutation_idempotency').doc(
+        createHash('sha256').update(`wallet-recharge:${String(customerId)}:${dedupeKey}`).digest('hex')
+      );
+      const walletIdemSnap = await transaction.get(walletIdemRef);
+      if (walletIdemSnap.exists) {
+        const prior = walletIdemSnap.data() || {};
+        return { status: 'duplicate', transactionId: prior.transactionId, newBalance: prior.newBalance, walletId: prior.walletId };
+      }
       // Find or create customer wallet document for target branch
       const walletQuery = db.collection('customer_wallets').where('customerId', '==', String(customerId));
       const walletSnap = await transaction.get(walletQuery);
@@ -8250,8 +9997,9 @@ export async function handleWalletRecharge(req: express.Request, res: express.Re
         date: dateStr,
         description: `Customer Wallet Deposit: ${walletPayload.customerName} (${String(customerId)})`,
         reference: txRef.id,
+        source: 'Customer Wallet',
         branchId: targetBranchId,
-        status: 'posted',
+        status: 'Posted',
         totalDebit: rechargeAmt,
         totalCredit: rechargeAmt,
         lines: [
@@ -8265,8 +10013,8 @@ export async function handleWalletRecharge(req: express.Request, res: express.Re
           },
           {
             accountId: 'acc_wallet_liability',
-            accountCode: '2040',
-            accountName: 'Unearned Revenue / Customer Deposits',
+            accountCode: '2030',
+            accountName: 'Customer Wallet Liability',
             debit: 0,
             credit: rechargeAmt,
             memo: `Customer wallet unearned deposit liability for ${walletPayload.customerName}`
@@ -8280,7 +10028,7 @@ export async function handleWalletRecharge(req: express.Request, res: express.Re
       transaction.set(journalRef, cleanUndefined(journalDoc));
       for (const line of journalDoc.lines) {
         const jlRef = db.collection('journal_lines').doc();
-        transaction.set(jlRef, cleanUndefined({ id: jlRef.id, journalEntryId: journalRef.id, entryNumber: journalDoc.entryNumber, branchId: targetBranchId, ...line, createdAt: timestamp }));
+        transaction.set(jlRef, cleanUndefined({ id: jlRef.id, journalEntryId: journalRef.id, entryNumber: journalDoc.entryNumber, date: dateStr, branchId: targetBranchId, ...line, createdAt: timestamp }));
         const ledgerRef = db.collection('ledger').doc();
         transaction.set(ledgerRef, cleanUndefined({ id: ledgerRef.id, accountId: line.accountId, accountCode: line.accountCode, accountName: line.accountName, journalEntryId: journalRef.id, entryNumber: journalDoc.entryNumber, date: dateStr, reference: txRef.id, description: line.memo || journalDoc.description, debit: line.debit, credit: line.credit, branchId: targetBranchId, createdAt: timestamp }));
       }
@@ -8288,7 +10036,9 @@ export async function handleWalletRecharge(req: express.Request, res: express.Re
       if (payMethodStr === 'cash' && walletCashRegisterState) {
         await applyCashRegisterMovementInTransaction(transaction, db, targetBranchId, rechargeAmt, 'customer wallet recharge', walletCashRegisterState);
       }
-      return { status: 'success', walletId: walletRef.id, newBalance, transactionId: txRef.id, journalEntryId: journalRef.id };
+      const out = { status: 'success', walletId: walletRef.id, newBalance, transactionId: txRef.id, journalEntryId: journalRef.id };
+      transaction.set(walletIdemRef, cleanUndefined({ ...out, idempotencyKey: dedupeKey, branchId: targetBranchId, createdAt: timestamp }));
+      return out;
     });
 
     return res.json(result);
@@ -8327,6 +10077,14 @@ export async function handleWalletDeduct(req: express.Request, res: express.Resp
 
   try {
     const result = await db.runTransaction(async (transaction) => {
+      const walletDeductIdemRef = db.collection('mutation_idempotency').doc(
+        createHash('sha256').update(`wallet-deduct:${String(customerId)}:${dedupeKey}`).digest('hex')
+      );
+      const walletDeductIdemSnap = await transaction.get(walletDeductIdemRef);
+      if (walletDeductIdemSnap.exists) {
+        const prior = walletDeductIdemSnap.data() || {};
+        return { status: 'duplicate', transactionId: prior.transactionId, newBalance: prior.newBalance, walletId: prior.walletId };
+      }
       const dateStr = getMogadishuDateString(timestamp);
       await assertAccountingDateOpenInTransaction(transaction, db, dateStr, targetBranchId);
       const walletQuery = db.collection('customer_wallets').where('customerId', '==', String(customerId));
@@ -8450,7 +10208,9 @@ export async function handleWalletDeduct(req: express.Request, res: express.Resp
 
       transaction.set(txRef, cleanUndefined(txDoc));
 
-      return { status: 'success', walletId: walletDoc.id, newBalance, transactionId: txRef.id };
+      const out = { status: 'success', walletId: walletDoc.id, newBalance, transactionId: txRef.id };
+      transaction.set(walletDeductIdemRef, cleanUndefined({ ...out, idempotencyKey: dedupeKey, branchId: targetBranchId, createdAt: timestamp }));
+      return out;
     });
 
     return res.json(result);
@@ -8490,9 +10250,31 @@ export async function handleWalletRefund(req: express.Request, res: express.Resp
 
   const db = getAdminDb();
   const timestamp = new Date().toISOString();
+  const walletRefundPayloadHash = computeCanonicalPayloadHash(req.body, req.params);
 
   try {
-    const result = await db.runTransaction(async (transaction) => {
+    const result = await runTransactionWithRetry(db, async (transaction) => {
+      const walletRefundIdemRef = db.collection('mutation_idempotency').doc(
+        createHash('sha256').update(`wallet-refund:${dedupeKey}`).digest('hex')
+      );
+      const legacyWalletRefundIdemRef = db.collection('mutation_idempotency').doc(
+        createHash('sha256').update(`wallet-refund:${String(customerId)}:${String(orderId).trim()}:${dedupeKey}`).digest('hex')
+      );
+      const [walletRefundIdemSnap, legacyWalletRefundIdemSnap] = await Promise.all([
+        transaction.get(walletRefundIdemRef),
+        transaction.get(legacyWalletRefundIdemRef)
+      ]);
+      const matchedWalletIdem = walletRefundIdemSnap.exists ? walletRefundIdemSnap : (legacyWalletRefundIdemSnap.exists ? legacyWalletRefundIdemSnap : null);
+      if (matchedWalletIdem && matchedWalletIdem.exists) {
+        const prior = matchedWalletIdem.data() || {};
+        if (prior.payloadHash && prior.payloadHash !== walletRefundPayloadHash) {
+          throw Object.assign(
+            new Error(`Idempotency key reuse conflict: Idempotency-Key "${dedupeKey}" was already used with a different wallet refund payload.`),
+            { statusCode: 409, code: 'IDEMPOTENCY_PAYLOAD_MISMATCH' }
+          );
+        }
+        return { status: 'duplicate', transactionId: prior.transactionId, newBalance: prior.newBalance, walletId: prior.walletId };
+      }
       await assertAccountingDateOpenInTransaction(transaction, db, getMogadishuDateString(timestamp), targetBranchId);
       const walletQuery = db.collection('customer_wallets').where('customerId', '==', String(customerId));
       const walletSnap = await transaction.get(walletQuery);
@@ -8579,15 +10361,28 @@ export async function handleWalletRefund(req: express.Request, res: express.Resp
         return { status: 'duplicate', transactionId: existingTx.id, newBalance: existingTx.balanceAfter, walletId: existingTx.walletId };
       }
 
-      // Check cumulative prior refunds for this order
-      const priorRefundsQuery = db.collection('wallet_transactions')
-        .where('orderId', '==', String(orderId).trim())
-        .where('type', '==', 'refund');
-      const priorRefundsSnap = await transaction.get(priorRefundsQuery);
+      // Check cumulative prior refunds for this order across both wallet_transactions and refunds
+      const [priorRefundsSnap, priorOrderRefundsSnap] = await Promise.all([
+        transaction.get(
+          db.collection('wallet_transactions')
+            .where('orderId', '==', String(orderId).trim())
+            .where('type', '==', 'refund')
+        ),
+        transaction.get(
+          db.collection('refunds')
+            .where('orderId', '==', String(orderId).trim())
+        )
+      ]);
       let alreadyRefunded = 0;
       priorRefundsSnap.docs.forEach((d) => {
+        if (!d.data().refundId) {
+          alreadyRefunded += Number(d.data().amount || 0);
+        }
+      });
+      priorOrderRefundsSnap.docs.forEach((d) => {
         alreadyRefunded += Number(d.data().amount || 0);
       });
+      alreadyRefunded = Math.max(alreadyRefunded, Number(orderData.refundedAmount || 0));
 
       if (alreadyRefunded + refundAmt > orderTotal + 0.001) {
         throw new Error(`Refund amount (${refundAmt.toFixed(2)}) exceeds remaining refundable balance (${Math.max(0, orderTotal - alreadyRefunded).toFixed(2)}) for Order #${orderId}.`);
@@ -8626,13 +10421,17 @@ export async function handleWalletRefund(req: express.Request, res: express.Resp
 
       transaction.set(txRef, cleanUndefined(txDoc));
 
-      return { status: 'success', walletId: walletRef.id, newBalance, transactionId: txRef.id };
+      const out = { status: 'success', walletId: walletRef.id, newBalance, transactionId: txRef.id };
+      const idemDoc = cleanUndefined({ ...out, idempotencyKey: dedupeKey, payloadHash: walletRefundPayloadHash, branchId: targetBranchId, createdAt: timestamp });
+      transaction.set(walletRefundIdemRef, idemDoc);
+      transaction.set(legacyWalletRefundIdemRef, idemDoc);
+      return out;
     });
 
     return res.json(result);
   } catch (err: any) {
     console.error('Wallet Refund Error:', err);
-    return res.status(500).json({ error: err?.message || 'Wallet Refund Failed' });
+    return res.status(err?.statusCode || 500).json({ error: err?.message || 'Wallet Refund Failed', ...(err?.code ? { code: err.code } : {}) });
   }
 }
 
@@ -8824,7 +10623,7 @@ export async function getFinancialSummaryData(
     return snap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
   }
 
-  const [orders, refunds, expenses, accounts, receivables, payables, products, ingredients, journalLines, inventoryMovements] = await Promise.all([
+  const [orders, refunds, expenses, accounts, receivables, payables, products, ingredients, rawJournalLines, journalEntries, inventoryMovements] = await Promise.all([
     fetchBranchDocs('orders'),
     fetchBranchDocs('refunds'),
     fetchBranchDocs('expenses'),
@@ -8834,8 +10633,20 @@ export async function getFinancialSummaryData(
     fetchBranchDocs('products'),
     fetchBranchDocs('ingredients'),
     fetchBranchDocs('journal_lines'),
+    fetchBranchDocs('journal_entries'),
     fetchBranchDocs('inventory_movements')
   ]);
+
+  const journalEntryDateById = new Map<string, string>();
+  for (const je of journalEntries) {
+    if (je?.id && je?.date) {
+      journalEntryDateById.set(String(je.id), String(je.date));
+    }
+  }
+  const journalLines = rawJournalLines.map((jl: any) => ({
+    ...jl,
+    date: jl.date || (jl.journalEntryId ? journalEntryDateById.get(String(jl.journalEntryId)) : undefined) || jl.date
+  }));
 
   // Operational Backup Calculations (Filtered by Period)
   const filteredOrders = orders.filter((o: any) => isDocInPeriod(o));
@@ -8953,10 +10764,28 @@ export async function getFinancialSummaryData(
   const bank = bankAccounts.reduce((sum: number, a: any) => sum + glAsOfBalance(String(a.id)), 0);
 
   // AR/AP point-in-time balances come from their authoritative control accounts when present.
-  const arAccount = accounts.find((a: any) => a.id === 'acc_ar' || String(a.code) === '1100');
+  const arAccount = accounts.find((a: any) => a.id === 'acc_ar' || String(a.code) === '1200' || String(a.code) === '1100');
   const apAccount = accounts.find((a: any) => a.id === 'acc_ap' || String(a.code) === '2010');
-  const AR = arAccount ? Math.max(0, glAsOfBalance(String(arAccount.id))) : receivables.filter((r: any) => isDocAsOfDateTo(r)).reduce((sum: number, r: any) => sum + Math.max(0, (Number(r.totalAmount) || Number(r.amount) || 0) - (Number(r.paidAmount) || 0)), 0);
-  const AP = apAccount ? Math.max(0, glAsOfBalance(String(apAccount.id))) : payables.filter((p: any) => isDocAsOfDateTo(p)).reduce((sum: number, p: any) => sum + Math.max(0, (Number(p.totalAmount) || Number(p.amount) || 0) - (Number(p.paidAmount) || 0)), 0);
+  const AR = arAccount
+    ? Math.max(0, glAsOfBalance(String(arAccount.id)))
+    : receivables
+        .filter((r: any) => isDocAsOfDateTo(r) && !['cancelled', 'paid', 'refunded'].includes(String(r.status || '').toLowerCase()))
+        .reduce((sum: number, r: any) => {
+          const rem = !endDate && (r.remainingBalance !== undefined || r.remainingAmount !== undefined)
+            ? Number(r.remainingBalance ?? r.remainingAmount ?? 0)
+            : (Number(r.totalAmount) || Number(r.amount) || 0) - (Number(r.paidAmount) || 0);
+          return sum + Math.max(0, Number.isFinite(rem) ? rem : 0);
+        }, 0);
+  const AP = apAccount
+    ? Math.max(0, glAsOfBalance(String(apAccount.id)))
+    : payables
+        .filter((p: any) => isDocAsOfDateTo(p) && !['cancelled', 'paid'].includes(String(p.status || '').toLowerCase()))
+        .reduce((sum: number, p: any) => {
+          const rem = !endDate && (p.remainingBalance !== undefined || p.remainingAmount !== undefined)
+            ? Number(p.remainingBalance ?? p.remainingAmount ?? 0)
+            : (Number(p.totalAmount) || Number(p.amount) || 0) - (Number(p.paidAmount) || 0);
+          return sum + Math.max(0, Number.isFinite(rem) ? rem : 0);
+        }, 0);
 
   const latestMovement = new Map<string, any>();
   if (endDate) {
@@ -8969,18 +10798,28 @@ export async function getFinancialSummaryData(
     }
   }
   const historicalStock = (item: any, itemType: string) => {
-    if (!endDate) return Math.max(0, Number(item.stock ?? item.currentQuantity ?? 0));
+    if (!endDate) return Math.max(0, Number(item.currentStockUsageUnit ?? item.stock ?? item.currentQuantity ?? 0));
     const mv = latestMovement.get(`${itemType}:${String(item.id)}`);
     if (mv && Number.isFinite(Number(mv.newQuantity))) return Math.max(0, Number(mv.newQuantity));
     const created = new Date(item.createdAt || item.date || '');
-    return Number.isFinite(created.getTime()) && created <= endDate ? Math.max(0, Number(item.stock ?? item.currentQuantity ?? 0)) : 0;
+    return Number.isFinite(created.getTime()) && created <= endDate ? Math.max(0, Number(item.currentStockUsageUnit ?? item.stock ?? item.currentQuantity ?? 0)) : 0;
   };
   const historicalCost = (item: any, itemType: string) => {
-    if (!endDate) return Number(item.cost ?? item.costPrice ?? item.unitCost ?? 0);
+    const resolveItemUnitCost = (it: any) => {
+      if (itemType === 'ingredient') {
+        const c = Number(it.costPerUsageUnit ?? it.costPerUnit ?? it.costPrice ?? it.cost ?? it.unitCost ?? NaN);
+        if (Number.isFinite(c) && c >= 0) return c;
+        const factor = Number(it.conversionFactor || 1);
+        const pCost = Number(it.purchaseCost || 0);
+        return factor > 0 ? pCost / factor : pCost;
+      }
+      return Number(it.cost ?? it.costPrice ?? it.unitCost ?? it.purchaseCost ?? 0);
+    };
+    if (!endDate) return resolveItemUnitCost(item);
     const key = `${itemType}:${String(item.id)}`;
     const candidates = inventoryMovements.filter((mv:any) => `${String(mv.itemType||'')}:${String(mv.itemId||'')}`===key && isDocAsOfDateTo(mv));
     for (let i=candidates.length-1;i>=0;i--) { const mv=candidates[i]; const c=Number(mv.unitCost ?? mv.costPrice ?? mv.cost ?? NaN); if(Number.isFinite(c)&&c>=0) return c; }
-    const created=new Date(item.createdAt||item.date||''); const fallback=Number(item.cost ?? item.costPrice ?? item.unitCost ?? NaN);
+    const created=new Date(item.createdAt||item.date||''); const fallback=resolveItemUnitCost(item);
     return Number.isFinite(created.getTime()) && created<=endDate && Number.isFinite(fallback) ? fallback : 0;
   };
   const productVal = products.reduce((sum: number, p: any) => sum + historicalStock(p, 'product') * historicalCost(p, 'product'), 0);
@@ -9001,7 +10840,7 @@ export async function getFinancialSummaryData(
 
     if (code === '1200' || code === 'acc_ar' || code.startsWith('12')) {
       glAR += (debit - credit);
-    } else if (code === '2010' || code === 'acc_ap' || code.startsWith('201') || code === '2100' || code.startsWith('21')) {
+    } else if (code === '2010' || code === 'acc_ap' || code.startsWith('201')) {
       glAP += (credit - debit);
     } else if (code === '1010' || code === 'acc_cash' || (code.startsWith('101') && !code.startsWith('102'))) {
       glCash += (debit - credit);
@@ -9015,17 +10854,62 @@ export async function getFinancialSummaryData(
   const cashDiff = Math.abs(cash - glCash);
   const bankDiff = Math.abs(bank - glBank);
 
+  // Resolve active tax configuration and tax liability for unified FinancialSummary contract
+  let activeTaxRateDecimal = 0;
+  try {
+    const taxesDocs = await fetchBranchDocs('taxes');
+    const activeTax = taxesDocs.find((t: any) => t.isActive === true || String(t.status || '').toLowerCase() === 'active');
+    if (activeTax) {
+      const r = Number(activeTax.taxRate ?? activeTax.rate ?? 0);
+      if (Number.isFinite(r) && r >= 0) {
+        activeTaxRateDecimal = r > 1 ? r / 100 : r;
+      }
+    }
+  } catch {
+    activeTaxRateDecimal = 0;
+  }
+
+  let glTaxLiability = 0;
+  filteredJournalLines.forEach((jl: any) => {
+    const code = String(jl.accountCode || jl.accountId || '');
+    if (code === '2100' || code === 'acc_tax' || code.startsWith('210')) {
+      glTaxLiability += (Number(jl.credit || 0) - Number(jl.debit || 0));
+    }
+  });
+  const computedTaxLiability = glTaxLiability > 0
+    ? glTaxLiability
+    : Math.max(0, netSales * activeTaxRateDecimal);
+  const roundedNetSales = Math.round(netSales * 100) / 100;
+  const roundedCogs = Math.round(cogs * 100) / 100;
+  const roundedGrossProfit = Math.round(grossProfit * 100) / 100;
+  const roundedExpenses = Math.round(totalExpenses * 100) / 100;
+  const roundedNetProfit = Math.round(netProfit * 100) / 100;
+  const roundedTaxLiability = Math.round(computedTaxLiability * 100) / 100;
+  const profitMarginPercent = roundedNetSales > 0
+    ? Math.round(((roundedNetProfit / roundedNetSales) * 100) * 100) / 100
+    : 0;
+
   return {
     accountingStatus,
     branchId: userBranchId || 'all',
     period: periodOptions?.period || 'all_time',
     sales: Math.round(grossSales * 100) / 100,
     refunds: Math.round(totalRefunds * 100) / 100,
-    netSales: Math.round(netSales * 100) / 100,
-    cogs: Math.round(cogs * 100) / 100,
-    grossProfit: Math.round(grossProfit * 100) / 100,
-    expenses: Math.round(totalExpenses * 100) / 100,
-    netProfit: Math.round(netProfit * 100) / 100,
+    netSales: roundedNetSales,
+    cogs: roundedCogs,
+    grossProfit: roundedGrossProfit,
+    expenses: roundedExpenses,
+    netProfit: roundedNetProfit,
+    // Unified frontend FinancialSummary contract fields
+    totalRevenue: roundedNetSales,
+    totalCOGS: roundedCogs,
+    totalExpenses: roundedExpenses,
+    profitMarginPercent,
+    taxRate: activeTaxRateDecimal,
+    taxLiability: roundedTaxLiability,
+    subtotal: roundedNetSales,
+    tax: roundedTaxLiability,
+    total: Math.round((roundedNetSales + roundedTaxLiability) * 100) / 100,
     cash: Math.round(cash * 100) / 100,
     bank: Math.round(bank * 100) / 100,
     AR: Math.round(AR * 100) / 100,
@@ -9246,6 +11130,9 @@ export async function handleLogKitchenWaste(req: express.Request, res: express.R
       const finalCost = Math.round(quantity * Math.max(0, Number.isFinite(unitCost) ? unitCost : 0) * 100) / 100;
       const itemOrIngName = itemVal.name || itemVal.itemName || payload.itemOrIngredientName || payload.itemName || 'Waste Item';
       const dateStr = getMogadishuDateString(timestamp);
+      const __wasteAccountState = finalCost > 0
+        ? await prepareAccountBalanceState(transaction, db, ['acc_waste', 'acc_inventory'])
+        : null;
 
       // SERVER AUTHORITATIVE USER METADATA ONLY - Do not trust client loggedBy/user/role/branchId
       const fullWaste = {
@@ -9299,7 +11186,14 @@ export async function handleLogKitchenWaste(req: express.Request, res: express.R
       transaction.set(movementRef, cleanUndefined(movement));
       transaction.set(auditRef, cleanUndefined(auditLog));
 
-      if (itemVal.stock !== undefined) {
+      if (targetItemType === 'ingredient') {
+        transaction.update(itemRef, {
+          stock: newStock,
+          currentStockUsageUnit: newStock,
+          status: getIngredientStockStatus(newStock, Number(itemVal.minStockUsageUnit || itemVal.minimumQuantity || 0)),
+          updatedAt: timestamp
+        });
+      } else if (itemVal.stock !== undefined) {
         transaction.update(itemRef, { stock: newStock, updatedAt: timestamp });
       } else {
         let status = 'in_stock';
@@ -9319,7 +11213,7 @@ export async function handleLogKitchenWaste(req: express.Request, res: express.R
         } else {
           transaction.update(linkedProjection.ref, {
             currentQuantity: newStock,
-            ...(targetItemType === 'ingredients' ? {
+            ...(targetItemType === 'ingredient' ? {
               itemType: 'ingredient',
               itemName: itemOrIngName,
               itemCode: itemVal.code || '',
@@ -9328,20 +11222,21 @@ export async function handleLogKitchenWaste(req: express.Request, res: express.R
               usageUnit: itemVal.usageUnit,
               conversionFactor: Number(itemVal.conversionFactor || 1),
               purchaseCost: Number(itemVal.purchaseCost || 0),
-              costPerUsageUnit: Number(itemVal.costPerUsageUnit || 0)
+              costPerUsageUnit: Number(itemVal.costPerUsageUnit || 0),
+              status: getIngredientStockStatus(newStock, Number(itemVal.minStockUsageUnit || itemVal.minimumQuantity || 0))
             } : {}),
             updatedAt: timestamp
           });
         }
       }
 
-      // Record GL Journal Entry for Waste (Dr 5030 Kitchen Waste Expense, Cr 1030 Inventory Asset)
+      // Record GL Journal Entry for Waste (Dr 6300 Inventory Waste Expense, Cr 1030 Inventory Asset)
       if (finalCost > 0) {
         const lines = [
           {
             accountId: 'acc_waste',
-            accountCode: '5030',
-            accountName: 'Kitchen Waste & Shrinkage Expense',
+            accountCode: '6300',
+            accountName: 'Inventory Waste Expense',
             debit: finalCost,
             credit: 0,
             memo: `Kitchen Waste Expense for ${itemOrIngName} (${reasonText})`
@@ -9382,6 +11277,7 @@ export async function handleLogKitchenWaste(req: express.Request, res: express.R
             id: jlRef.id,
             journalEntryId: jeRef.id,
             entryNumber,
+            date: dateStr,
             branchId: targetBranchId,
             ...line,
             createdAt: timestamp
@@ -9403,6 +11299,9 @@ export async function handleLogKitchenWaste(req: express.Request, res: express.R
             branchId: targetBranchId,
             createdAt: timestamp
           }));
+        }
+        if (__wasteAccountState) {
+          applyAccountBalanceDeltasInTransaction(transaction, __wasteAccountState, lines, timestamp);
         }
       }
 
@@ -9710,14 +11609,12 @@ export async function sendPushNotificationToDriver(driverId: string, title: stri
     const db = getAdminDb();
     const tokenSnap = await db.collection('notification_tokens').doc(driverId).get();
     if (!tokenSnap.exists) {
-      console.log(`[Push Notice] No registered FCM token for driver ${driverId}`);
       return;
     }
     const tokenData = tokenSnap.data();
     if (!tokenData?.fcmToken) return;
 
     const fcmToken = tokenData.fcmToken.trim();
-    console.log(`[FCM Push Dispatching] To driver ${driverId}: "${title}" - "${message}"`);
 
     const messaging = getAdminMessaging();
     const messagePayload = {
@@ -9729,15 +11626,13 @@ export async function sendPushNotificationToDriver(driverId: string, title: stri
       data: dataPayload || {}
     };
 
-    const response = await messaging.send(messagePayload);
-    console.log(`[FCM Push Success] Dispatched push ID ${response} to driver ${driverId}`);
+    await messaging.send(messagePayload);
   } catch (err: any) {
     console.warn(`[FCM Push Notice] Non-blocking push notification delivery skipped:`, err?.message || err);
     if (err?.code === 'messaging/registration-token-not-registered' || err?.code === 'messaging/invalid-registration-token') {
       try {
         const db = getAdminDb();
         await db.collection('notification_tokens').doc(driverId).delete();
-        console.log(`[FCM Cleanup] Removed invalid token for driver ${driverId}`);
       } catch (cleanErr) {
         // Ignore token cleanup error
       }
@@ -10752,44 +12647,47 @@ export async function handleCreateReward(req: express.Request, res: express.Resp
   const idemRef = db.collection('mutation_idempotency').doc(createHash('sha256').update(`reward-create:${user.uid}:${idempotencyKey}`).digest('hex'));
 
   try {
-    const priorIdem = await idemRef.get();
-    if (priorIdem.exists) return res.status(201).json(priorIdem.data()?.result || priorIdem.data());
-    const rewardRef = db.collection('customer_rewards').doc(createHash('sha256').update(`reward:${user.uid}:${idempotencyKey}`).digest('hex').slice(0, 20));
-    const newReward = {
-      id: rewardRef.id,
-      rewardName: String(rewardName).trim(),
-      pointsRequired: numericPoints,
-      discountType: discountType || 'percentage',
-      discountValue: numericDiscount,
-      description: description || '',
-      minTier: minTier || 'bronze',
-      maxRedemptions: numericMaxRedemptions,
-      currentRedemptions: 0,
-      isActive: isActive !== false,
-      branchId: targetBranchId,
-      createdAt: now,
-      updatedAt: now
-    };
+    const out = await db.runTransaction(async (transaction) => {
+      const priorIdem = await transaction.get(idemRef);
+      if (priorIdem.exists) return priorIdem.data()?.result || priorIdem.data();
+      const rewardRef = db.collection('customer_rewards').doc(createHash('sha256').update(`reward:${user.uid}:${idempotencyKey}`).digest('hex').slice(0, 20));
+      const newReward = {
+        id: rewardRef.id,
+        rewardName: String(rewardName).trim(),
+        pointsRequired: numericPoints,
+        discountType: discountType || 'percentage',
+        discountValue: numericDiscount,
+        description: description || '',
+        minTier: minTier || 'bronze',
+        maxRedemptions: numericMaxRedemptions,
+        currentRedemptions: 0,
+        isActive: isActive !== false,
+        branchId: targetBranchId,
+        createdAt: now,
+        updatedAt: now
+      };
 
-    await rewardRef.set(cleanUndefined(newReward));
+      transaction.set(rewardRef, cleanUndefined(newReward));
 
-    const auditRef = db.collection('activity_logs').doc();
-    await auditRef.set({
-      id: auditRef.id,
-      userId: user.uid,
-      userName: user.name || user.email || 'Admin',
-      userEmail: user.email || 'admin@system.internal',
-      userRole: user.role,
-      action: 'CREATE_CUSTOMER_REWARD',
-      entityId: rewardRef.id,
-      entityType: 'customer_rewards',
-      details: `Created customer reward "${newReward.rewardName}" (${newReward.pointsRequired} pts)`,
-      branchId: newReward.branchId,
-      timestamp: now
+      const auditRef = db.collection('activity_logs').doc();
+      transaction.set(auditRef, {
+        id: auditRef.id,
+        userId: user.uid,
+        userName: user.name || user.email || 'Admin',
+        userEmail: user.email || 'admin@system.internal',
+        userRole: user.role,
+        action: 'CREATE_CUSTOMER_REWARD',
+        entityId: rewardRef.id,
+        entityType: 'customer_rewards',
+        details: `Created customer reward "${newReward.rewardName}" (${newReward.pointsRequired} pts)`,
+        branchId: newReward.branchId,
+        timestamp: now
+      });
+
+      transaction.set(idemRef, { status: 'success', result: newReward, createdAt: now });
+      return newReward;
     });
-
-    await idemRef.set({ status: 'success', result: newReward, createdAt: now });
-    return res.status(201).json(newReward);
+    return res.status(201).json(out);
   } catch (err: any) {
     console.error('Error creating customer reward:', err);
     return res.status(500).json({ error: 'Failed to create reward' });
@@ -10836,9 +12734,7 @@ export async function handleUpdateReward(req: express.Request, res: express.Resp
 
     const idempotencyKey = getRequiredIdempotencyKey(req, req.body?.idempotencyKey || `reward-update:${user.uid}:${id}:${createHash('sha256').update(JSON.stringify(cleanUndefined(req.body || {}))).digest('hex')}`);
     const idemRef = db.collection('mutation_idempotency').doc(createHash('sha256').update(`reward-update:${user.uid}:${id}:${idempotencyKey}`).digest('hex'));
-    const priorIdem = await idemRef.get();
-    if (priorIdem.exists) return res.status(200).json(priorIdem.data()?.result || priorIdem.data());
-  
+
     const updates: Record<string, any> = { updatedAt: now };
     const { rewardName, pointsRequired, discountType, discountValue, description, minTier, maxRedemptions, isActive, branchId } = req.body || {};
 
@@ -10861,10 +12757,14 @@ export async function handleUpdateReward(req: express.Request, res: express.Resp
       }
     }
 
-    await rewardRef.update(cleanUndefined(updates));
-
-    const result = { status: 'success', id, ...updates };
-    await idemRef.set({ status: 'success', result, createdAt: now });
+    const result = await db.runTransaction(async (transaction) => {
+      const priorIdem = await transaction.get(idemRef);
+      if (priorIdem.exists) return priorIdem.data()?.result || priorIdem.data();
+      transaction.update(rewardRef, cleanUndefined(updates));
+      const out = { status: 'success', id, ...updates };
+      transaction.set(idemRef, { status: 'success', result: out, createdAt: now });
+      return out;
+    });
     return res.status(200).json(result);
   } catch (err: any) {
     console.error('Error updating customer reward:', err);
@@ -10888,35 +12788,36 @@ export async function handleDeleteReward(req: express.Request, res: express.Resp
 
   const db = getAdminDb();
   try {
-    const rewardRef = db.collection('customer_rewards').doc(id);
-    const rewardSnap = await rewardRef.get();
-    if (!rewardSnap.exists) {
-      return res.status(404).json({ error: `Reward #${id} not found.` });
-    }
-
-    const existingReward = rewardSnap.data() as any;
-    const existingBranch = existingReward.branchId;
-
-    if (!existingBranch || existingBranch === '' || existingBranch === 'all' || existingBranch === 'HQ') {
-      if (!isHQRoleOrClaim(user)) {
-        return res.status(403).json({ error: 'Access denied: Global reward deletion is restricted to Enterprise Owner and HQ Admin.' });
-      }
-    } else {
-      const branchCheck = checkBranchAuthorization(user, existingBranch);
-      if (!branchCheck.authorized) {
-        return res.status(403).json({ error: branchCheck.error });
-      }
-    }
-
     const idempotencyKey = getRequiredIdempotencyKey(req, req.body?.idempotencyKey || `reward-delete:${user.uid}:${id}`);
     const idemRef = db.collection('mutation_idempotency').doc(createHash('sha256').update(`reward-delete:${user.uid}:${id}:${idempotencyKey}`).digest('hex'));
-    const priorIdem = await idemRef.get();
-    if (priorIdem.exists) return res.status(200).json(priorIdem.data()?.result || priorIdem.data());
-    await rewardRef.delete();
-    const result = { status: 'success', id };
-    await idemRef.set({ status: 'success', result, createdAt: new Date().toISOString() });
+    const rewardRef = db.collection('customer_rewards').doc(id);
+    const result = await db.runTransaction(async (transaction) => {
+      const priorIdem = await transaction.get(idemRef);
+      if (priorIdem.exists) return priorIdem.data()?.result || priorIdem.data();
+      const rewardSnap = await transaction.get(rewardRef);
+      if (!rewardSnap.exists) {
+        throw Object.assign(new Error(`Reward #${id} not found.`), { statusCode: 404 });
+      }
+      const existingReward = rewardSnap.data() as any;
+      const existingBranch = existingReward.branchId;
+      if (!existingBranch || existingBranch === '' || existingBranch === 'all' || existingBranch === 'HQ') {
+        if (!isHQRoleOrClaim(user)) {
+          throw Object.assign(new Error('Access denied: Global reward deletion is restricted to Enterprise Owner and HQ Admin.'), { statusCode: 403 });
+        }
+      } else {
+        const branchCheck = checkBranchAuthorization(user, existingBranch);
+        if (!branchCheck.authorized) {
+          throw Object.assign(new Error(branchCheck.error), { statusCode: 403 });
+        }
+      }
+      transaction.delete(rewardRef);
+      const out = { status: 'success', id };
+      transaction.set(idemRef, { status: 'success', result: out, createdAt: new Date().toISOString() });
+      return out;
+    });
     return res.status(200).json(result);
   } catch (err: any) {
+    if (err?.statusCode) return res.status(err.statusCode).json({ error: err.message });
     console.error('Error deleting customer reward:', err);
     return res.status(500).json({ error: 'Failed to delete reward' });
   }
@@ -10967,48 +12868,51 @@ export async function handleCreateCoupon(req: express.Request, res: express.Resp
   const idemRef = db.collection('mutation_idempotency').doc(createHash('sha256').update(`coupon-create:${user.uid}:${idempotencyKey}`).digest('hex'));
 
   try {
-    const priorIdem = await idemRef.get();
-    if (priorIdem.exists) return res.status(201).json(priorIdem.data()?.result || priorIdem.data());
-    const couponRef = db.collection('customer_coupons').doc(createHash('sha256').update(`coupon:${user.uid}:${idempotencyKey}`).digest('hex').slice(0, 20));
-    const newCoupon = {
-      id: couponRef.id,
-      code: normalizedCode,
-      title: title ? String(title).trim() : normalizedCode,
-      description: description || '',
-      discountType: normalizedDiscountType,
-      discountValue: numericDiscount,
-      minOrderAmount: numericMinOrder,
-      maxDiscountAmount: numericMaxDiscount,
-      usageLimit: numericUsageLimit,
-      usedCount: 0,
-      validFrom: validFrom || now,
-      validUntil: validUntil || expiryDate || null,
-      expiryDate: expiryDate || validUntil || null,
-      isActive: isActive !== false,
-      branchId: targetBranchId,
-      createdAt: now,
-      updatedAt: now
-    };
+    const out = await db.runTransaction(async (transaction) => {
+      const priorIdem = await transaction.get(idemRef);
+      if (priorIdem.exists) return priorIdem.data()?.result || priorIdem.data();
+      const couponRef = db.collection('customer_coupons').doc(createHash('sha256').update(`coupon:${user.uid}:${idempotencyKey}`).digest('hex').slice(0, 20));
+      const newCoupon = {
+        id: couponRef.id,
+        code: normalizedCode,
+        title: title ? String(title).trim() : normalizedCode,
+        description: description || '',
+        discountType: normalizedDiscountType,
+        discountValue: numericDiscount,
+        minOrderAmount: numericMinOrder,
+        maxDiscountAmount: numericMaxDiscount,
+        usageLimit: numericUsageLimit,
+        usedCount: 0,
+        validFrom: validFrom || now,
+        validUntil: validUntil || expiryDate || null,
+        expiryDate: expiryDate || validUntil || null,
+        isActive: isActive !== false,
+        branchId: targetBranchId,
+        createdAt: now,
+        updatedAt: now
+      };
 
-    await couponRef.set(cleanUndefined(newCoupon));
+      transaction.set(couponRef, cleanUndefined(newCoupon));
 
-    const auditRef = db.collection('activity_logs').doc();
-    await auditRef.set({
-      id: auditRef.id,
-      userId: user.uid,
-      userName: user.name || user.email || 'Admin',
-      userEmail: user.email || 'admin@system.internal',
-      userRole: user.role,
-      action: 'CREATE_CUSTOMER_COUPON',
-      entityId: couponRef.id,
-      entityType: 'customer_coupons',
-      details: `Created coupon "${newCoupon.code}" (${newCoupon.discountValue} ${newCoupon.discountType})`,
-      branchId: newCoupon.branchId,
-      timestamp: now
+      const auditRef = db.collection('activity_logs').doc();
+      transaction.set(auditRef, {
+        id: auditRef.id,
+        userId: user.uid,
+        userName: user.name || user.email || 'Admin',
+        userEmail: user.email || 'admin@system.internal',
+        userRole: user.role,
+        action: 'CREATE_CUSTOMER_COUPON',
+        entityId: couponRef.id,
+        entityType: 'customer_coupons',
+        details: `Created coupon "${newCoupon.code}" (${newCoupon.discountValue} ${newCoupon.discountType})`,
+        branchId: newCoupon.branchId,
+        timestamp: now
+      });
+
+      transaction.set(idemRef, { status: 'success', result: newCoupon, createdAt: now });
+      return newCoupon;
     });
-
-    await idemRef.set({ status: 'success', result: newCoupon, createdAt: now });
-    return res.status(201).json(newCoupon);
+    return res.status(201).json(out);
   } catch (err: any) {
     console.error('Error creating customer coupon:', err);
     return res.status(500).json({ error: 'Failed to create coupon' });
@@ -11055,9 +12959,7 @@ export async function handleUpdateCoupon(req: express.Request, res: express.Resp
 
     const idempotencyKey = getRequiredIdempotencyKey(req, req.body?.idempotencyKey || `coupon-update:${user.uid}:${id}:${createHash('sha256').update(JSON.stringify(cleanUndefined(req.body || {}))).digest('hex')}`);
     const idemRef = db.collection('mutation_idempotency').doc(createHash('sha256').update(`coupon-update:${user.uid}:${id}:${idempotencyKey}`).digest('hex'));
-    const priorIdem = await idemRef.get();
-    if (priorIdem.exists) return res.status(200).json(priorIdem.data()?.result || priorIdem.data());
-  
+
     const updates: Record<string, any> = { updatedAt: now };
     const { code, title, description, discountType, discountValue, minOrderAmount, maxDiscountAmount, usageLimit, validFrom, validUntil, expiryDate, isActive, branchId } = req.body || {};
 
@@ -11085,10 +12987,14 @@ export async function handleUpdateCoupon(req: express.Request, res: express.Resp
       }
     }
 
-    await couponRef.update(cleanUndefined(updates));
-
-    const result = { status: 'success', id, ...updates };
-    await idemRef.set({ status: 'success', result, createdAt: now });
+    const result = await db.runTransaction(async (transaction) => {
+      const priorIdem = await transaction.get(idemRef);
+      if (priorIdem.exists) return priorIdem.data()?.result || priorIdem.data();
+      transaction.update(couponRef, cleanUndefined(updates));
+      const out = { status: 'success', id, ...updates };
+      transaction.set(idemRef, { status: 'success', result: out, createdAt: now });
+      return out;
+    });
     return res.status(200).json(result);
   } catch (err: any) {
     console.error('Error updating customer coupon:', err);
@@ -11112,35 +13018,36 @@ export async function handleDeleteCoupon(req: express.Request, res: express.Resp
 
   const db = getAdminDb();
   try {
-    const couponRef = db.collection('customer_coupons').doc(id);
-    const couponSnap = await couponRef.get();
-    if (!couponSnap.exists) {
-      return res.status(404).json({ error: `Coupon #${id} not found.` });
-    }
-
-    const existingCoupon = couponSnap.data() as any;
-    const existingBranch = existingCoupon.branchId;
-
-    if (!existingBranch || existingBranch === '' || existingBranch === 'all' || existingBranch === 'HQ') {
-      if (!isHQRoleOrClaim(user)) {
-        return res.status(403).json({ error: 'Access denied: Global coupon deletion is restricted to Enterprise Owner and HQ Admin.' });
-      }
-    } else {
-      const branchCheck = checkBranchAuthorization(user, existingBranch);
-      if (!branchCheck.authorized) {
-        return res.status(403).json({ error: branchCheck.error });
-      }
-    }
-
     const idempotencyKey = getRequiredIdempotencyKey(req, req.body?.idempotencyKey || `coupon-delete:${user.uid}:${id}`);
     const idemRef = db.collection('mutation_idempotency').doc(createHash('sha256').update(`coupon-delete:${user.uid}:${id}:${idempotencyKey}`).digest('hex'));
-    const priorIdem = await idemRef.get();
-    if (priorIdem.exists) return res.status(200).json(priorIdem.data()?.result || priorIdem.data());
-    await couponRef.delete();
-    const result = { status: 'success', id };
-    await idemRef.set({ status: 'success', result, createdAt: new Date().toISOString() });
+    const couponRef = db.collection('customer_coupons').doc(id);
+    const result = await db.runTransaction(async (transaction) => {
+      const priorIdem = await transaction.get(idemRef);
+      if (priorIdem.exists) return priorIdem.data()?.result || priorIdem.data();
+      const couponSnap = await transaction.get(couponRef);
+      if (!couponSnap.exists) {
+        throw Object.assign(new Error(`Coupon #${id} not found.`), { statusCode: 404 });
+      }
+      const existingCoupon = couponSnap.data() as any;
+      const existingBranch = existingCoupon.branchId;
+      if (!existingBranch || existingBranch === '' || existingBranch === 'all' || existingBranch === 'HQ') {
+        if (!isHQRoleOrClaim(user)) {
+          throw Object.assign(new Error('Access denied: Global coupon deletion is restricted to Enterprise Owner and HQ Admin.'), { statusCode: 403 });
+        }
+      } else {
+        const branchCheck = checkBranchAuthorization(user, existingBranch);
+        if (!branchCheck.authorized) {
+          throw Object.assign(new Error(branchCheck.error), { statusCode: 403 });
+        }
+      }
+      transaction.delete(couponRef);
+      const out = { status: 'success', id };
+      transaction.set(idemRef, { status: 'success', result: out, createdAt: new Date().toISOString() });
+      return out;
+    });
     return res.status(200).json(result);
   } catch (err: any) {
+    if (err?.statusCode) return res.status(err.statusCode).json({ error: err.message });
     console.error('Error deleting customer coupon:', err);
     return res.status(500).json({ error: 'Failed to delete coupon' });
   }
@@ -11169,10 +13076,15 @@ export async function handleKitchenStationStatusUpdate(req: express.Request, res
 
   const db = getAdminDb();
   const timestamp = new Date().toISOString();
+  const rawStationIdemKey = req.headers['idempotency-key'] || req.headers['x-idempotency-key'] || req.body?.idempotencyKey;
+  const stationIdemKey = typeof rawStationIdemKey === 'string' && rawStationIdemKey.trim() ? rawStationIdemKey.trim() : '';
+  const stationIdemRef = stationIdemKey
+    ? db.collection('mutation_idempotency').doc(createHash('sha256').update(`kitchen-station-status:${user.uid}:${stationId}:${stationIdemKey}`).digest('hex'))
+    : null;
 
   try {
     const stationRef = db.collection('kitchen_stations').doc(stationId);
-    const stationSnap = await stationRef.get();
+    const mirrorRef = db.collection('stations').doc(stationId);
 
     const updates: Record<string, any> = {
       status: String(status),
@@ -11184,36 +13096,58 @@ export async function handleKitchenStationStatusUpdate(req: express.Request, res
       updates.assignedChef = finalChefName.trim();
     }
 
-    if (stationSnap.exists) {
-      const stationData = stationSnap.data() || {};
-      if (stationData.branchId) {
-        const branchCheck = checkBranchAuthorization(user, stationData.branchId);
-        if (!branchCheck.authorized) {
-          return res.status(403).json({ error: branchCheck.error });
-        }
+    const txResult = await db.runTransaction(async (transaction) => {
+      if (stationIdemRef) {
+        const priorIdem = await transaction.get(stationIdemRef);
+        if (priorIdem.exists) return priorIdem.data();
       }
-      await stationRef.update(cleanUndefined(updates));
-      await db.collection('stations').doc(stationId).set(cleanUndefined(updates), { merge: true });
-    } else {
-      const newStationDoc = cleanUndefined({
-        id: stationId,
-        name: `${stationId.charAt(0).toUpperCase() + stationId.slice(1)} Station`,
-        stationType: stationId,
-        assignedChef: updates.assignedChef || user.name || 'Line Chef',
-        activeOrdersCount: 0,
-        completedOrdersToday: 0,
-        avgPrepTimeMinutes: 15,
-        status: updates.status,
-        supportedCategories: [],
-        createdAt: timestamp,
-        ...updates
-      });
-      await stationRef.set(newStationDoc, { merge: true });
-      await db.collection('stations').doc(stationId).set(newStationDoc, { merge: true });
-    }
+      const stationSnap = await transaction.get(stationRef);
+      const mirrorSnap = await transaction.get(mirrorRef);
+      const existingData = (stationSnap.exists ? stationSnap.data() : null) || (mirrorSnap.exists ? mirrorSnap.data() : null);
 
-    return res.json({ status: 'success', stationId, stationStatus: updates.status, assignedChef: updates.assignedChef });
+      if (existingData) {
+        const existingBranchId = existingData.branchId || existingData.branch;
+        if (existingBranchId && existingBranchId !== 'all') {
+          const branchCheck = checkBranchAuthorization(user, existingBranchId);
+          if (!branchCheck.authorized) {
+            throw Object.assign(new Error(branchCheck.error), { statusCode: 403 });
+          }
+        }
+        if (stationSnap.exists) {
+          transaction.update(stationRef, cleanUndefined(updates));
+        } else {
+          transaction.set(stationRef, cleanUndefined({ ...existingData, ...updates }), { merge: true });
+        }
+        transaction.set(mirrorRef, cleanUndefined({ ...(mirrorSnap.exists ? {} : existingData), ...updates }), { merge: true });
+      } else {
+        const targetBranch = user.branchId && user.branchId !== 'all' ? user.branchId : 'all';
+        const newStationDoc = cleanUndefined({
+          id: stationId,
+          name: `${stationId.charAt(0).toUpperCase() + stationId.slice(1)} Station`,
+          stationType: stationId,
+          branchId: targetBranch,
+          assignedChef: updates.assignedChef || user.name || 'Line Chef',
+          activeOrdersCount: 0,
+          completedOrdersToday: 0,
+          avgPrepTimeMinutes: 15,
+          status: updates.status,
+          supportedCategories: [],
+          createdAt: timestamp,
+          ...updates
+        });
+        transaction.set(stationRef, newStationDoc, { merge: true });
+        transaction.set(mirrorRef, newStationDoc, { merge: true });
+      }
+      const out = { status: 'success', stationId, stationStatus: updates.status, assignedChef: updates.assignedChef };
+      if (stationIdemRef) {
+        transaction.set(stationIdemRef, cleanUndefined({ ...out, createdAt: timestamp }));
+      }
+      return out;
+    });
+
+    return res.json(txResult);
   } catch (err: any) {
+    if (err?.statusCode) return res.status(err.statusCode).json({ error: err.message });
     console.error('Kitchen Station Status Update Error:', err?.message || err);
     return res.status(500).json({ error: err?.message || 'Station Status Update Failed' });
   }
@@ -11372,6 +13306,7 @@ export async function handleBranchTransferApproval(req: express.Request, res: ex
       // ALL READS FIRST: collect every resource that this transfer will mutate.
       const writePlan: Array<{ ref: any; data: any }> = [];
       const movements: any[] = [];
+      let inventoryTransferAmount = 0;
 
       if (t.transferType === 'inventory' || t.transferType === 'product') {
         const items = Array.isArray(t.items) ? t.items : [];
@@ -11446,13 +13381,32 @@ export async function handleBranchTransferApproval(req: express.Request, res: ex
           const destKey = `${collectionName}:${destDoc.ref.path}`;
           if (seen.has(sourceKey) || seen.has(destKey)) throw Object.assign(new Error('A transfer cannot contain duplicate source/destination item mutations.'), { statusCode: 400 });
           seen.add(sourceKey); seen.add(destKey);
+          const sourceUnitCost = collectionName === 'ingredients'
+            ? Math.max(0, Number(sourceData.costPerUsageUnit ?? sourceData.costPerUnit ?? sourceData.costPrice ?? (Number(sourceData.conversionFactor || 1) > 0 ? Number(sourceData.purchaseCost || 0) / Number(sourceData.conversionFactor || 1) : 0)))
+            : Math.max(0, Number(sourceData.costPrice ?? sourceData.cost ?? sourceData.purchaseCost ?? 0));
+          const itemTransferCost = Math.round(qty * sourceUnitCost * 100) / 100;
+          inventoryTransferAmount = Math.round((inventoryTransferAmount + itemTransferCost) * 100) / 100;
+          const destOldUnitCost = collectionName === 'ingredients'
+            ? Math.max(0, Number(destData.costPerUsageUnit ?? destData.costPerUnit ?? destData.costPrice ?? (Number(destData.conversionFactor || 1) > 0 ? Number(destData.purchaseCost || 0) / Number(destData.conversionFactor || 1) : 0)))
+            : Math.max(0, Number(destData.costPrice ?? destData.cost ?? destData.purchaseCost ?? 0));
+          const newDestStock = destStock + qty;
+          const newDestUnitCost = newDestStock > 0
+            ? ((destStock * destOldUnitCost) + itemTransferCost) / newDestStock
+            : sourceUnitCost;
+          const destConvFactor = Number(destData.conversionFactor || 1) > 0 ? Number(destData.conversionFactor || 1) : 1;
+          const newDestPurchaseCost = newDestUnitCost * destConvFactor;
+
           writePlan.push({ ref: sourceRef, data: cleanUndefined({ stock: sourceStock - qty, ...(collectionName === 'ingredients' ? { currentStockUsageUnit: sourceStock - qty, status: getIngredientStockStatus(sourceStock - qty, Number(sourceData.minStockUsageUnit || 0)) } : {}), updatedAt: now }) });
-          writePlan.push({ ref: destDoc.ref, data: cleanUndefined({ stock: destStock + qty, ...(collectionName === 'ingredients' ? { currentStockUsageUnit: destStock + qty, status: getIngredientStockStatus(destStock + qty, Number(destData.minStockUsageUnit || 0)) } : {}), updatedAt: now }) });
+          writePlan.push({ ref: destDoc.ref, data: cleanUndefined({ stock: newDestStock, ...(collectionName === 'ingredients' ? { currentStockUsageUnit: newDestStock, costPerUsageUnit: newDestUnitCost, costPerUnit: newDestUnitCost, costPrice: newDestUnitCost, purchaseCost: newDestPurchaseCost, status: getIngredientStockStatus(newDestStock, Number(destData.minStockUsageUnit || 0)) } : { costPrice: newDestUnitCost, cost: newDestUnitCost }), updatedAt: now }) });
           if (collectionName === 'ingredients') {
             writePlan.push({ ref: sourceProjectionRef, data: cleanUndefined({ id: sourceProjectionRef.id, itemType: 'ingredient', itemName: sourceData.name || item.itemName || itemId, itemCode: sourceData.code || '', currentQuantity: sourceStock - qty, unit: sourceData.usageUnit || sourceData.unit, purchaseUnit: sourceData.purchaseUnit, usageUnit: sourceData.usageUnit || sourceData.unit, conversionFactor: Number(sourceData.conversionFactor || 1), purchaseCost: Number(sourceData.purchaseCost || 0), costPerUsageUnit: Number(sourceData.costPerUsageUnit || 0), branchId: source, status: getIngredientStockStatus(sourceStock - qty, Number(sourceData.minStockUsageUnit || 0)), updatedAt: now }) });
-            writePlan.push({ ref: destProjectionRef, data: cleanUndefined({ id: destProjectionRef.id, itemType: 'ingredient', itemName: destData.name || item.itemName || destDoc.id, itemCode: destData.code || '', currentQuantity: destStock + qty, unit: destData.usageUnit || destData.unit, purchaseUnit: destData.purchaseUnit, usageUnit: destData.usageUnit || destData.unit, conversionFactor: Number(destData.conversionFactor || 1), purchaseCost: Number(destData.purchaseCost || 0), costPerUsageUnit: Number(destData.costPerUsageUnit || 0), branchId: dest, status: getIngredientStockStatus(destStock + qty, Number(destData.minStockUsageUnit || 0)), updatedAt: now }) });
+            writePlan.push({ ref: destProjectionRef, data: cleanUndefined({ id: destProjectionRef.id, itemType: 'ingredient', itemName: destData.name || item.itemName || destDoc.id, itemCode: destData.code || '', currentQuantity: newDestStock, unit: destData.usageUnit || destData.unit, purchaseUnit: destData.purchaseUnit, usageUnit: destData.usageUnit || destData.unit, conversionFactor: destConvFactor, purchaseCost: newDestPurchaseCost, costPrice: newDestUnitCost, costPerUsageUnit: newDestUnitCost, branchId: dest, status: getIngredientStockStatus(newDestStock, Number(destData.minStockUsageUnit || 0)), updatedAt: now }) });
           }
-          movements.push({ type:'transfer_out', itemType:item.type, itemId, itemName:item.itemName || sourceData.name || itemId, quantity:qty, branchId:source, destinationBranchId:dest }, { type:'transfer_in', itemType:item.type, itemId:destDoc.id, itemName:item.itemName || destData.name || destDoc.id, quantity:qty, branchId:dest, sourceBranchId:source });
+          const resolvedUnit = String(sourceData.usageUnit || sourceData.unit || destData.usageUnit || destData.unit || 'pcs');
+          movements.push(
+            { type:'transfer_out', itemType:item.type, itemId, itemName:item.itemName || sourceData.name || itemId, quantity:qty, previousQuantity:sourceStock, newQuantity:sourceStock - qty, unit:resolvedUnit, unitCost:sourceUnitCost, totalCost:itemTransferCost, branchId:source, destinationBranchId:dest },
+            { type:'transfer_in', itemType:item.type, itemId:destDoc.id, itemName:item.itemName || destData.name || destDoc.id, quantity:qty, previousQuantity:destStock, newQuantity:newDestStock, unit:resolvedUnit, unitCost:newDestUnitCost, totalCost:itemTransferCost, branchId:dest, sourceBranchId:source }
+          );
         }
       } else if (t.transferType === 'employee') {
         const employeeId = String(t.employeeId || '').trim();
@@ -11483,13 +13437,19 @@ export async function handleBranchTransferApproval(req: express.Request, res: ex
         writePlan.push({ ref: destReg.ref, data: { expectedClosingBalance: destExpected + amount, cashAdjustments: Number(destData.cashAdjustments || 0) + amount, updatedAt: now } });
       } else throw Object.assign(new Error(`Unsupported transfer type: ${t.transferType}`), {statusCode:400});
 
+      const transferAccountState = t.transferType === 'cash'
+        ? await prepareAccountBalanceState(transaction, db, ['acc_due_from_branch','acc_cash','acc_due_to_branch'])
+        : ((t.transferType === 'inventory' || t.transferType === 'product') && inventoryTransferAmount > 0
+            ? await prepareAccountBalanceState(transaction, db, ['acc_due_from_branch','acc_inventory','acc_due_to_branch'])
+            : null);
+
       // ALL WRITES START HERE.
       for (const plan of writePlan) transaction.set(plan.ref, plan.data, { merge: true });
       for (const movement of movements) {
         const movementRef = db.collection('inventory_movements').doc();
         transaction.set(movementRef, cleanUndefined({ id:movementRef.id, ...movement, transferId, reason:t.reason || 'Inter-branch transfer', createdBy:user.name, createdAt:now }));
       }
-      if (t.transferType === 'cash') {
+      if (t.transferType === 'cash' && transferAccountState) {
         const transferAmount = Number(t.cashAmount);
         const sourceLines = [
           { accountId:'acc_due_from_branch', accountCode:'1310', accountName:`Due From ${dest}`, debit:transferAmount, credit:0, memo:`Cash transferred to ${dest}` },
@@ -11499,7 +13459,6 @@ export async function handleBranchTransferApproval(req: express.Request, res: ex
           { accountId:'acc_cash', accountCode:'1010', accountName:'Cash on Hand (Register)', debit:transferAmount, credit:0, memo:`Cash received from ${source}` },
           { accountId:'acc_due_to_branch', accountCode:'2110', accountName:`Due To ${source}`, debit:0, credit:transferAmount, memo:`Cash received from ${source}` }
         ];
-        const transferAccountState = await prepareAccountBalanceState(transaction, db, ['acc_due_from_branch','acc_cash','acc_due_to_branch']);
         const entries = [
           { branchId:source, lines:sourceLines, description:`Inter-branch cash transfer out ${source} → ${dest}` },
           { branchId:dest, lines:destLines, description:`Inter-branch cash transfer in ${source} → ${dest}` }
@@ -11511,7 +13470,32 @@ export async function handleBranchTransferApproval(req: express.Request, res: ex
           for (const line of entry.lines) {
             const jlRef=db.collection('journal_lines').doc();
             const ledRef=db.collection('ledger').doc();
-            transaction.set(jlRef, cleanUndefined({ id:jlRef.id, journalEntryId:jeRef.id, entryNumber, branchId:entry.branchId, ...line, createdAt:now }));
+            transaction.set(jlRef, cleanUndefined({ id:jlRef.id, journalEntryId:jeRef.id, entryNumber, date:postingDate, branchId:entry.branchId, ...line, createdAt:now }));
+            transaction.set(ledRef, cleanUndefined({ id:ledRef.id, accountId:line.accountId, accountCode:line.accountCode, accountName:line.accountName, journalEntryId:jeRef.id, entryNumber, date:postingDate, reference:transferId, description:line.memo || entry.description, debit:line.debit, credit:line.credit, branchId:entry.branchId, createdAt:now }));
+          }
+          applyAccountBalanceDeltasInTransaction(transaction, transferAccountState, entry.lines, now);
+        }
+      } else if ((t.transferType === 'inventory' || t.transferType === 'product') && inventoryTransferAmount > 0 && transferAccountState) {
+        const sourceLines = [
+          { accountId:'acc_due_from_branch', accountCode:'1310', accountName:`Due From ${dest}`, debit:inventoryTransferAmount, credit:0, memo:`Inventory transferred to ${dest}` },
+          { accountId:'acc_inventory', accountCode:'1030', accountName:'Food & Beverage Inventory Asset', debit:0, credit:inventoryTransferAmount, memo:`Inventory transferred to ${dest}` }
+        ];
+        const destLines = [
+          { accountId:'acc_inventory', accountCode:'1030', accountName:'Food & Beverage Inventory Asset', debit:inventoryTransferAmount, credit:0, memo:`Inventory received from ${source}` },
+          { accountId:'acc_due_to_branch', accountCode:'2110', accountName:`Due To ${source}`, debit:0, credit:inventoryTransferAmount, memo:`Inventory received from ${source}` }
+        ];
+        const entries = [
+          { branchId:source, lines:sourceLines, description:`Inter-branch inventory transfer out ${source} → ${dest}` },
+          { branchId:dest, lines:destLines, description:`Inter-branch inventory transfer in ${source} → ${dest}` }
+        ];
+        for (const entry of entries) {
+          const jeRef = db.collection('journal_entries').doc();
+          const entryNumber = `JE-TRANSFER-${transferId.slice(0,6).toUpperCase()}-${entry.branchId}`;
+          transaction.set(jeRef, cleanUndefined({ id:jeRef.id, entryNumber, date:postingDate, reference:transferId, description:entry.description, source:'Branch Transfer', status:'Posted', totalDebit:inventoryTransferAmount, totalCredit:inventoryTransferAmount, branchId:entry.branchId, createdBy:user.name, createdAt:now, lines:entry.lines }));
+          for (const line of entry.lines) {
+            const jlRef=db.collection('journal_lines').doc();
+            const ledRef=db.collection('ledger').doc();
+            transaction.set(jlRef, cleanUndefined({ id:jlRef.id, journalEntryId:jeRef.id, entryNumber, date:postingDate, branchId:entry.branchId, ...line, createdAt:now }));
             transaction.set(ledRef, cleanUndefined({ id:ledRef.id, accountId:line.accountId, accountCode:line.accountCode, accountName:line.accountName, journalEntryId:jeRef.id, entryNumber, date:postingDate, reference:transferId, description:line.memo || entry.description, debit:line.debit, credit:line.credit, branchId:entry.branchId, createdAt:now }));
           }
           applyAccountBalanceDeltasInTransaction(transaction, transferAccountState, entry.lines, now);
@@ -11572,34 +13556,51 @@ export async function handleUpdateBranchSettings(req: express.Request, res: expr
     const ref = db.collection('branch_settings').doc(targetBranchId);
     const branchRef = db.collection('branches').doc(targetBranchId);
     const now = new Date().toISOString();
-    const existing = await ref.get();
-    const current = existing.exists ? (existing.data() || {}) : {};
-    const next: any = {
-      ...current,
-      id: targetBranchId,
-      branchId: targetBranchId,
-      ...(restaurant ? { restaurant } : {}),
-      ...(tax ? { tax } : {}),
-      ...(payments ? { payments } : {}),
-      updatedAt: now,
-      updatedBy: user.uid
-    };
-    await ref.set(cleanUndefined(next), { merge: true });
-    if (tax) {
-      const taxRate = Number(tax.defaultTaxRate);
-      await branchRef.set(cleanUndefined({
+    const rawIdemKey = req.headers['idempotency-key'] || req.headers['x-idempotency-key'] || body.idempotencyKey;
+    const idemKey = typeof rawIdemKey === 'string' && rawIdemKey.trim() ? rawIdemKey.trim() : '';
+    const idemRef = idemKey
+      ? db.collection('mutation_idempotency').doc(createHash('sha256').update(`branch-settings:${user.uid}:${targetBranchId}:${idemKey}`).digest('hex'))
+      : null;
+
+    const result = await db.runTransaction(async (tx) => {
+      if (idemRef) {
+        const prior = await tx.get(idemRef);
+        if (prior.exists) return prior.data();
+      }
+      const existing = await tx.get(ref);
+      const current = existing.exists ? (existing.data() || {}) : {};
+      const next: any = {
+        ...current,
+        id: targetBranchId,
         branchId: targetBranchId,
-        ...(Number.isFinite(taxRate) ? { taxRate, taxEnabled: taxRate > 0 } : {}),
-        ...(restaurant?.name ? { branchName: restaurant.name } : {}),
-        ...(restaurant?.address !== undefined ? { address: restaurant.address } : {}),
-        ...(restaurant?.phone !== undefined ? { managerPhone: restaurant.phone } : {}),
+        ...(restaurant ? { restaurant } : {}),
+        ...(tax ? { tax } : {}),
+        ...(payments ? { payments } : {}),
         updatedAt: now,
         updatedBy: user.uid
-      }), { merge: true });
-    }
-    return res.json({ status: 'success', branchId: targetBranchId, updatedAt: now });
+      };
+      tx.set(ref, cleanUndefined(next), { merge: true });
+      if (tax || restaurant) {
+        const taxRate = tax ? Number(tax.defaultTaxRate) : NaN;
+        tx.set(branchRef, cleanUndefined({
+          branchId: targetBranchId,
+          ...(Number.isFinite(taxRate) ? { taxRate, taxEnabled: taxRate > 0 } : {}),
+          ...(restaurant?.name ? { branchName: restaurant.name } : {}),
+          ...(restaurant?.address !== undefined ? { address: restaurant.address } : {}),
+          ...(restaurant?.phone !== undefined ? { managerPhone: restaurant.phone } : {}),
+          updatedAt: now,
+          updatedBy: user.uid
+        }), { merge: true });
+      }
+      const out = { status: 'success', branchId: targetBranchId, updatedAt: now };
+      if (idemRef) {
+        tx.set(idemRef, cleanUndefined({ ...out, idempotencyKey: idemKey, createdAt: now }));
+      }
+      return out;
+    });
+    return res.json(result);
   } catch (err: any) {
-    return res.status(500).json({ error: err?.message || 'Failed to save branch settings.' });
+    return res.status(err?.statusCode || 500).json({ error: err?.message || 'Failed to save branch settings.' });
   }
 }
 
@@ -11673,13 +13674,31 @@ export async function handleInitialSetup(req: express.Request, res: express.Resp
       const branchSnap = await tx.get(branchRef);
       const actorSnap = await tx.get(userRef);
       const currentActor = actorSnap.exists ? (actorSnap.data() || {}) : {};
+      const inventory = Array.isArray(body.inventory) ? body.inventory : [];
+      const existingSetupIngredientSnaps = await Promise.all(
+        inventory.map((_: any, idx: number) => tx.get(db.collection('ingredients').doc(`setup_${user.uid}_${idx + 1}`)))
+      );
+      const setupAccountState = inventory.length > 0
+        ? await prepareAccountBalanceState(tx, db, ['acc_inventory', 'acc_opening_equity'])
+        : null;
+      const numericTaxRate = Number(tax.taxRate);
       if (!branchSnap.exists) {
         tx.set(branchRef, cleanUndefined({
           id: targetBranchId, branchName: branch.name, code: branch.code || targetBranchId,
           city: branch.city, address: branch.address || '', managerName: branch.managerName || '',
           managerPhone: branch.managerPhone || '', tableCount: Math.max(0, Number(branch.tableCount) || 0),
-          isPrimary: Boolean(branch.isPrimary), status: 'active', branchId: targetBranchId, createdAt: now, createdBy: user.uid
+          isPrimary: Boolean(branch.isPrimary), status: 'active', branchId: targetBranchId,
+          ...(Number.isFinite(numericTaxRate) ? { taxRate: numericTaxRate, taxEnabled: numericTaxRate > 0 } : {}),
+          createdAt: now, createdBy: user.uid
         }));
+      } else if (Number.isFinite(numericTaxRate)) {
+        tx.set(branchRef, cleanUndefined({
+          branchId: targetBranchId,
+          taxRate: numericTaxRate,
+          taxEnabled: numericTaxRate > 0,
+          updatedAt: now,
+          updatedBy: user.uid
+        }), { merge: true });
       }
       tx.set(settingsRef, cleanUndefined({
         id: targetBranchId, branchId: targetBranchId, restaurant, tax, payments,
@@ -11718,9 +13737,11 @@ export async function handleInitialSetup(req: express.Request, res: express.Resp
           address: branch.city || '', branchId: targetBranchId, rating: 0, createdAt: now, updatedAt: now
         }), { merge: true });
       }
-      const inventory = Array.isArray(body.inventory) ? body.inventory : [];
+      let totalOpeningInventoryValue = 0;
       for (const [idx, item] of inventory.entries()) {
         const ref = db.collection('ingredients').doc(`setup_${user.uid}_${idx + 1}`);
+        const invProjectionRef = db.collection('inventory').doc(ref.id);
+        const existingIngSnap = existingSetupIngredientSnaps[idx];
         const usageUnit = String(item.usageUnit || item.unit || '').trim();
         const purchaseUnit = String(item.purchaseUnit || item.unit || '').trim();
         const qty = Math.max(0, Number(item.currentQuantity) || 0);
@@ -11733,17 +13754,138 @@ export async function handleInitialSetup(req: express.Request, res: express.Resp
           throw Object.assign(new Error(`Initial setup ingredient "${item.name}" uses the same purchase and usage unit but conversionFactor is not 1.`), { statusCode: 400 });
         }
         const costPerUsageUnit = purchaseUnit && usageUnit && conversionFactor > 0 ? purchaseCost / conversionFactor : purchaseCost;
+        const minStock = Math.max(0, Number(item.minStockUsageUnit ?? item.minAlertStock) || 0);
+        const status = getIngredientStockStatus(qty, minStock);
+        const alreadyInitialized = existingIngSnap && existingIngSnap.exists;
         tx.set(ref, cleanUndefined({
           id: ref.id, branchId: targetBranchId, branch: targetBranchId, name: item.name,
           nameAr: item.nameAr || item.name, nameSo: item.nameSo || item.name, category: item.category || 'General',
-          purchaseUnit, usageUnit, conversionFactor,
-          minStockUsageUnit: Math.max(0, Number(item.minStockUsageUnit ?? item.minAlertStock) || 0),
-          purchaseCost, costPerUsageUnit,
-          stock: qty, currentStockUsageUnit: qty,
-          status: getIngredientStockStatus(qty, Math.max(0, Number(item.minStockUsageUnit ?? item.minAlertStock) || 0)),
+          purchaseUnit, usageUnit, unit: usageUnit, conversionFactor,
+          minStockUsageUnit: minStock, minStockLevel: minStock,
+          purchaseCost, costPerUsageUnit, costPrice: costPerUsageUnit, costPerUnit: costPerUsageUnit,
+          ...(alreadyInitialized ? {} : { stock: qty, currentStockUsageUnit: qty, status }),
           supplierId: item.supplierId || undefined, supplierName: item.supplierName || '',
           lastRestocked: now, createdAt: now, updatedAt: now
         }), { merge: true });
+        if (!alreadyInitialized) {
+          tx.set(invProjectionRef, cleanUndefined({
+            id: ref.id,
+            itemType: 'ingredient',
+            itemName: item.name,
+            itemCode: '',
+            category: item.category || 'General',
+            currentQuantity: qty,
+            unit: usageUnit,
+            purchaseUnit,
+            usageUnit,
+            conversionFactor,
+            minimumQuantity: minStock,
+            reorderLevel: minStock,
+            purchaseCost,
+            costPrice: costPerUsageUnit,
+            costPerUsageUnit,
+            supplierId: item.supplierId || undefined,
+            supplierName: item.supplierName || '',
+            branchId: targetBranchId,
+            status,
+            createdAt: now,
+            updatedAt: now
+          }), { merge: true });
+          if (qty > 0) {
+            const openingVal = Math.round(qty * costPerUsageUnit * 100) / 100;
+            totalOpeningInventoryValue = Math.round((totalOpeningInventoryValue + openingVal) * 100) / 100;
+            const mvRef = db.collection('inventory_movements').doc(`setup_mv_${user.uid}_${idx + 1}`);
+            tx.set(mvRef, cleanUndefined({
+              id: mvRef.id,
+              type: 'opening',
+              itemType: 'ingredient',
+              itemId: ref.id,
+              ingredientId: ref.id,
+              itemName: item.name,
+              ingredientName: item.name,
+              quantity: qty,
+              previousQuantity: 0,
+              newQuantity: qty,
+              previousStock: 0,
+              newStock: qty,
+              unit: usageUnit,
+              unitCost: costPerUsageUnit,
+              cost: openingVal,
+              totalCost: openingVal,
+              reason: 'Initial setup opening stock',
+              branchId: targetBranchId,
+              createdBy: user.name || user.email || user.uid,
+              createdAt: now
+            }));
+          }
+        }
+      }
+      if (totalOpeningInventoryValue > 0 && setupAccountState) {
+        const dateStr = getMogadishuDateString(now);
+        const jeRef = db.collection('journal_entries').doc(`je_setup_open_${user.uid}_${targetBranchId}`);
+        const entryNumber = `JE-SETUP-${targetBranchId.slice(-6).toUpperCase()}`;
+        const lines = [
+          {
+            accountId: 'acc_inventory',
+            accountCode: '1030',
+            accountName: 'Food & Beverage Inventory Asset',
+            debit: totalOpeningInventoryValue,
+            credit: 0,
+            memo: `Initial setup opening inventory for branch ${targetBranchId}`
+          },
+          {
+            accountId: 'acc_opening_equity',
+            accountCode: '3010',
+            accountName: 'Opening Balance Equity',
+            debit: 0,
+            credit: totalOpeningInventoryValue,
+            memo: `Opening balance equity for initial setup inventory (${targetBranchId})`
+          }
+        ];
+        tx.set(jeRef, cleanUndefined({
+          id: jeRef.id,
+          entryNumber,
+          date: dateStr,
+          reference: `SETUP-${targetBranchId}`,
+          description: `Initial setup opening inventory valuation (${targetBranchId})`,
+          source: 'Inventory',
+          status: 'Posted',
+          totalDebit: totalOpeningInventoryValue,
+          totalCredit: totalOpeningInventoryValue,
+          lines,
+          branchId: targetBranchId,
+          createdBy: user.name || user.email || user.uid,
+          createdAt: now
+        }));
+        for (const [lineIdx, line] of lines.entries()) {
+          const jlRef = db.collection('journal_lines').doc(`jl_setup_open_${user.uid}_${targetBranchId}_${lineIdx}`);
+          const ledRef = db.collection('ledger').doc(`led_setup_open_${user.uid}_${targetBranchId}_${lineIdx}`);
+          tx.set(jlRef, cleanUndefined({
+            id: jlRef.id,
+            journalEntryId: jeRef.id,
+            entryNumber,
+            date: dateStr,
+            branchId: targetBranchId,
+            ...line,
+            createdAt: now
+          }));
+          tx.set(ledRef, cleanUndefined({
+            id: ledRef.id,
+            accountId: line.accountId,
+            accountCode: line.accountCode,
+            accountName: line.accountName,
+            journalEntryId: jeRef.id,
+            entryNumber,
+            date: dateStr,
+            reference: `SETUP-${targetBranchId}`,
+            description: line.memo,
+            debit: line.debit,
+            credit: line.credit,
+            branchId: targetBranchId,
+            createdAt: now
+          }));
+        }
+        applyAccountBalanceDeltasInTransaction(tx, setupAccountState, lines, now);
       }
       const products = Array.isArray(body.products) ? body.products : [];
       for (const [idx, prod] of products.entries()) {
@@ -11850,6 +13992,18 @@ export async function handleAdminUpdateUser(req: express.Request, res: express.R
       transaction.set(idemRef, cleanUndefined({ ...out, createdAt: now }));
       return out;
     });
+
+    try {
+      const adminAuth = getAdminAuth();
+      await adminAuth.setCustomUserClaims(uid, {
+        role: requestedRole,
+        status: requestedStatus,
+        branchId: (result as any)?.branchId || ''
+      });
+    } catch (claimErr) {
+      console.warn(`Failed to sync custom claims for ${uid}:`, claimErr);
+    }
+
     return res.json(result);
   } catch (err: any) {
     console.error('Admin user update error:', err);
@@ -11971,6 +14125,18 @@ export async function handleAdminCreateUser(req: express.Request, res: express.R
       }));
     });
 
+    try {
+      const adminAuth = getAdminAuth();
+      await adminAuth.setCustomUserClaims(uid, {
+        role,
+        status: 'active',
+        branchId: authorizedTargetBranch,
+        branch: authorizedTargetBranch
+      });
+    } catch (claimErr) {
+      console.warn(`Failed to set custom user claims for ${uid}:`, claimErr);
+    }
+
     return res.status(201).json({
       status: 'success',
       uid,
@@ -11991,6 +14157,1515 @@ export async function handleAdminCreateUser(req: express.Request, res: express.R
     return res.status(statusCode >= 400 && statusCode < 600 ? statusCode : 500).json({ error: `Failed to create user account: ${err?.message || err}` });
   }
 }
+
+export async function handleCreateIngredient(req: express.Request, res: express.Response) {
+  const user = await authenticateTrustedUser(req, res);
+  if (!user) return;
+
+  const roleCheck = checkRoleAuthorization(user, ['Owner', 'owner', 'Admin', 'admin', 'Manager', 'manager', 'Accountant', 'accountant']);
+  if (!roleCheck.authorized) {
+    return res.status(403).json({ error: roleCheck.error });
+  }
+
+  const rawData = req.body?.ingredientData || req.body || {};
+  const name = String(rawData.name || '').trim();
+  if (!name) {
+    return res.status(400).json({ error: 'Ingredient name is required.' });
+  }
+
+  const requestedBranch = String(rawData.branchId || user.branchId || '').trim();
+  const branchCheck = checkBranchAuthorization(user, requestedBranch);
+  if (!branchCheck.authorized || !branchCheck.targetBranchId || branchCheck.targetBranchId === 'all') {
+    return res.status(403).json({ error: branchCheck.error || 'A concrete authorized branchId is required to create an ingredient.' });
+  }
+  const targetBranchId = branchCheck.targetBranchId;
+
+  let idempotencyKey: string;
+  try {
+    idempotencyKey = getRequiredIdempotencyKey(req, rawData.idempotencyKey);
+  } catch (e: any) {
+    return res.status(e?.statusCode || 400).json({ error: e?.message || 'Idempotency-Key is required.' });
+  }
+
+  const purchaseUnit = String(rawData.purchaseUnit || rawData.unit || 'kg').trim();
+  const usageUnit = String(rawData.usageUnit || rawData.unit || purchaseUnit).trim();
+  const rawFactor = Number(rawData.conversionFactor ?? 1);
+  if (!Number.isFinite(rawFactor) || rawFactor <= 0) {
+    return res.status(400).json({ error: 'Conversion factor must be a positive finite number.' });
+  }
+  const conversionFactor = purchaseUnit === usageUnit ? 1 : rawFactor;
+
+  const purchaseCost = Number(rawData.purchaseCost ?? rawData.costPrice ?? rawData.costPerUnit ?? 0);
+  if (!Number.isFinite(purchaseCost) || purchaseCost < 0) {
+    return res.status(400).json({ error: 'Purchase cost must be a valid non-negative number.' });
+  }
+  const costPerUsageUnit = conversionFactor > 0 ? purchaseCost / conversionFactor : purchaseCost;
+
+  const initialStock = Number(rawData.currentStockUsageUnit ?? rawData.stock ?? 0);
+  if (!Number.isFinite(initialStock) || initialStock < 0) {
+    return res.status(400).json({ error: 'Initial stock must be a non-negative finite number.' });
+  }
+  const minStockUsageUnit = Number(rawData.minStockUsageUnit ?? rawData.minStockLevel ?? 0);
+  if (!Number.isFinite(minStockUsageUnit) || minStockUsageUnit < 0) {
+    return res.status(400).json({ error: 'Minimum stock level must be a non-negative finite number.' });
+  }
+
+  const db = getAdminDb();
+  const idemRef = db.collection('mutation_idempotency').doc(
+    createHash('sha256').update(`ingredient-create:${user.uid}:${idempotencyKey}`).digest('hex')
+  );
+
+  try {
+    const result = await db.runTransaction(async (transaction: any) => {
+      const idemSnap = await transaction.get(idemRef);
+      if (idemSnap.exists) return idemSnap.data();
+
+      if (rawData.simulateInventorySyncFailure === true) {
+        throw Object.assign(new Error('Simulated inventory synchronization failure inside atomic transaction.'), { statusCode: 500 });
+      }
+
+      const now = new Date().toISOString();
+      const dateStr = getMogadishuDateString(now);
+      const openingValue = Math.round(initialStock * costPerUsageUnit * 100) / 100;
+      const __ingOpeningAccountState = openingValue > 0
+        ? await prepareAccountBalanceState(transaction, db, ['acc_inventory', 'acc_equity'])
+        : null;
+      const ingRef = db.collection('ingredients').doc();
+      const stockStatus = getIngredientStockStatus(initialStock, minStockUsageUnit);
+
+      const newIngredient = cleanUndefined({
+        ...rawData,
+        id: ingRef.id,
+        name,
+        code: String(rawData.code || `ING-${ingRef.id.slice(0, 6).toUpperCase()}`).trim(),
+        category: String(rawData.category || 'General').trim(),
+        purchaseUnit,
+        usageUnit,
+        unit: usageUnit,
+        conversionFactor,
+        purchaseCost,
+        costPerUsageUnit,
+        costPrice: costPerUsageUnit,
+        costPerUnit: costPerUsageUnit,
+        currentStockUsageUnit: initialStock,
+        stock: initialStock,
+        minStockUsageUnit,
+        minStockLevel: minStockUsageUnit,
+        status: stockStatus,
+        branchId: targetBranchId,
+        isDeleted: false,
+        isArchived: false,
+        isActive: true,
+        createdBy: user.name,
+        createdAt: now,
+        updatedAt: now
+      });
+      delete (newIngredient as any).simulateInventorySyncFailure;
+
+      transaction.set(ingRef, newIngredient);
+
+      // Atomically synchronize initial stock with inventory projection and inventory_movements ledger
+      const invRef = db.collection('inventory').doc(ingRef.id);
+      const invDoc = cleanUndefined({
+        id: ingRef.id,
+        itemName: name,
+        itemCode: newIngredient.code,
+        category: newIngredient.category,
+        itemType: 'ingredient',
+        currentQuantity: initialStock,
+        unit: usageUnit,
+        purchaseUnit,
+        usageUnit,
+        conversionFactor,
+        purchaseCost,
+        costPrice: costPerUsageUnit,
+        costPerUsageUnit,
+        minimumQuantity: minStockUsageUnit,
+        reorderLevel: minStockUsageUnit,
+        branchId: targetBranchId,
+        status: initialStock <= 0 ? 'out_of_stock' : initialStock <= minStockUsageUnit ? 'low_stock' : 'in_stock',
+        isDeleted: false,
+        isArchived: false,
+        createdBy: user.name,
+        createdAt: now,
+        updatedAt: now
+      });
+      transaction.set(invRef, invDoc);
+
+      if (initialStock > 0) {
+        const movRef = db.collection('inventory_movements').doc();
+        transaction.set(movRef, cleanUndefined({
+          id: movRef.id,
+          type: 'in',
+          itemId: ingRef.id,
+          itemType: 'ingredient',
+          itemName: name,
+          itemCode: newIngredient.code,
+          quantity: initialStock,
+          unit: usageUnit,
+          unitCost: costPerUsageUnit,
+          costPrice: costPerUsageUnit,
+          totalCost: openingValue,
+          previousQuantity: 0,
+          newQuantity: initialStock,
+          reason: 'Initial Stock on Ingredient Creation',
+          performedBy: user.name || 'System',
+          createdBy: user.name || 'System',
+          branchId: targetBranchId,
+          createdAt: now
+        }));
+        if (openingValue > 0 && __ingOpeningAccountState) {
+          const jeRef = db.collection('journal_entries').doc();
+          const entryNumber = `JE-ING-OPEN-${ingRef.id.slice(0, 6).toUpperCase()}`;
+          const lines = [
+            {
+              accountId: 'acc_inventory',
+              accountCode: '1030',
+              accountName: 'Food & Beverage Inventory Asset',
+              debit: openingValue,
+              credit: 0,
+              memo: `Opening ingredient stock for ${name}`
+            },
+            {
+              accountId: 'acc_equity',
+              accountCode: '3000',
+              accountName: "Owner's Capital / Opening Balance Equity",
+              debit: 0,
+              credit: openingValue,
+              memo: `Opening ingredient balance equity for ${name}`
+            }
+          ];
+          transaction.set(jeRef, cleanUndefined({
+            id: jeRef.id,
+            entryNumber,
+            date: dateStr,
+            reference: ingRef.id,
+            description: `Opening Ingredient Balance: ${name} (${initialStock} ${usageUnit})`,
+            source: 'Opening Balance',
+            status: 'Posted',
+            totalDebit: openingValue,
+            totalCredit: openingValue,
+            lines,
+            branchId: targetBranchId,
+            createdBy: user.name,
+            createdAt: now
+          }));
+          for (const line of lines) {
+            const jlRef = db.collection('journal_lines').doc();
+            transaction.set(jlRef, cleanUndefined({
+              id: jlRef.id,
+              journalEntryId: jeRef.id,
+              entryNumber,
+              date: dateStr,
+              branchId: targetBranchId,
+              ...line,
+              createdAt: now
+            }));
+            const ledgerRef = db.collection('ledger').doc();
+            transaction.set(ledgerRef, cleanUndefined({
+              id: ledgerRef.id,
+              accountId: line.accountId,
+              accountCode: line.accountCode,
+              accountName: line.accountName,
+              journalEntryId: jeRef.id,
+              entryNumber,
+              date: dateStr,
+              reference: ingRef.id,
+              description: line.memo,
+              debit: line.debit,
+              credit: line.credit,
+              branchId: targetBranchId,
+              createdAt: now
+            }));
+          }
+          applyAccountBalanceDeltasInTransaction(transaction, __ingOpeningAccountState, lines, now);
+        }
+      }
+
+      const out = { status: 'success', id: ingRef.id, ingredient: newIngredient, idempotencyKey };
+      transaction.set(idemRef, cleanUndefined({ ...out, createdAt: now }));
+      return out;
+    });
+
+    return res.status(201).json(result);
+  } catch (err: any) {
+    const statusCode = Number(err?.statusCode || 500);
+    return res.status(statusCode >= 400 && statusCode < 600 ? statusCode : 500).json({
+      error: err?.message || 'Failed to create ingredient atomically.'
+    });
+  }
+}
+
+export async function handleUpdateIngredient(req: express.Request, res: express.Response) {
+  const user = await authenticateTrustedUser(req, res);
+  if (!user) return;
+
+  const roleCheck = checkRoleAuthorization(user, ['Owner', 'owner', 'Admin', 'admin', 'Manager', 'manager', 'Accountant', 'accountant']);
+  if (!roleCheck.authorized) {
+    return res.status(403).json({ error: roleCheck.error });
+  }
+
+  const ingredientId = String(req.params.id || '').trim();
+  if (!ingredientId) {
+    return res.status(400).json({ error: 'Ingredient ID is required.' });
+  }
+
+  let idempotencyKey: string;
+  try {
+    idempotencyKey = getRequiredIdempotencyKey(req, req.body?.idempotencyKey);
+  } catch (e: any) {
+    return res.status(e?.statusCode || 400).json({ error: e?.message || 'Idempotency-Key is required.' });
+  }
+
+  const updateData = req.body?.ingredientData || req.body || {};
+  const FORBIDDEN_STOCK_KEYS = ['stock', 'currentStock', 'currentStockUsageUnit', 'currentQuantity'];
+  const attemptedStockKeys = Object.keys(updateData).filter((k) => FORBIDDEN_STOCK_KEYS.includes(k));
+  if (attemptedStockKeys.length > 0) {
+    return res.status(403).json({
+      error: `Direct modification of ingredient stock fields (${attemptedStockKeys.join(', ')}) is prohibited. Use /api/inventory/adjust.`
+    });
+  }
+
+  const db = getAdminDb();
+  const idemRef = db.collection('mutation_idempotency').doc(
+    createHash('sha256').update(`ingredient-update:${user.uid}:${ingredientId}:${idempotencyKey}`).digest('hex')
+  );
+
+  try {
+    const result = await db.runTransaction(async (transaction: any) => {
+      const idemSnap = await transaction.get(idemRef);
+      if (idemSnap.exists) return idemSnap.data();
+
+      const ingRef = db.collection('ingredients').doc(ingredientId);
+      const ingSnap = await transaction.get(ingRef);
+      if (!ingSnap.exists) {
+        throw Object.assign(new Error('Ingredient not found.'), { statusCode: 404 });
+      }
+      const existing = ingSnap.data() || {};
+      const branchCheck = checkBranchAuthorization(user, existing.branchId);
+      if (!branchCheck.authorized) {
+        throw Object.assign(new Error(branchCheck.error || 'Unauthorized cross-branch ingredient update.'), { statusCode: 403 });
+      }
+
+      const invRef = db.collection('inventory').doc(ingredientId);
+      const invSnap = await transaction.get(invRef);
+
+      const now = new Date().toISOString();
+      const name = String(updateData.name ?? existing.name ?? '').trim();
+      const code = String(updateData.code ?? existing.code ?? '').trim();
+      const category = String(updateData.category ?? existing.category ?? 'General').trim();
+      const purchaseUnit = String(updateData.purchaseUnit ?? existing.purchaseUnit ?? existing.unit ?? 'kg').trim();
+      const usageUnit = String(updateData.usageUnit ?? existing.usageUnit ?? existing.unit ?? purchaseUnit).trim();
+      const rawFactor = Number(updateData.conversionFactor ?? existing.conversionFactor ?? 1);
+      const conversionFactor = purchaseUnit === usageUnit ? 1 : (Number.isFinite(rawFactor) && rawFactor > 0 ? rawFactor : 1);
+      const purchaseCost = Number(updateData.purchaseCost ?? updateData.costPrice ?? existing.purchaseCost ?? existing.costPrice ?? 0);
+      const costPerUsageUnit = conversionFactor > 0 ? purchaseCost / conversionFactor : purchaseCost;
+      const minStockUsageUnit = Number(updateData.minStockUsageUnit ?? updateData.minStockLevel ?? existing.minStockUsageUnit ?? existing.minStockLevel ?? 0);
+      const currentStock = Number(existing.currentStockUsageUnit ?? existing.stock ?? 0);
+      const nextStatus = getIngredientStockStatus(currentStock, minStockUsageUnit);
+
+      const updates = cleanUndefined({
+        ...updateData,
+        ...(name ? { name } : {}),
+        ...(code ? { code } : {}),
+        category,
+        purchaseUnit,
+        usageUnit,
+        unit: usageUnit,
+        conversionFactor,
+        purchaseCost,
+        costPerUsageUnit,
+        costPrice: costPerUsageUnit,
+        costPerUnit: costPerUsageUnit,
+        minStockUsageUnit,
+        minStockLevel: minStockUsageUnit,
+        status: nextStatus,
+        branchId: existing.branchId,
+        updatedAt: now
+      });
+      delete (updates as any).idempotencyKey;
+
+      transaction.update(ingRef, updates);
+
+      if (invSnap.exists) {
+        transaction.update(invRef, cleanUndefined({
+          ...(name ? { itemName: name } : {}),
+          ...(code ? { itemCode: code } : {}),
+          category,
+          unit: usageUnit,
+          purchaseUnit,
+          usageUnit,
+          conversionFactor,
+          purchaseCost,
+          costPrice: costPerUsageUnit,
+          costPerUsageUnit,
+          minimumQuantity: minStockUsageUnit,
+          reorderLevel: minStockUsageUnit,
+          status: nextStatus,
+          updatedAt: now
+        }));
+      }
+
+      const out = { status: 'success', id: ingredientId, idempotencyKey };
+      transaction.set(idemRef, cleanUndefined({ ...out, createdAt: now }));
+      return out;
+    });
+
+    return res.json(result);
+  } catch (err: any) {
+    const statusCode = Number(err?.statusCode || 500);
+    return res.status(statusCode >= 400 && statusCode < 600 ? statusCode : 500).json({
+      error: err?.message || 'Failed to update ingredient.'
+    });
+  }
+}
+
+export async function handleDeleteIngredient(req: express.Request, res: express.Response) {
+  const user = await authenticateTrustedUser(req, res);
+  if (!user) return;
+
+  const roleCheck = checkRoleAuthorization(user, ['Owner', 'owner', 'Admin', 'admin', 'Manager', 'manager']);
+  if (!roleCheck.authorized) {
+    return res.status(403).json({ error: roleCheck.error });
+  }
+
+  const ingredientId = String(req.params.id || '').trim();
+  if (!ingredientId) {
+    return res.status(400).json({ error: 'Ingredient ID is required.' });
+  }
+
+  let idempotencyKey: string;
+  try {
+    idempotencyKey = getRequiredIdempotencyKey(req, req.body?.idempotencyKey);
+  } catch (e: any) {
+    return res.status(e?.statusCode || 400).json({ error: e?.message || 'Idempotency-Key is required.' });
+  }
+
+  const db = getAdminDb();
+  const idemRef = db.collection('mutation_idempotency').doc(
+    createHash('sha256').update(`ingredient-delete:${user.uid}:${ingredientId}:${idempotencyKey}`).digest('hex')
+  );
+
+  try {
+    const result = await db.runTransaction(async (transaction: any) => {
+      const idemSnap = await transaction.get(idemRef);
+      if (idemSnap.exists) return idemSnap.data();
+
+      const ingRef = db.collection('ingredients').doc(ingredientId);
+      const ingSnap = await transaction.get(ingRef);
+      if (!ingSnap.exists) {
+        throw Object.assign(new Error('Ingredient not found.'), { statusCode: 404 });
+      }
+      const existing = ingSnap.data() || {};
+      const branchCheck = checkBranchAuthorization(user, existing.branchId);
+      if (!branchCheck.authorized) {
+        throw Object.assign(new Error(branchCheck.error || 'Unauthorized cross-branch ingredient deletion.'), { statusCode: 403 });
+      }
+
+      const invRef = db.collection('inventory').doc(ingredientId);
+      const invSnap = await transaction.get(invRef);
+
+      const now = new Date().toISOString();
+      transaction.update(ingRef, {
+        isDeleted: true,
+        isArchived: true,
+        isActive: false,
+        status: 'deleted',
+        deletedAt: now,
+        deletedBy: user.name,
+        updatedAt: now
+      });
+
+      if (invSnap.exists) {
+        transaction.update(invRef, {
+          isDeleted: true,
+          isArchived: true,
+          status: 'deleted',
+          deletedAt: now,
+          deletedBy: user.name,
+          updatedAt: now
+        });
+      }
+
+      const out = { status: 'success', id: ingredientId, idempotencyKey };
+      transaction.set(idemRef, cleanUndefined({ ...out, createdAt: now }));
+      return out;
+    });
+
+    return res.json(result);
+  } catch (err: any) {
+    const statusCode = Number(err?.statusCode || 500);
+    return res.status(statusCode >= 400 && statusCode < 600 ? statusCode : 500).json({
+      error: err?.message || 'Failed to archive ingredient.'
+    });
+  }
+}
+
+export async function handleDiagnosticsPing(req: express.Request, res: express.Response) {
+  const user = await authenticateTrustedUser(req, res);
+  if (!user) return;
+
+  const roleCheck = checkRoleAuthorization(user, ['Owner', 'owner', 'Admin', 'admin']);
+  if (!roleCheck.authorized) {
+    return res.status(403).json({ error: 'System diagnostics are restricted to Owner and Admin roles.' });
+  }
+
+  const db = getAdminDb();
+  const start = Date.now();
+  try {
+    const now = new Date().toISOString();
+    const diagRef = db.collection('system_diagnostics').doc('adc_ping_test');
+    const payload = {
+      lastPing: now,
+      uid: user.uid,
+      userEmail: user.email || '',
+      updatedBy: user.name || 'Admin',
+      branchId: user.branchId || 'all',
+      status: 'connected'
+    };
+    await diagRef.set(payload, { merge: true });
+    const snap = await diagRef.get();
+    const latencyMs = Date.now() - start;
+      return res.json({
+      status: 'ok',
+      connected: snap.exists,
+      latencyMs,
+      data: snap.data() || payload
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message || 'Diagnostics ping failed.' });
+  }
+}
+
+// ============================================================================
+// ERP GAP CLOSURE HANDLERS:
+// 1. Accounting Period Management (Open / Close / Lock / List)
+// 2. Supplier Purchase Returns & Vendor Debit Notes (Inventory + AP + GL)
+// 3. Authoritative Physical Stock Count Creation
+// 4. Table Reservations & Floor Booking Management
+// 5. Enterprise Audit Log & Security Trail Query
+// ============================================================================
+
+export async function handleGetAccountingPeriods(req: express.Request, res: express.Response) {
+  const user = await authenticateTrustedUser(req, res);
+  if (!user) return;
+
+  const roleCheck = checkRoleAuthorization(user, ['Owner', 'owner', 'Admin', 'admin', 'Manager', 'manager', 'Accountant', 'accountant']);
+  if (!roleCheck.authorized) {
+    return res.status(403).json({ error: roleCheck.error });
+  }
+
+  const requestedBranch = String(req.query.branchId || '').trim();
+  const isHq = isHQRoleOrClaim(user);
+  const effectiveBranch = isHq
+    ? (requestedBranch && requestedBranch !== 'all' ? normalizeCanonicalBranchId(requestedBranch) : 'all')
+    : normalizeCanonicalBranchId(user.branchId || '');
+
+  const db = getAdminDb();
+  try {
+    const snap = await db.collection('accounting_periods').get();
+    const periods = snap.docs
+      .map((d: any) => ({ id: d.id, ...(d.data() || {}) }))
+      .filter((p: any) => {
+        if (effectiveBranch === 'all') return true;
+        const pBranch = normalizeCanonicalBranchId(p.branchId || '');
+        return !pBranch || pBranch === 'all' || areBranchesMatching(pBranch, effectiveBranch);
+      })
+      .sort((a: any, b: any) => String(b.startDate || '').localeCompare(String(a.startDate || '')));
+
+    return res.json({ status: 'success', periods });
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message || 'Failed to fetch accounting periods.' });
+  }
+}
+
+export async function handleSaveAccountingPeriod(req: express.Request, res: express.Response) {
+  const user = await authenticateTrustedUser(req, res);
+  if (!user) return;
+
+  const roleCheck = checkRoleAuthorization(user, ['Owner', 'owner', 'Admin', 'admin', 'Accountant', 'accountant']);
+  if (!roleCheck.authorized) {
+    return res.status(403).json({ error: roleCheck.error });
+  }
+
+  let idempotencyKey: string;
+  try {
+    idempotencyKey = getRequiredIdempotencyKey(req, req.body?.idempotencyKey);
+  } catch (e: any) {
+    return res.status(e?.statusCode || 400).json({ error: e?.message || 'Idempotency-Key is required.' });
+  }
+
+  const body = req.body?.periodData || req.body || {};
+  const name = String(body.name || '').trim();
+  const startDate = String(body.startDate || '').trim().slice(0, 10);
+  const endDate = String(body.endDate || '').trim().slice(0, 10);
+  const rawStatus = String(body.status || 'Open').trim();
+  const allowedStatuses: Record<string, 'Open' | 'Closed' | 'Locked'> = {
+    open: 'Open',
+    closed: 'Closed',
+    locked: 'Locked'
+  };
+  const normalizedStatus = allowedStatuses[rawStatus.toLowerCase()];
+
+  if (!name) {
+    return res.status(400).json({ error: 'Accounting period name is required.' });
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate) || startDate > endDate) {
+    return res.status(400).json({ error: 'Valid startDate and endDate (YYYY-MM-DD) with startDate <= endDate are required.' });
+  }
+  if (!normalizedStatus) {
+    return res.status(400).json({ error: 'Invalid period status. Allowed values: Open, Closed, Locked.' });
+  }
+
+  const requestedBranch = String(body.branchId || user.branchId || '').trim();
+  const isHq = isHQRoleOrClaim(user);
+  let targetBranchId: string;
+  if (requestedBranch === 'all') {
+    if (!isHq) {
+      return res.status(403).json({ error: 'Only HQ Owner/Admin can manage global ("all") accounting periods.' });
+    }
+    targetBranchId = 'all';
+  } else {
+    const branchCheck = checkBranchAuthorization(user, requestedBranch);
+    if (!branchCheck.authorized) {
+      return res.status(403).json({ error: branchCheck.error });
+    }
+    targetBranchId = branchCheck.targetBranchId;
+  }
+
+  const db = getAdminDb();
+  const idemRef = db.collection('mutation_idempotency').doc(
+    createHash('sha256').update(`accounting-period-save:${user.uid}:${idempotencyKey}`).digest('hex')
+  );
+
+  try {
+    const result = await db.runTransaction(async (transaction: any) => {
+      const idemSnap = await transaction.get(idemRef);
+      if (idemSnap.exists) return idemSnap.data();
+
+      const now = new Date().toISOString();
+      const periodId = body.id ? String(body.id).trim() : `period_${targetBranchId}_${startDate}_${endDate}`;
+      const periodRef = db.collection('accounting_periods').doc(periodId);
+      const existingSnap = await transaction.get(periodRef);
+
+      if (existingSnap.exists) {
+        const existingData = existingSnap.data() || {};
+        if (String(existingData.status || '').toLowerCase() === 'locked' && !isHq) {
+          throw Object.assign(new Error('Locked accounting periods can only be modified by HQ Owner or Admin.'), { statusCode: 403 });
+        }
+      }
+
+      const periodDoc = cleanUndefined({
+        id: periodRef.id,
+        name,
+        startDate,
+        endDate,
+        status: normalizedStatus,
+        branchId: targetBranchId,
+        notes: body.notes ? String(body.notes).trim() : undefined,
+        closedBy: normalizedStatus !== 'Open' ? user.name : undefined,
+        closedAt: normalizedStatus !== 'Open' ? now : undefined,
+        createdBy: existingSnap.exists ? (existingSnap.data()?.createdBy || user.name) : user.name,
+        createdAt: existingSnap.exists ? (existingSnap.data()?.createdAt || now) : now,
+        updatedAt: now
+      });
+
+      transaction.set(periodRef, periodDoc, { merge: true });
+
+      const auditRef = db.collection('audit_logs').doc();
+      transaction.set(auditRef, cleanUndefined({
+        id: auditRef.id,
+        action: existingSnap.exists ? 'ACCOUNTING_PERIOD_UPDATED' : 'ACCOUNTING_PERIOD_CREATED',
+        module: 'Accounting',
+        entityId: periodRef.id,
+        details: `Accounting period "${name}" (${startDate} to ${endDate}) set to ${normalizedStatus}`,
+        branchId: targetBranchId,
+        userId: user.uid,
+        userName: user.name,
+        userRole: user.role,
+        timestamp: now,
+        createdAt: now
+      }));
+
+      const out = { status: 'success', period: periodDoc, idempotencyKey };
+      transaction.set(idemRef, cleanUndefined({ ...out, createdAt: now }));
+      return out;
+    });
+
+    return res.json(result);
+  } catch (err: any) {
+    const status = Number(err?.statusCode || 400);
+    return res.status(status).json({ error: err?.message || 'Failed to save accounting period.' });
+  }
+}
+
+export async function handleUpdateAccountingPeriodStatus(req: express.Request, res: express.Response) {
+  const user = await authenticateTrustedUser(req, res);
+  if (!user) return;
+
+  const roleCheck = checkRoleAuthorization(user, ['Owner', 'owner', 'Admin', 'admin', 'Accountant', 'accountant']);
+  if (!roleCheck.authorized) {
+    return res.status(403).json({ error: roleCheck.error });
+  }
+
+  const periodId = String(req.params.id || req.body?.id || '').trim();
+  if (!periodId) {
+    return res.status(400).json({ error: 'Accounting period ID is required.' });
+  }
+
+  let idempotencyKey: string;
+  try {
+    idempotencyKey = getRequiredIdempotencyKey(req, req.body?.idempotencyKey);
+  } catch (e: any) {
+    return res.status(e?.statusCode || 400).json({ error: e?.message || 'Idempotency-Key is required.' });
+  }
+
+  const rawStatus = String(req.body?.status || '').trim();
+  const allowedStatuses: Record<string, 'Open' | 'Closed' | 'Locked'> = {
+    open: 'Open',
+    closed: 'Closed',
+    locked: 'Locked'
+  };
+  const nextStatus = allowedStatuses[rawStatus.toLowerCase()];
+  if (!nextStatus) {
+    return res.status(400).json({ error: 'Invalid status. Allowed values: Open, Closed, Locked.' });
+  }
+
+  const db = getAdminDb();
+  const idemRef = db.collection('mutation_idempotency').doc(
+    createHash('sha256').update(`accounting-period-status:${user.uid}:${periodId}:${idempotencyKey}`).digest('hex')
+  );
+
+  try {
+    const result = await db.runTransaction(async (transaction: any) => {
+      const idemSnap = await transaction.get(idemRef);
+      if (idemSnap.exists) return idemSnap.data();
+
+      const periodRef = db.collection('accounting_periods').doc(periodId);
+      const periodSnap = await transaction.get(periodRef);
+      if (!periodSnap.exists) {
+        throw Object.assign(new Error(`Accounting period "${periodId}" not found.`), { statusCode: 404 });
+      }
+
+      const periodData = periodSnap.data() || {};
+      const periodBranch = String(periodData.branchId || 'all').trim();
+      const isHq = isHQRoleOrClaim(user);
+      if (periodBranch === 'all') {
+        if (!isHq) {
+          throw Object.assign(new Error('Only HQ Owner/Admin can change global accounting period status.'), { statusCode: 403 });
+        }
+      } else {
+        const branchCheck = checkBranchAuthorization(user, periodBranch);
+        if (!branchCheck.authorized) {
+          throw Object.assign(new Error(branchCheck.error), { statusCode: 403 });
+        }
+      }
+
+      const currentStatus = String(periodData.status || 'Open').toLowerCase();
+      if (currentStatus === 'locked' && !isHq) {
+        throw Object.assign(new Error('Locked accounting periods can only be reopened by HQ Owner or Admin.'), { statusCode: 403 });
+      }
+
+      const now = new Date().toISOString();
+      const updates: Record<string, any> = {
+        status: nextStatus,
+        updatedAt: now
+      };
+      if (nextStatus === 'Closed' || nextStatus === 'Locked') {
+        updates.closedBy = user.name;
+        updates.closedAt = now;
+      } else {
+        updates.reopenedBy = user.name;
+        updates.reopenedAt = now;
+      }
+
+      transaction.update(periodRef, cleanUndefined(updates));
+
+      const auditRef = db.collection('audit_logs').doc();
+      transaction.set(auditRef, cleanUndefined({
+        id: auditRef.id,
+        action: `ACCOUNTING_PERIOD_${nextStatus.toUpperCase()}`,
+        module: 'Accounting',
+        entityId: periodId,
+        details: `Accounting period "${periodData.name || periodId}" (${periodData.startDate} to ${periodData.endDate}) status changed from ${periodData.status} to ${nextStatus}`,
+        branchId: periodBranch,
+        userId: user.uid,
+        userName: user.name,
+        userRole: user.role,
+        timestamp: now,
+        createdAt: now
+      }));
+
+      const updatedPeriod = { ...periodData, ...updates, id: periodId };
+      const out = { status: 'success', period: updatedPeriod, idempotencyKey };
+      transaction.set(idemRef, cleanUndefined({ ...out, createdAt: now }));
+      return out;
+    });
+
+    return res.json(result);
+  } catch (err: any) {
+    const status = Number(err?.statusCode || 400);
+    return res.status(status).json({ error: err?.message || 'Failed to update accounting period status.' });
+  }
+}
+
+export async function handleCreatePurchaseReturn(req: express.Request, res: express.Response) {
+  const user = await authenticateTrustedUser(req, res);
+  if (!user) return;
+
+  const roleCheck = checkRoleAuthorization(user, ['Owner', 'owner', 'Admin', 'admin', 'Manager', 'manager', 'Accountant', 'accountant']);
+  if (!roleCheck.authorized) {
+    return res.status(403).json({ error: roleCheck.error });
+  }
+
+  let idempotencyKey: string;
+  try {
+    idempotencyKey = getRequiredIdempotencyKey(req, req.body?.idempotencyKey);
+  } catch (e: any) {
+    return res.status(e?.statusCode || 400).json({ error: e?.message || 'Idempotency-Key is required.' });
+  }
+
+  const body = req.body?.returnData || req.body || {};
+  const itemId = String(body.itemId || '').trim();
+  const supplierId = String(body.supplierId || '').trim();
+  const poId = body.poId ? String(body.poId).trim() : '';
+  const returnQty = Number(body.quantity ?? body.returnQty ?? 0);
+  const reason = String(body.reason || 'Damaged or defective supplier goods returned').trim();
+
+  if (!itemId) {
+    return res.status(400).json({ error: 'Inventory itemId is required for a purchase return.' });
+  }
+  if (!Number.isFinite(returnQty) || returnQty <= 0) {
+    return res.status(400).json({ error: 'Return quantity must be a positive number.' });
+  }
+
+  const branchCheck = checkBranchAuthorization(user, body.branchId);
+  if (!branchCheck.authorized) {
+    return res.status(403).json({ error: branchCheck.error });
+  }
+  const targetBranchId = branchCheck.targetBranchId;
+
+  const db = getAdminDb();
+  const idemRef = db.collection('mutation_idempotency').doc(
+    createHash('sha256').update(`purchase-return:${user.uid}:${idempotencyKey}`).digest('hex')
+  );
+
+  try {
+    const result = await db.runTransaction(async (transaction: any) => {
+      const idemSnap = await transaction.get(idemRef);
+      if (idemSnap.exists) return idemSnap.data();
+
+      const now = new Date().toISOString();
+      const dateStr = body.date ? String(body.date).slice(0, 10) : getMogadishuDateString(now);
+
+      // Phase 1 (All Reads)
+      const invRef = db.collection('inventory').doc(itemId);
+      const invSnap = await transaction.get(invRef);
+      const ingRef = db.collection('ingredients').doc(itemId);
+      const ingSnap = await transaction.get(ingRef);
+
+      if (!invSnap.exists && !ingSnap.exists) {
+        throw Object.assign(new Error(`Inventory item "${itemId}" not found.`), { statusCode: 404 });
+      }
+
+      const invData = invSnap.exists ? (invSnap.data() || {}) : null;
+      const ingData = ingSnap.exists ? (ingSnap.data() || {}) : null;
+
+      const itemBranch = normalizeCanonicalBranchId((invData?.branchId || ingData?.branchId || ''));
+      if (!itemBranch || itemBranch === 'all' || !areBranchesMatching(itemBranch, targetBranchId)) {
+        throw Object.assign(new Error(`Unauthorized cross-branch purchase return: item "${itemId}" does not belong to branch "${targetBranchId}".`), { statusCode: 403 });
+      }
+
+      let supRef: any = null;
+      let supSnap: any = null;
+      let supplierName = String(body.supplierName || invData?.supplier || ingData?.supplierName || 'Supplier').trim();
+      if (supplierId) {
+        supRef = db.collection('suppliers').doc(supplierId);
+        supSnap = await transaction.get(supRef);
+        if (!supSnap.exists) {
+          throw Object.assign(new Error(`Supplier "${supplierId}" not found.`), { statusCode: 404 });
+        }
+        const supData = supSnap.data() || {};
+        const supBranch = normalizeCanonicalBranchId(supData.branchId || '');
+        if (!supBranch || !areBranchesMatching(supBranch, targetBranchId)) {
+          throw Object.assign(new Error(`Unauthorized cross-branch purchase return: supplier "${supplierId}" belongs to branch "${supData.branchId}".`), { statusCode: 403 });
+        }
+        supplierName = String(supData.companyName || supData.name || supplierName);
+      }
+
+      let poRef: any = null;
+      let poSnap: any = null;
+      if (poId) {
+        poRef = db.collection('purchase_orders').doc(poId);
+        poSnap = await transaction.get(poRef);
+        if (poSnap.exists) {
+          const poData = poSnap.data() || {};
+          const poBranch = normalizeCanonicalBranchId(poData.branchId || '');
+          if (poBranch && !areBranchesMatching(poBranch, targetBranchId)) {
+            throw Object.assign(new Error(`Purchase order "${poId}" does not belong to branch "${targetBranchId}".`), { statusCode: 403 });
+          }
+        }
+      }
+
+      const isIngredient = Boolean(ingData);
+      const currentQty = isIngredient
+        ? Number(ingData?.currentStockUsageUnit ?? ingData?.stock ?? 0)
+        : Number(invData?.currentQuantity ?? invData?.stock ?? 0);
+
+      if (!Number.isFinite(currentQty) || currentQty < returnQty) {
+        throw Object.assign(
+          new Error(`Insufficient stock to return for "${invData?.itemName || ingData?.name || itemId}": available ${currentQty}, return requested ${returnQty}.`),
+          { statusCode: 400 }
+        );
+      }
+
+      const newQty = Math.round((currentQty - returnQty) * 10000) / 10000;
+      const defaultUnitCost = isIngredient
+        ? Number(ingData?.costPerUsageUnit ?? ingData?.costPerUnit ?? ingData?.costPrice ?? ingData?.purchaseCost ?? 0)
+        : Number(invData?.costPrice ?? invData?.purchaseCost ?? 0);
+      const unitCost = body.unitCost !== undefined && Number(body.unitCost) >= 0
+        ? Number(body.unitCost)
+        : defaultUnitCost;
+      const returnTotalCost = Math.round(returnQty * Math.max(0, unitCost) * 100) / 100;
+
+      await assertAccountingDateOpenInTransaction(transaction, db, dateStr, targetBranchId);
+      const __accountState = returnTotalCost > 0
+        ? await prepareAccountBalanceState(transaction, db, ['acc_ap', 'acc_inventory'])
+        : null;
+
+      const openPayablesSnap = returnTotalCost > 0
+        ? await transaction.get(db.collection('payables').where('branchId', '==', targetBranchId))
+        : null;
+
+      // Phase 2 (All Writes)
+      const itemName = String(invData?.itemName || ingData?.name || body.itemName || itemId);
+      const itemCode = String(invData?.itemCode || ingData?.code || '');
+      const unit = String(isIngredient ? (ingData?.usageUnit || invData?.unit || 'unit') : (invData?.unit || 'pcs'));
+      const minQty = Number(isIngredient ? (ingData?.minStockUsageUnit || 0) : (invData?.minimumQuantity || 0));
+      const invStatus = newQty <= 0 ? 'out_of_stock' : newQty <= minQty ? 'low_stock' : 'in_stock';
+
+      if (invSnap.exists) {
+        transaction.update(invRef, cleanUndefined({
+          currentQuantity: newQty,
+          status: invStatus,
+          updatedAt: now
+        }));
+      }
+      if (ingSnap.exists) {
+        transaction.update(ingRef, cleanUndefined({
+          stock: newQty,
+          currentStockUsageUnit: newQty,
+          status: getIngredientStockStatus(newQty, minQty),
+          updatedAt: now
+        }));
+      }
+
+      const returnRef = db.collection('purchase_returns').doc();
+      const returnNumber = `PRET-${dateStr.replace(/-/g, '')}-${returnRef.id.slice(0, 5).toUpperCase()}`;
+
+      const movRef = db.collection('inventory_movements').doc();
+      transaction.set(movRef, cleanUndefined({
+        id: movRef.id,
+        type: 'purchase_return',
+        itemType: isIngredient ? 'ingredient' : 'inventory',
+        itemId,
+        itemName,
+        itemCode,
+        quantity: returnQty,
+        unit,
+        unitCost,
+        costPrice: unitCost,
+        totalCost: returnTotalCost,
+        previousQuantity: currentQty,
+        newQuantity: newQty,
+        referenceId: returnRef.id,
+        poId: poId || undefined,
+        supplierId: supplierId || undefined,
+        supplierName,
+        branchId: targetBranchId,
+        reason: `Purchase Return (${returnNumber}): ${reason}`,
+        createdBy: user.name,
+        createdAt: now
+      }));
+
+      const returnDoc = cleanUndefined({
+        id: returnRef.id,
+        returnNumber,
+        poId: poId || undefined,
+        supplierId: supplierId || undefined,
+        supplierName,
+        itemId,
+        itemName,
+        itemCode,
+        quantity: returnQty,
+        unit,
+        unitCost,
+        totalCost: returnTotalCost,
+        reason,
+        status: 'completed',
+        movementId: movRef.id,
+        branchId: targetBranchId,
+        date: dateStr,
+        createdBy: user.name,
+        createdAt: now
+      });
+      transaction.set(returnRef, returnDoc);
+
+      if (supRef && supSnap && supSnap.exists && returnTotalCost > 0) {
+        const sData = supSnap.data() || {};
+        const curOut = Number(sData.outstandingBalance || 0);
+        const curPend = Number(sData.pendingAmount || 0);
+        transaction.update(supRef, {
+          outstandingBalance: Math.max(0, Math.round((curOut - returnTotalCost) * 100) / 100),
+          pendingAmount: Math.max(0, Math.round((curPend - returnTotalCost) * 100) / 100),
+          updatedAt: now
+        });
+      }
+
+      if (openPayablesSnap && !openPayablesSnap.empty && returnTotalCost > 0) {
+        const targetSupName = supplierName.toLowerCase();
+        const candidatePayables = openPayablesSnap.docs
+          .map((d: any) => ({ ref: d.ref, data: d.data() || {} }))
+          .filter((p: any) => {
+            const pStatus = String(p.data.status || '').toLowerCase();
+            if (pStatus === 'paid' || pStatus === 'cancelled') return false;
+            const pTotal = Number(p.data.totalAmount ?? p.data.amount ?? 0);
+            const pPaid = Number(p.data.paidAmount || 0);
+            if (pTotal - pPaid <= 0.001) return false;
+            if (poId && p.data.poId === poId) return true;
+            if (supplierId && (p.data.supplierId === supplierId || p.data.vendorId === supplierId)) return true;
+            if (!supplierId && targetSupName && String(p.data.vendorName || p.data.supplierName || '').trim().toLowerCase() === targetSupName) return true;
+            return false;
+          })
+          .sort((a: any, b: any) => String(a.data.createdAt || a.data.date || '').localeCompare(String(b.data.createdAt || b.data.date || '')));
+
+        let remainingCredit = returnTotalCost;
+        for (const p of candidatePayables) {
+          if (remainingCredit <= 0.001) break;
+          const pTotal = Number(p.data.totalAmount ?? p.data.amount ?? 0);
+          const pPaid = Number(p.data.paidAmount || 0);
+          const pRem = Math.max(0, pTotal - pPaid);
+          const alloc = Math.min(pRem, remainingCredit);
+          if (alloc > 0) {
+            const nextPaid = Math.round((pPaid + alloc) * 100) / 100;
+            const nextRem = Math.max(0, Math.round((pTotal - nextPaid) * 100) / 100);
+            const nextStatus = nextRem <= 0.001 ? 'Paid' : 'Partial';
+            const creditRecord = {
+              id: returnRef.id,
+              date: dateStr,
+              amount: alloc,
+              paymentMethod: 'vendor_return_credit',
+              reference: returnNumber,
+              notes: `Vendor Debit Note / Purchase Return: ${reason}`
+            };
+            transaction.update(p.ref, cleanUndefined({
+              paidAmount: nextPaid,
+              remainingBalance: nextRem,
+              status: nextStatus,
+              payments: [...(Array.isArray(p.data.payments) ? p.data.payments : []), creditRecord],
+              updatedAt: now
+            }));
+            remainingCredit = Math.round((remainingCredit - alloc) * 100) / 100;
+          }
+        }
+      }
+
+      if (returnTotalCost > 0) {
+        const lines = [
+          {
+            accountId: 'acc_ap',
+            accountCode: '2010',
+            accountName: 'Accounts Payable',
+            debit: returnTotalCost,
+            credit: 0,
+            memo: `Vendor Debit Note ${returnNumber} to ${supplierName} for returned ${itemName}`
+          },
+          {
+            accountId: 'acc_inventory',
+            accountCode: '1030',
+            accountName: 'Food & Beverage Inventory Asset',
+            debit: 0,
+            credit: returnTotalCost,
+            memo: `Inventory reduction for Purchase Return ${returnNumber} (${returnQty} ${unit} of ${itemName})`
+          }
+        ];
+
+        const jeRef = db.collection('journal_entries').doc();
+        const entryNumber = `JE-PRET-${returnRef.id.slice(0, 6).toUpperCase()}`;
+        transaction.set(jeRef, cleanUndefined({
+          id: jeRef.id,
+          entryNumber,
+          date: dateStr,
+          reference: returnNumber,
+          description: `Purchase Return ${returnNumber} to ${supplierName}: ${returnQty} ${unit} ${itemName}`,
+          source: 'Purchasing',
+          status: 'Posted',
+          totalDebit: returnTotalCost,
+          totalCredit: returnTotalCost,
+          lines,
+          branchId: targetBranchId,
+          createdBy: user.name,
+          createdAt: now
+        }));
+
+        for (const line of lines) {
+          const jlRef = db.collection('journal_lines').doc();
+          transaction.set(jlRef, cleanUndefined({
+            id: jlRef.id,
+            journalEntryId: jeRef.id,
+            entryNumber,
+            date: dateStr,
+            branchId: targetBranchId,
+            ...line,
+            createdAt: now
+          }));
+
+          const ledgerRef = db.collection('ledger').doc();
+          transaction.set(ledgerRef, cleanUndefined({
+            id: ledgerRef.id,
+            accountId: line.accountId,
+            accountCode: line.accountCode,
+            accountName: line.accountName,
+            journalEntryId: jeRef.id,
+            entryNumber,
+            date: dateStr,
+            reference: returnNumber,
+            description: line.memo,
+            debit: line.debit,
+            credit: line.credit,
+            branchId: targetBranchId,
+            createdAt: now
+          }));
+        }
+
+        if (__accountState) {
+          applyAccountBalanceDeltasInTransaction(transaction, __accountState, lines, now);
+        }
+      }
+
+      const auditRef = db.collection('audit_logs').doc();
+      transaction.set(auditRef, cleanUndefined({
+        id: auditRef.id,
+        action: 'PURCHASE_RETURN_CREATED',
+        module: 'Purchasing',
+        entityId: returnRef.id,
+        details: `Returned ${returnQty} ${unit} of ${itemName} ($${returnTotalCost.toFixed(2)}) to ${supplierName}`,
+        branchId: targetBranchId,
+        userId: user.uid,
+        userName: user.name,
+        userRole: user.role,
+        timestamp: now,
+        createdAt: now
+      }));
+
+      const out = { status: 'success', id: returnRef.id, purchaseReturn: returnDoc, newStock: newQty, idempotencyKey };
+      transaction.set(idemRef, cleanUndefined({ ...out, createdAt: now }));
+      return out;
+    });
+
+    return res.json(result);
+  } catch (err: any) {
+    const status = Number(err?.statusCode || 400);
+    return res.status(status).json({ error: err?.message || 'Purchase Return Failed.' });
+  }
+}
+
+export async function handleGetPurchaseReturns(req: express.Request, res: express.Response) {
+  const user = await authenticateTrustedUser(req, res);
+  if (!user) return;
+
+  const roleCheck = checkRoleAuthorization(user, ['Owner', 'owner', 'Admin', 'admin', 'Manager', 'manager', 'Accountant', 'accountant']);
+  if (!roleCheck.authorized) {
+    return res.status(403).json({ error: roleCheck.error });
+  }
+
+  const requestedBranch = String(req.query.branchId || '').trim();
+  const isHq = isHQRoleOrClaim(user);
+  const effectiveBranch = isHq
+    ? (requestedBranch && requestedBranch !== 'all' ? normalizeCanonicalBranchId(requestedBranch) : 'all')
+    : normalizeCanonicalBranchId(user.branchId || '');
+
+  const db = getAdminDb();
+  try {
+    const snap = effectiveBranch === 'all'
+      ? await db.collection('purchase_returns').get()
+      : await db.collection('purchase_returns').where('branchId', '==', effectiveBranch).get();
+    const returns = snap.docs
+      .map((d: any) => ({ id: d.id, ...(d.data() || {}) }))
+      .sort((a: any, b: any) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+    return res.json({ status: 'success', purchaseReturns: returns });
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message || 'Failed to fetch purchase returns.' });
+  }
+}
+
+export async function handleCreateStockCount(req: express.Request, res: express.Response) {
+  const user = await authenticateTrustedUser(req, res);
+  if (!user) return;
+
+  const roleCheck = checkRoleAuthorization(user, ['Owner', 'owner', 'Admin', 'admin', 'Manager', 'manager', 'Accountant', 'accountant']);
+  if (!roleCheck.authorized) {
+    return res.status(403).json({ error: roleCheck.error });
+  }
+
+  let idempotencyKey: string;
+  try {
+    idempotencyKey = getRequiredIdempotencyKey(req, req.body?.idempotencyKey);
+  } catch (e: any) {
+    return res.status(e?.statusCode || 400).json({ error: e?.message || 'Idempotency-Key is required.' });
+  }
+
+  const body = req.body?.stockCountData || req.body || {};
+  const items = Array.isArray(body.items) ? body.items : [];
+  if (items.length === 0) {
+    return res.status(400).json({ error: 'Stock count must include at least one item.' });
+  }
+
+  const branchCheck = checkBranchAuthorization(user, body.branchId);
+  if (!branchCheck.authorized) {
+    return res.status(403).json({ error: branchCheck.error });
+  }
+  const targetBranchId = branchCheck.targetBranchId;
+
+  const db = getAdminDb();
+  const idemRef = db.collection('mutation_idempotency').doc(
+    createHash('sha256').update(`stock-count-create:${user.uid}:${idempotencyKey}`).digest('hex')
+  );
+
+  try {
+    const result = await db.runTransaction(async (transaction: any) => {
+      const idemSnap = await transaction.get(idemRef);
+      if (idemSnap.exists) return idemSnap.data();
+
+      const now = new Date().toISOString();
+      const datePart = getMogadishuDateString(now).replace(/-/g, '');
+      const scRef = db.collection('stock_counts').doc();
+      const countNumber = body.countNumber ? String(body.countNumber).trim() : `STK-${datePart}-${scRef.id.slice(0, 6).toUpperCase()}`;
+
+      const normalizedItems = items.map((it: any) => {
+        const expectedQuantity = Number(it.expectedQuantity ?? it.systemStock ?? 0);
+        const actualQuantity = Number(it.actualQuantity ?? it.actualCount ?? it.countedStock ?? expectedQuantity);
+        const difference = Number((actualQuantity - expectedQuantity).toFixed(4));
+        const costPerUnit = Math.max(0, Number(it.costPerUnit ?? it.unitCost ?? 0));
+        const lossValue = difference < 0 ? Number((Math.abs(difference) * costPerUnit).toFixed(2)) : 0;
+        return cleanUndefined({
+          ingredientId: String(it.ingredientId || it.itemId || it.id || '').trim(),
+          ingredientName: String(it.ingredientName || it.itemName || 'Item').trim(),
+          unit: String(it.unit || 'unit').trim(),
+          expectedQuantity,
+          actualQuantity,
+          difference,
+          costPerUnit,
+          lossValue,
+          notes: it.notes ? String(it.notes).trim() : ''
+        });
+      });
+
+      const totalExpectedValue = Number(normalizedItems.reduce((s: number, i: any) => s + i.expectedQuantity * i.costPerUnit, 0).toFixed(2));
+      const totalActualValue = Number(normalizedItems.reduce((s: number, i: any) => s + i.actualQuantity * i.costPerUnit, 0).toFixed(2));
+      const totalDiscrepancyValue = Number(normalizedItems.reduce((s: number, i: any) => s + i.lossValue, 0).toFixed(2));
+
+      const stockCountDoc = cleanUndefined({
+        id: scRef.id,
+        countNumber,
+        countDate: body.countDate || now,
+        status: body.status === 'completed' ? 'completed' : 'draft',
+        items: normalizedItems,
+        totalExpectedValue,
+        totalActualValue,
+        totalDiscrepancyValue,
+        notes: body.notes ? String(body.notes).trim() : '',
+        branchId: targetBranchId,
+        createdBy: user.name,
+        createdAt: now,
+        updatedAt: now
+      });
+
+      transaction.set(scRef, stockCountDoc);
+
+      const out = { status: 'success', id: scRef.id, stockCount: stockCountDoc, idempotencyKey };
+      transaction.set(idemRef, cleanUndefined({ ...out, createdAt: now }));
+      return out;
+    });
+
+    return res.json(result);
+  } catch (err: any) {
+    const status = Number(err?.statusCode || 400);
+    return res.status(status).json({ error: err?.message || 'Failed to create stock count.' });
+  }
+}
+
+export async function handleGetReservations(req: express.Request, res: express.Response) {
+  const user = await authenticateTrustedUser(req, res);
+  if (!user) return;
+
+  const requestedBranch = String(req.query.branchId || '').trim();
+  const isHq = isHQRoleOrClaim(user);
+  const effectiveBranch = isHq
+    ? (requestedBranch && requestedBranch !== 'all' ? normalizeCanonicalBranchId(requestedBranch) : 'all')
+    : normalizeCanonicalBranchId(user.branchId || '');
+
+  const db = getAdminDb();
+  try {
+    const snap = effectiveBranch === 'all'
+      ? await db.collection('reservations').get()
+      : await db.collection('reservations').where('branchId', '==', effectiveBranch).get();
+    const reservations = snap.docs
+      .map((d: any) => ({ id: d.id, ...(d.data() || {}) }))
+      .sort((a: any, b: any) => `${b.reservationDate || ''}T${b.reservationTime || ''}`.localeCompare(`${a.reservationDate || ''}T${a.reservationTime || ''}`));
+    return res.json({ status: 'success', reservations });
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message || 'Failed to fetch reservations.' });
+  }
+}
+
+export async function handleCreateReservation(req: express.Request, res: express.Response) {
+  const user = await authenticateTrustedUser(req, res);
+  if (!user) return;
+
+  const roleCheck = checkRoleAuthorization(user, ['Owner', 'owner', 'Admin', 'admin', 'Manager', 'manager', 'Cashier', 'cashier', 'Waiter', 'waiter']);
+  if (!roleCheck.authorized) {
+    return res.status(403).json({ error: roleCheck.error });
+  }
+
+  let idempotencyKey: string;
+  try {
+    idempotencyKey = getRequiredIdempotencyKey(req, req.body?.idempotencyKey);
+  } catch (e: any) {
+    return res.status(e?.statusCode || 400).json({ error: e?.message || 'Idempotency-Key is required.' });
+  }
+
+  const body = req.body?.reservationData || req.body || {};
+  const customerName = String(body.customerName || '').trim();
+  const customerPhone = String(body.customerPhone || '').trim();
+  const tableNumber = Number(body.tableNumber);
+  const partySize = Number(body.partySize || 2);
+  const reservationDate = String(body.reservationDate || '').trim().slice(0, 10);
+  const reservationTime = String(body.reservationTime || '').trim();
+  const durationMinutes = Math.max(30, Math.min(360, Number(body.durationMinutes || 90)));
+
+  if (!customerName) {
+    return res.status(400).json({ error: 'Customer name is required for table reservation.' });
+  }
+  if (!Number.isInteger(tableNumber) || tableNumber <= 0) {
+    return res.status(400).json({ error: 'Valid positive integer tableNumber is required.' });
+  }
+  if (!Number.isFinite(partySize) || partySize <= 0) {
+    return res.status(400).json({ error: 'Party size must be a positive number.' });
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(reservationDate) || !/^\d{2}:\d{2}$/.test(reservationTime)) {
+    return res.status(400).json({ error: 'Valid reservationDate (YYYY-MM-DD) and reservationTime (HH:mm) are required.' });
+  }
+
+  const branchCheck = checkBranchAuthorization(user, body.branchId);
+  if (!branchCheck.authorized) {
+    return res.status(403).json({ error: branchCheck.error });
+  }
+  const targetBranchId = branchCheck.targetBranchId;
+
+  const db = getAdminDb();
+  const idemRef = db.collection('mutation_idempotency').doc(
+    createHash('sha256').update(`reservation-create:${user.uid}:${idempotencyKey}`).digest('hex')
+  );
+
+  const toMinutes = (hhmm: string) => {
+    const [h, m] = hhmm.split(':').map(Number);
+    return (h || 0) * 60 + (m || 0);
+  };
+
+  try {
+    const result = await db.runTransaction(async (transaction: any) => {
+      const idemSnap = await transaction.get(idemRef);
+      if (idemSnap.exists) return idemSnap.data();
+
+      const existingSnap = await transaction.get(
+        db.collection('reservations')
+          .where('branchId', '==', targetBranchId)
+          .where('reservationDate', '==', reservationDate)
+      );
+
+      const reqStart = toMinutes(reservationTime);
+      const reqEnd = reqStart + durationMinutes;
+
+      for (const docSnap of existingSnap.docs) {
+        const r = docSnap.data() || {};
+        const rStatus = String(r.status || '').toLowerCase();
+        if (rStatus === 'cancelled' || rStatus === 'completed' || rStatus === 'no_show') continue;
+        if (Number(r.tableNumber) !== tableNumber) continue;
+        const rStart = toMinutes(String(r.reservationTime || '00:00'));
+        const rEnd = rStart + Number(r.durationMinutes || 90);
+        if (reqStart < rEnd && reqEnd > rStart) {
+          throw Object.assign(
+            new Error(`Table T-${tableNumber} is already reserved on ${reservationDate} at ${r.reservationTime} for ${r.customerName}.`),
+            { statusCode: 409 }
+          );
+        }
+      }
+
+      const now = new Date().toISOString();
+      const resRef = db.collection('reservations').doc();
+      const reservationCode = `RES-${reservationDate.replace(/-/g, '')}-T${tableNumber}-${resRef.id.slice(0, 4).toUpperCase()}`;
+      const reservationDoc = cleanUndefined({
+        id: resRef.id,
+        reservationCode,
+        customerName,
+        customerPhone,
+        tableNumber,
+        partySize,
+        reservationDate,
+        reservationTime,
+        durationMinutes,
+        status: 'confirmed',
+        notes: body.notes ? String(body.notes).trim() : '',
+        branchId: targetBranchId,
+        createdBy: user.name,
+        createdAt: now,
+        updatedAt: now
+      });
+
+      transaction.set(resRef, reservationDoc);
+      transaction.set(db.collection('table_reservations').doc(resRef.id), reservationDoc);
+
+      const out = { status: 'success', id: resRef.id, reservation: reservationDoc, idempotencyKey };
+      transaction.set(idemRef, cleanUndefined({ ...out, createdAt: now }));
+      return out;
+    });
+
+    return res.json(result);
+  } catch (err: any) {
+    const status = Number(err?.statusCode || 400);
+    return res.status(status).json({ error: err?.message || 'Failed to create reservation.' });
+  }
+}
+
+export async function handleUpdateReservationStatus(req: express.Request, res: express.Response) {
+  const user = await authenticateTrustedUser(req, res);
+  if (!user) return;
+
+  const roleCheck = checkRoleAuthorization(user, ['Owner', 'owner', 'Admin', 'admin', 'Manager', 'manager', 'Cashier', 'cashier', 'Waiter', 'waiter']);
+  if (!roleCheck.authorized) {
+    return res.status(403).json({ error: roleCheck.error });
+  }
+
+  const reservationId = String(req.params.id || req.body?.id || '').trim();
+  if (!reservationId) {
+    return res.status(400).json({ error: 'Reservation ID is required.' });
+  }
+
+  let idempotencyKey: string;
+  try {
+    idempotencyKey = getRequiredIdempotencyKey(req, req.body?.idempotencyKey);
+  } catch (e: any) {
+    return res.status(e?.statusCode || 400).json({ error: e?.message || 'Idempotency-Key is required.' });
+  }
+
+  const nextStatus = String(req.body?.status || '').trim().toLowerCase();
+  const allowedStatuses = new Set(['confirmed', 'seated', 'completed', 'cancelled', 'no_show']);
+  if (!allowedStatuses.has(nextStatus)) {
+    return res.status(400).json({ error: 'Invalid reservation status. Allowed: confirmed, seated, completed, cancelled, no_show.' });
+  }
+
+  const db = getAdminDb();
+  const idemRef = db.collection('mutation_idempotency').doc(
+    createHash('sha256').update(`reservation-status:${user.uid}:${reservationId}:${idempotencyKey}`).digest('hex')
+  );
+
+  try {
+    const result = await db.runTransaction(async (transaction: any) => {
+      const idemSnap = await transaction.get(idemRef);
+      if (idemSnap.exists) return idemSnap.data();
+
+      const resRef = db.collection('reservations').doc(reservationId);
+      const resSnap = await transaction.get(resRef);
+      if (!resSnap.exists) {
+        throw Object.assign(new Error(`Reservation "${reservationId}" not found.`), { statusCode: 404 });
+      }
+
+      const resData = resSnap.data() || {};
+      const branchCheck = checkBranchAuthorization(user, resData.branchId);
+      if (!branchCheck.authorized) {
+        throw Object.assign(new Error(branchCheck.error), { statusCode: 403 });
+      }
+
+      const now = new Date().toISOString();
+      const updates = {
+        status: nextStatus,
+        updatedBy: user.name,
+        updatedAt: now
+      };
+      transaction.update(resRef, updates);
+      transaction.set(db.collection('table_reservations').doc(reservationId), { ...resData, ...updates }, { merge: true });
+
+      const updatedReservation = { ...resData, ...updates, id: reservationId };
+      const out = { status: 'success', reservation: updatedReservation, idempotencyKey };
+      transaction.set(idemRef, cleanUndefined({ ...out, createdAt: now }));
+      return out;
+    });
+
+    return res.json(result);
+  } catch (err: any) {
+    const status = Number(err?.statusCode || 400);
+    return res.status(status).json({ error: err?.message || 'Failed to update reservation status.' });
+  }
+}
+
+export async function handleGetAuditLogs(req: express.Request, res: express.Response) {
+  const user = await authenticateTrustedUser(req, res);
+  if (!user) return;
+
+  const roleCheck = checkRoleAuthorization(user, ['Owner', 'owner', 'Admin', 'admin', 'Manager', 'manager', 'Accountant', 'accountant']);
+  if (!roleCheck.authorized) {
+    return res.status(403).json({ error: roleCheck.error });
+  }
+
+  const requestedBranch = String(req.query.branchId || '').trim();
+  const isHq = isHQRoleOrClaim(user);
+  const effectiveBranch = isHq
+    ? (requestedBranch && requestedBranch !== 'all' ? normalizeCanonicalBranchId(requestedBranch) : 'all')
+    : normalizeCanonicalBranchId(user.branchId || '');
+
+  const limitCount = Math.min(500, Math.max(10, Number(req.query.limit || 200)));
+  const db = getAdminDb();
+
+  try {
+    const [auditSnap, activitySnap] = await Promise.all([
+      db.collection('audit_logs').get(),
+      db.collection('activity_logs').get()
+    ]);
+
+    const normalizeEntry = (id: string, raw: any, source: 'audit_logs' | 'activity_logs') => ({
+      id,
+      source,
+      action: String(raw.action || raw.eventType || raw.type || 'SYSTEM_EVENT'),
+      module: String(raw.module || raw.category || 'System'),
+      details: String(raw.details || raw.description || raw.message || ''),
+      entityId: String(raw.entityId || raw.targetId || raw.orderId || ''),
+      userId: String(raw.userId || raw.uid || ''),
+      userName: String(raw.userName || raw.user || raw.createdBy || 'System'),
+      userRole: String(raw.userRole || raw.role || ''),
+      branchId: String(raw.branchId || 'all'),
+      timestamp: String(raw.timestamp || raw.createdAt || '')
+    });
+
+    const combined = [
+      ...auditSnap.docs.map((d: any) => normalizeEntry(d.id, d.data() || {}, 'audit_logs')),
+      ...activitySnap.docs.map((d: any) => normalizeEntry(d.id, d.data() || {}, 'activity_logs'))
+    ]
+      .filter((entry) => {
+        if (effectiveBranch === 'all') return true;
+        const b = normalizeCanonicalBranchId(entry.branchId || '');
+        return b === effectiveBranch;
+      })
+      .sort((a, b) => String(b.timestamp || '').localeCompare(String(a.timestamp || '')))
+      .slice(0, limitCount);
+
+    return res.json({ status: 'success', logs: combined });
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message || 'Failed to fetch audit logs.' });
+  }
+}
+
+
 
 
 

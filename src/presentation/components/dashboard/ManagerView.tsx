@@ -40,8 +40,13 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
 
   // 1. Metrics Calculations
   const activeOrders = orders.filter(o => o.status === 'in_preparation' || o.status === 'pending' || o.status === 'ready_for_pickup' || o.prepStatus === 'preparing');
-  const todayOrders = orders.filter(o => o.createdAt && o.createdAt.startsWith(todayIso));
-  const dailySales = todayOrders.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
+  const todayOrders = orders.filter(o => {
+    if (!o.createdAt || getMogadishuDateString(o.createdAt) !== todayIso) return false;
+    const st = String(o.status || '').toLowerCase();
+    const prep = String(o.prepStatus || '').toLowerCase();
+    return st === 'completed' || st === 'delivered' || prep === 'delivered';
+  });
+  const dailySales = todayOrders.reduce((sum, o) => sum + (Number(o.totalAmount) || 0), 0);
 
   const kitchenOrders = orders.filter(o => o.status === 'in_preparation' || o.prepStatus === 'preparing');
   const deliveryOrders = orders.filter(o => o.orderType === 'delivery' || o.status === 'out_for_delivery');

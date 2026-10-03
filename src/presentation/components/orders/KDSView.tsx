@@ -145,7 +145,7 @@ export const KDSView: React.FC<KDSViewProps> = ({ orders }) => {
       }
     );
 
-    controller.getWasteLogs().then(setWasteLogs).catch(console.warn);
+    controller.getWasteLogs(userBranch, isHqUser).then(setWasteLogs).catch(console.warn);
 
     return () => {
       unsubTickets();
@@ -229,8 +229,8 @@ export const KDSView: React.FC<KDSViewProps> = ({ orders }) => {
 
   const handleLogWaste = async (wasteData: any) => {
     try {
-      await controller.logWaste(wasteData);
-      const updatedLogs = await controller.getWasteLogs();
+      await controller.logWaste({ ...wasteData, branchId: userBranch });
+      const updatedLogs = await controller.getWasteLogs(userBranch, isHqUser);
       setWasteLogs(updatedLogs);
     } catch (err: any) {
       console.error('Kitchen log waste error:', err);

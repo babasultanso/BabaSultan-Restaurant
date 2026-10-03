@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { db, COLLECTIONS } from '../../lib/firebase';
 import { useAuth } from '../context/AuthContext';
-import { Order, Product, Ingredient, Expense, Employee, Supplier, Purchase, Customer } from '../../types';
+import { Order, Product, Ingredient, Expense, Employee, Supplier, Purchase, Customer, CustomerRefund, SalaryPayment } from '../../types';
 import { FilterBar, ReportFilters } from './reports/FilterBar';
 import { BIAnalyticsDashboard } from './reports/BIAnalyticsDashboard';
 import { SpecializedReportModule, ReportType } from './reports/SpecializedReportModule';
@@ -56,6 +56,8 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
   const [suppliers, setSuppliers] = useState<Supplier[]>(initialSuppliers);
   const [purchases, setPurchases] = useState<Purchase[]>(initialPurchases);
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [refunds, setRefunds] = useState<CustomerRefund[]>([]);
+  const [salaries, setSalaries] = useState<SalaryPayment[]>([]);
 
   // Subscribe to real-time collections with branch isolation
   useEffect(() => {
@@ -130,6 +132,26 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
       (err) => console.warn('ReportsView customers sync warning:', err)
     );
 
+    const unsubRefunds = onSnapshot(
+      buildBranchQuery(COLLECTIONS.REFUNDS),
+      (snap) => {
+        const list: CustomerRefund[] = [];
+        snap.forEach((d) => list.push({ id: d.id, ...d.data() } as CustomerRefund));
+        setRefunds(list);
+      },
+      (err) => console.warn('ReportsView refunds sync warning:', err)
+    );
+
+    const unsubSalaries = onSnapshot(
+      buildBranchQuery(COLLECTIONS.SALARIES),
+      (snap) => {
+        const list: SalaryPayment[] = [];
+        snap.forEach((d) => list.push({ id: d.id, ...d.data() } as SalaryPayment));
+        setSalaries(list);
+      },
+      (err) => console.warn('ReportsView salaries sync warning:', err)
+    );
+
     return () => {
       unsubOrders();
       unsubProducts();
@@ -137,6 +159,8 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
       unsubExpenses();
       unsubEmployees();
       unsubCustomers();
+      unsubRefunds();
+      unsubSalaries();
     };
   }, [userRecord?.branchId, userRecord?.role, role]);
 
@@ -281,6 +305,87 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     });
   }, [expenses, filters]);
 
+  const filteredRefunds = useMemo(() => {
+    return refunds.filter((r) => {
+      const refDate = (r.createdAt || '').split('T')[0];
+      if (filters.startDate && refDate < filters.startDate) return false;
+      if (filters.endDate && refDate > filters.endDate) return false;
+      if (filters.branch !== 'all') {
+        const refBranchId = (r as any).branchId;
+        const refBranchName = (r as any).branch || (r as any).branchName;
+        if (!matchesBranch(refBranchId, refBranchName, filters.branch, filters.branch)) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [refunds, filters]);
+
+  const filteredSalaries = useMemo(() => {
+    return salaries.filter((s) => {
+      const salDate = String(s.paidDate || (s as any).paymentDate || (s as any).createdAt || '').split('T')[0];
+      if (filters.startDate && salDate < filters.startDate) return false;
+      if (filters.endDate && salDate > filters.endDate) return false;
+      if (filters.branch !== 'all') {
+        const salBranchId = s.branchId;
+        const salBranchName = s.branch || (s as any).branchName;
+        if (!matchesBranch(salBranchId, salBranchName, filters.branch, filters.branch)) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [salaries, filters]);
+
+  const filteredIngredients = useMemo(() => {
+    return ingredients.filter((i) => {
+      if ((i as any).deletedAt || (i as any).isDeleted) return false;
+      if (filters.branch !== 'all') {
+        const ingBranchId = i.branchId;
+        const ingBranchName = (i as any).branch || (i as any).branchName;
+        if (ingBranchId || ingBranchName) {
+          if (!matchesBranch(ingBranchId, ingBranchName, filters.branch, filters.branch)) {
+            return false;
+          }
+        }
+      }
+      return true;
+    });
+  }, [ingredients, filters]);
+
+  const filteredEmployees = useMemo(() => {
+    return employees.filter((e) => {
+      if (filters.branch !== 'all') {
+        const empBranchId = e.branchId;
+        const empBranchName = e.branch || (e as any).branchName;
+        if (empBranchId || empBranchName) {
+          if (!matchesBranch(empBranchId, empBranchName, filters.branch, filters.branch)) {
+            return false;
+          }
+        }
+      }
+      return true;
+    });
+  }, [employees, filters]);
+
+  const filteredPurchases = useMemo(() => {
+    return purchases.filter((p) => {
+      const purDate = String(p.createdAt || (p as any).date || '').split('T')[0];
+      if (filters.startDate && purDate && purDate < filters.startDate) return false;
+      if (filters.endDate && purDate && purDate > filters.endDate) return false;
+      if (filters.branch !== 'all') {
+        const purBranchId = p.branchId;
+        const purBranchName = p.branch || (p as any).branchName;
+        if (purBranchId || purBranchName) {
+          if (!matchesBranch(purBranchId, purBranchName, filters.branch, filters.branch)) {
+            return false;
+          }
+        }
+      }
+      return true;
+    });
+  }, [purchases, filters]);
+
   // 5. Global Export Master Excel & Print
   const handleExportMasterExcel = () => {
     const columns = ['Module', 'Reference / Item Name', 'Amount / Metric', 'Category / Details'];
@@ -297,13 +402,13 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
         `$${(e.amount || 0).toFixed(2)}`,
         `Category: ${e.category} | Created by: ${e.createdBy || 'Admin'}`,
       ]),
-      ...ingredients.map((i) => [
+      ...filteredIngredients.map((i) => [
         'Inventory Ingredient',
         i.name,
         `${i.stock || 0} ${i.unit || ''}`,
         `Valuation: $${((i.stock || 0) * (i.costPerUnit || 0)).toFixed(2)} | Supplier: ${i.supplierName}`,
       ]),
-      ...employees.map((e) => [
+      ...filteredEmployees.map((e) => [
         'Staff Performance',
         e.name,
         `$${(e.totalSales || 0).toFixed(2)} sales`,
@@ -315,10 +420,29 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
   };
 
   const handlePrintFullAudit = () => {
-    const totalRev = filteredOrders.reduce((a, b) => a + (b.totalAmount || 0), 0);
-    const totalCogs = filteredOrders.reduce((a, b) => a + (b.cogs || 0), 0);
-    const totalExp = filteredExpenses.reduce((a, b) => a + (b.amount || 0), 0);
-    const netProfit = totalRev - totalCogs - totalExp;
+    const completedFilteredOrders = filteredOrders.filter((o) => {
+      const st = String(o.status || '').toLowerCase();
+      const prep = String(o.prepStatus || '').toLowerCase();
+      const pay = String(o.paymentStatus || '').toLowerCase();
+      if (st === 'cancelled' || st === 'void') return false;
+      return (
+        st === 'completed' ||
+        st === 'delivered' ||
+        prep === 'delivered' ||
+        st === 'refunded' ||
+        st === 'partially_refunded' ||
+        pay === 'refunded' ||
+        pay === 'partially_refunded'
+      );
+    });
+    const totalRev = completedFilteredOrders.reduce((a, b) => a + (Number(b.totalAmount) || 0), 0);
+    const totalRefundsAmt = filteredRefunds.reduce((a, r) => a + (Number(r.amount) || 0), 0);
+    const netRev = totalRev - totalRefundsAmt;
+    const reversedCogs = filteredRefunds.reduce((a, r) => a + (Number((r as any).cogsReversed) || 0), 0);
+    const totalCogs = Math.max(0, completedFilteredOrders.reduce((a, b) => a + (Number(b.cogs ?? (b as any).costOfGoodsSold) || 0), 0) - reversedCogs);
+    const paidSals = filteredSalaries.filter((s) => s.status === 'paid').reduce((a, s) => a + (Number(s.amount) || 0), 0);
+    const totalExp = filteredExpenses.reduce((a, b) => a + (Number(b.amount) || 0), 0) + paidSals;
+    const netProfit = netRev - totalCogs - totalExp;
 
     printReportWindow(
       'Executive Business Intelligence Audit',
@@ -329,6 +453,8 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
           columns: ['KPI Line Item', 'Amount ($USD)', 'Notes'],
           rows: [
             ['Gross Sales Revenue', `$${(totalRev || 0).toFixed(2)}`, 'Total Completed Sales Inflow'],
+            ['Customer Refunds', `-$${(totalRefundsAmt || 0).toFixed(2)}`, 'Recorded Customer Refunds'],
+            ['Net Sales Revenue', `$${(netRev || 0).toFixed(2)}`, 'Gross Sales minus Refunds'],
             ['Cost of Goods Sold (COGS)', `$${(totalCogs || 0).toFixed(2)}`, 'Raw Material Food Cost'],
             ['Operating Expenses', `$${(totalExp || 0).toFixed(2)}`, 'Overhead & Utility Costs'],
             ['Net Operating Income', `$${(netProfit || 0).toFixed(2)}`, 'Bottom-line Profit Position'],
@@ -439,11 +565,13 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
         <BIAnalyticsDashboard
           orders={filteredOrders}
           products={products}
-          ingredients={ingredients}
+          ingredients={filteredIngredients}
           expenses={filteredExpenses}
-          employees={employees}
+          employees={filteredEmployees}
           suppliers={suppliers}
           customers={customers}
+          refunds={filteredRefunds}
+          salaries={filteredSalaries}
         />
       ) : (
         <div className="space-y-6">
@@ -476,12 +604,14 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
             reportType={selectedReportType}
             orders={filteredOrders}
             products={products}
-            ingredients={ingredients}
+            ingredients={filteredIngredients}
             expenses={filteredExpenses}
-            employees={employees}
+            employees={filteredEmployees}
             suppliers={suppliers}
-            purchases={purchases}
+            purchases={filteredPurchases}
             customers={customers}
+            refunds={filteredRefunds}
+            salaries={filteredSalaries}
           />
         </div>
       )}

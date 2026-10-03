@@ -300,9 +300,49 @@
         "isActive": { "type": "boolean" }
       },
       "required": ["id", "code", "discountType", "discountValue"]
+    },
+    "AccountingPeriod": {
+      "title": "Accounting Period Lock",
+      "description": "Fiscal period open/closed/locked status per branch or global",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "startDate": { "type": "string" },
+        "endDate": { "type": "string" },
+        "status": { "type": "string", "enum": ["Open", "Closed", "Locked"] },
+        "branchId": { "type": "string" }
+      },
+      "required": ["id", "name", "startDate", "endDate", "status", "branchId"]
+    },
+    "PurchaseReturn": {
+      "title": "Supplier Purchase Return / Debit Note",
+      "description": "Vendor return record linked to inventory deduction, AP reduction, and GL posting",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "returnNumber": { "type": "string" },
+        "itemId": { "type": "string" },
+        "quantity": { "type": "number" },
+        "totalCost": { "type": "number" },
+        "branchId": { "type": "string" }
+      },
+      "required": ["id", "returnNumber", "itemId", "quantity", "totalCost", "branchId"]
     }
   },
   "firestore": {
+    "/accounting_periods/{periodId}": {
+      "schema": { "$ref": "#/entities/AccountingPeriod" },
+      "description": "Collection of accounting fiscal periods and close locks"
+    },
+    "/purchase_returns/{returnId}": {
+      "schema": { "$ref": "#/entities/PurchaseReturn" },
+      "description": "Collection of vendor purchase returns and debit notes"
+    },
+    "/audit_logs/{logId}": {
+      "schema": { "$ref": "#/entities/ActivityLog" },
+      "description": "Collection of enterprise audit trail records"
+    },
     "/users/{userId}": {
       "schema": { "$ref": "#/entities/User" },
       "description": "Collection of user profiles and role attributes"

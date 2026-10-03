@@ -14,6 +14,7 @@ import {
   deleteDoc
 } from 'firebase/firestore';
 import { db, COLLECTIONS, recordInventoryMovementFirestore, getEffectiveBranchId, getEffectiveBranchScope, getAuthToken } from '../../lib/firebase';
+import { getMogadishuDateString } from '../../lib/dateUtils';
 import { IRecipeRepository } from '../../domain/repositories/IRecipeRepository';
 import {
   Recipe,
@@ -46,28 +47,38 @@ export class RecipeRepositoryImpl implements IRecipeRepository {
   // ==========================================
   async fetchRecipes(branchId?: string): Promise<Recipe[]> {
     try {
-      const q = branchId && branchId !== 'all'
-        ? query(collection(db, RECIPES_COLL), where('branchId', '==', branchId), orderBy('productName', 'asc'))
+      const effectiveBranch = branchId || getEffectiveBranchScope();
+      const q = effectiveBranch && effectiveBranch !== 'all'
+        ? query(collection(db, RECIPES_COLL), where('branchId', '==', effectiveBranch), orderBy('productName', 'asc'))
         : query(collection(db, RECIPES_COLL), orderBy('productName', 'asc'));
       const snap = await getDocs(q);
       const list: Recipe[] = [];
-      snap.forEach((d) => list.push({ id: d.id, ...d.data() } as Recipe));
+      snap.forEach((d) => {
+        const data = d.data() as Record<string, unknown>;
+        if (data.isActive === false || data.isArchived === true || data.isDeleted === true || data.status === 'deleted' || data.deletedAt) return;
+        list.push({ id: d.id, ...data } as Recipe);
+      });
       return list;
     } catch (err: any) {
-      console.warn('Note fetching recipes:', err?.message || err);
-      return [];
+      console.error('Firestore fetchRecipes error:', err?.message || err);
+      throw new Error(`Failed to fetch recipes: ${err?.message || 'Firestore query failed'}`);
     }
   }
 
   subscribeRecipes(callback: (recipes: Recipe[]) => void, branchId?: string): () => void {
-    const q = branchId && branchId !== 'all'
-      ? query(collection(db, RECIPES_COLL), where('branchId', '==', branchId), orderBy('productName', 'asc'))
+    const effectiveBranch = branchId || getEffectiveBranchScope();
+    const q = effectiveBranch && effectiveBranch !== 'all'
+      ? query(collection(db, RECIPES_COLL), where('branchId', '==', effectiveBranch), orderBy('productName', 'asc'))
       : query(collection(db, RECIPES_COLL), orderBy('productName', 'asc'));
     return onSnapshot(
       q,
       (snap) => {
         const list: Recipe[] = [];
-        snap.forEach((d) => list.push({ id: d.id, ...d.data() } as Recipe));
+        snap.forEach((d) => {
+          const data = d.data() as Record<string, unknown>;
+          if (data.isActive === false || data.isArchived === true || data.isDeleted === true || data.status === 'deleted' || data.deletedAt) return;
+          list.push({ id: d.id, ...data } as Recipe);
+        });
         callback(list);
       },
       (err) => {
@@ -84,8 +95,9 @@ export class RecipeRepositoryImpl implements IRecipeRepository {
         return { id: snap.id, ...snap.data() } as Recipe;
       }
       return null;
-    } catch {
-      return null;
+    } catch (err: any) {
+      console.error(`Firestore getRecipeById(${id}) error:`, err?.message || err);
+      throw new Error(`Failed to fetch recipe ${id}: ${err?.message || 'Firestore query failed'}`);
     }
   }
 
@@ -97,12 +109,18 @@ export class RecipeRepositoryImpl implements IRecipeRepository {
         : query(collection(db, RECIPES_COLL), where('productId', '==', productId), where('branchId', '==', branchScope));
       const snap = await getDocs(q);
       if (!snap.empty) {
-        const docSnap = snap.docs[0];
-        return { id: docSnap.id, ...docSnap.data() } as Recipe;
+        const activeDoc = snap.docs.find((d) => {
+          const data = d.data() as Record<string, unknown>;
+          return !(data.isActive === false || data.isArchived === true || data.isDeleted === true || data.status === 'deleted' || data.deletedAt);
+        });
+        if (activeDoc) {
+          return { id: activeDoc.id, ...activeDoc.data() } as Recipe;
+        }
       }
       return null;
-    } catch {
-      return null;
+    } catch (err: any) {
+      console.error(`Firestore getRecipeByProductId(${productId}) error:`, err?.message || err);
+      throw new Error(`Failed to fetch recipe for product ${productId}: ${err?.message || 'Firestore query failed'}`);
     }
   }
 
@@ -161,8 +179,9 @@ export class RecipeRepositoryImpl implements IRecipeRepository {
       const list: RecipeVersionHistory[] = [];
       snap.forEach((d) => list.push({ id: d.id, ...d.data() } as RecipeVersionHistory));
       return list.sort((a, b) => b.version - a.version);
-    } catch {
-      return [];
+    } catch (err: any) {
+      console.error(`Firestore fetchRecipeHistory(${recipeId}) error:`, err?.message || err);
+      throw new Error(`Failed to fetch recipe history: ${err?.message || 'Firestore query failed'}`);
     }
   }
 
@@ -171,8 +190,9 @@ export class RecipeRepositoryImpl implements IRecipeRepository {
   // ==========================================
   async fetchIngredients(branchId?: string): Promise<Ingredient[]> {
     try {
-      const q = branchId && branchId !== 'all'
-        ? query(collection(db, INGREDIENTS_COLL), where('branchId', '==', branchId), orderBy('name', 'asc'))
+      const effectiveBranch = branchId || getEffectiveBranchScope();
+      const q = effectiveBranch && effectiveBranch !== 'all'
+        ? query(collection(db, INGREDIENTS_COLL), where('branchId', '==', effectiveBranch), orderBy('name', 'asc'))
         : query(collection(db, INGREDIENTS_COLL), orderBy('name', 'asc'));
       const snap = await getDocs(q);
       const list: Ingredient[] = [];
@@ -180,18 +200,20 @@ export class RecipeRepositoryImpl implements IRecipeRepository {
         const data = d.data() as Record<string, unknown>;
         // Soft-deleted/archived ingredients remain in Firestore for historical
         // integrity but must not appear in the active ingredient catalog.
-        if (data.isActive === false || data.isArchived === true || data.deletedAt) return;
+        if (data.isActive === false || data.isArchived === true || data.isDeleted === true || data.status === 'deleted' || data.deletedAt) return;
         list.push({ id: d.id, ...data } as Ingredient);
       });
       return list;
-    } catch {
-      return [];
+    } catch (err: any) {
+      console.error('Firestore fetchIngredients error:', err?.message || err);
+      throw new Error(`Failed to fetch ingredients: ${err?.message || 'Firestore query failed'}`);
     }
   }
 
   subscribeIngredients(callback: (ingredients: Ingredient[]) => void, branchId?: string): () => void {
-    const q = branchId && branchId !== 'all'
-      ? query(collection(db, INGREDIENTS_COLL), where('branchId', '==', branchId), orderBy('name', 'asc'))
+    const effectiveBranch = branchId || getEffectiveBranchScope();
+    const q = effectiveBranch && effectiveBranch !== 'all'
+      ? query(collection(db, INGREDIENTS_COLL), where('branchId', '==', effectiveBranch), orderBy('name', 'asc'))
       : query(collection(db, INGREDIENTS_COLL), orderBy('name', 'asc'));
     return onSnapshot(
       q,
@@ -200,7 +222,7 @@ export class RecipeRepositoryImpl implements IRecipeRepository {
         snap.forEach((d) => {
           const data = d.data() as Record<string, unknown>;
           // Keep archived ingredients available for history, not in the active UI.
-          if (data.isActive === false || data.isArchived === true || data.deletedAt) return;
+          if (data.isActive === false || data.isArchived === true || data.isDeleted === true || data.status === 'deleted' || data.deletedAt) return;
           list.push({ id: d.id, ...data } as Ingredient);
         });
         callback(list);
@@ -212,129 +234,91 @@ export class RecipeRepositoryImpl implements IRecipeRepository {
   async createIngredient(
     ingredientData: Omit<Ingredient, 'id' | 'createdAt' | 'updatedAt'>
   ): Promise<Ingredient> {
-    const ref = doc(collection(db, INGREDIENTS_COLL));
-    const now = new Date().toISOString();
-    const branchId = getEffectiveBranchId();
-
-    const costPerUsageUnit = ingredientData.conversionFactor > 0
-      ? ingredientData.purchaseCost / ingredientData.conversionFactor
-      : ingredientData.purchaseCost;
-
-    const status =
-      ingredientData.currentStockUsageUnit <= 0
-        ? 'out_of_stock'
-        : ingredientData.currentStockUsageUnit <= ingredientData.minStockUsageUnit
-        ? 'low_stock'
-        : 'in_stock';
-
+    const branchId = (ingredientData as any).branchId || getEffectiveBranchId();
     const requestedOpeningStock = Number(ingredientData.currentStockUsageUnit || 0);
     if (!Number.isFinite(requestedOpeningStock) || requestedOpeningStock < 0) {
       throw new Error('Initial ingredient stock must be a finite non-negative number.');
     }
 
-    // Firestore rules intentionally forbid client-side stock initialization.
-    // Create the master record at zero, then establish any opening balance through
-    // the trusted inventory adjustment endpoint so stock + movement stay authoritative.
-    const newIng: Ingredient = {
-      ...ingredientData,
-      branchId,
-      currentStockUsageUnit: 0,
-      id: ref.id,
-      costPerUsageUnit,
-      status: 'out_of_stock',
-      createdAt: now,
-      updatedAt: now
-    };
-
-    await setDoc(ref, newIng);
-
-    if (requestedOpeningStock > 0) {
-      const token = await getAuthToken();
-      const idempotencyKey = `ingredient-opening:${ref.id}:${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
-      const res = await fetch(getApiUrl('/api/inventory/adjust'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Idempotency-Key': idempotencyKey,
-          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-        },
-        body: JSON.stringify({
-          movementData: {
-            type: 'adjustment',
-            itemType: 'ingredient',
-          itemId: ref.id,
+    // Atomic server-side creation: creates the ingredient record, synchronized inventory item,
+    // and opening inventory movement inside a single trusted Firestore transaction.
+    // Prevents any partial write, forbidden client-side deleteDoc rollback, or orphan document.
+    const token = await getAuthToken();
+    const idempotencyKey = `ingredient-create:${branchId}:${(ingredientData.name || '').trim().toLowerCase()}:${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
+    const response = await fetch(getApiUrl('/api/recipes/ingredients'), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': idempotencyKey,
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify({
+        ingredientData: {
+          ...ingredientData,
           branchId,
-          mode: 'set',
-          quantity: requestedOpeningStock,
-            reason: 'Initial Ingredient Stocking',
-            idempotencyKey
-          }
-        })
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        try {
-          await deleteDoc(ref);
-        } catch (rollbackError) {
-          console.error('Failed to rollback ingredient after inventory initialization failure:', rollbackError);
-        }
-        throw new Error(err.error || `Failed to initialize ingredient stock: HTTP ${res.status}`);
-      }
-      newIng.currentStockUsageUnit = requestedOpeningStock;
-      newIng.status = requestedOpeningStock <= (ingredientData.minStockUsageUnit || 0) ? 'low_stock' : 'in_stock';
+          currentStockUsageUnit: requestedOpeningStock
+        },
+        idempotencyKey
+      })
+    });
+
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.error || `Failed to create ingredient atomically (HTTP ${response.status})`);
     }
 
-    return newIng;
+    return (payload.ingredient || payload) as Ingredient;
   }
 
   async updateIngredient(id: string, ingredientData: Partial<Ingredient>): Promise<void> {
-    const ref = doc(db, INGREDIENTS_COLL, id);
-    const now = new Date().toISOString();
-
+    const token = await getAuthToken();
+    const idempotencyKey = `ingredient-update:${id}:${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
     const { currentStockUsageUnit: _clientStock, stock: _clientStockLegacy, status: _clientStatus, branchId: _clientBranch, ...safeIngredientData } = ingredientData as any;
-    const updates: any = { ...safeIngredientData, updatedAt: now };
 
-    // Recalculate cost per usage unit if purchaseCost or conversionFactor updated
-    if (ingredientData.purchaseCost !== undefined || ingredientData.conversionFactor !== undefined) {
-      const snap = await getDoc(ref);
-      if (snap.exists()) {
-        const cur = snap.data();
-        const pCost = ingredientData.purchaseCost ?? cur.purchaseCost;
-        const cFactor = ingredientData.conversionFactor ?? cur.conversionFactor;
-        updates.costPerUsageUnit = cFactor > 0 ? pCost / cFactor : pCost;
-      }
+    const response = await fetch(getApiUrl(`/api/recipes/ingredients/${encodeURIComponent(id)}`), {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': idempotencyKey,
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify({
+        ingredientData: safeIngredientData,
+        idempotencyKey
+      })
+    });
+
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.error || `Failed to update ingredient (HTTP ${response.status})`);
     }
 
-    // Recalculate status if stock updated
-    if (ingredientData.currentStockUsageUnit !== undefined) {
-      const snap = await getDoc(ref);
-      if (snap.exists()) {
-        const cur = snap.data();
-        const minStock = Number(ingredientData.minStockUsageUnit ?? cur.minStockUsageUnit ?? 0);
-        updates.status =
-          ingredientData.currentStockUsageUnit <= 0
-            ? 'out_of_stock'
-            : ingredientData.currentStockUsageUnit <= minStock
-            ? 'low_stock'
-            : 'in_stock';
-      }
-    }
-
-    await updateDoc(ref, updates);
-
-    // If purchase cost changed, auto-recalculate recipes that use this ingredient!
-    if (ingredientData.purchaseCost !== undefined || updates.costPerUsageUnit !== undefined) {
-      this.recalculateRecipeCostsForIngredient(id, updates.costPerUsageUnit);
+    // If purchase cost changed, auto-recalculate recipes that use this ingredient
+    const updatedIngredient = payload.ingredient as Ingredient | undefined;
+    if (ingredientData.purchaseCost !== undefined || updatedIngredient?.costPerUsageUnit !== undefined) {
+      await this.recalculateRecipeCostsForIngredient(
+        id,
+        Number(updatedIngredient?.costPerUsageUnit ?? ingredientData.costPerUsageUnit ?? 0)
+      );
     }
   }
 
   async deleteIngredient(id: string): Promise<void> {
-    await updateDoc(doc(db, INGREDIENTS_COLL, id), {
-      isActive: false,
-      isArchived: true,
-      deletedAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    } as any);
+    const token = await getAuthToken();
+    const idempotencyKey = `ingredient-delete:${id}:${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
+    const response = await fetch(getApiUrl(`/api/recipes/ingredients/${encodeURIComponent(id)}`), {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': idempotencyKey,
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify({ status: 'deleted', isDeleted: true, isArchived: true, isActive: false })
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.error || `Failed to archive ingredient (HTTP ${response.status})`);
+    }
   }
 
   private async recalculateRecipeCostsForIngredient(ingredientId: string, newCostPerUsageUnit: number) {
@@ -395,8 +379,9 @@ export class RecipeRepositoryImpl implements IRecipeRepository {
       const list: IngredientMovement[] = [];
       snap.forEach((d) => list.push({ id: d.id, ...d.data() } as IngredientMovement));
       return list;
-    } catch {
-      return [];
+    } catch (err: any) {
+      console.error('Firestore fetchIngredientMovements error:', err?.message || err);
+      throw new Error(`Failed to fetch ingredient movements: ${err?.message || 'Firestore query failed'}`);
     }
   }
 
@@ -470,10 +455,12 @@ export class RecipeRepositoryImpl implements IRecipeRepository {
             throw new Error(`Insufficient stock for ${ingData.name}.`);
           }
           const token = await (await import('../../lib/firebase')).getAuthToken();
+          const idempotencyKey = `recipe-deduct:${orderNumber}:${orderItem.productId}:${ingData.id}`;
           const response = await fetch((await import('../../lib/firebase')).getApiUrl('/api/inventory/adjust'), {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
+              'Idempotency-Key': idempotencyKey,
               ...(token ? { 'Authorization': `Bearer ${token}` } : {})
             },
             body: JSON.stringify({
@@ -485,7 +472,8 @@ export class RecipeRepositoryImpl implements IRecipeRepository {
                 itemName: ingData.name,
                 quantity: deductedInUsageUnit,
                 reason: `Auto-deduction for ${orderItem.quantity}x ${orderItem.productName} (Order #${orderNumber})`,
-                createdBy: createdBy || 'POS System'
+                createdBy: createdBy || 'POS System',
+                idempotencyKey
               }
             })
           });
@@ -496,7 +484,8 @@ export class RecipeRepositoryImpl implements IRecipeRepository {
         }
       }
     } catch (err) {
-      console.warn('Note during automatic ingredient deduction:', err);
+      console.error('Automatic ingredient deduction failed:', err);
+      throw err;
     }
   }
 
@@ -513,8 +502,9 @@ export class RecipeRepositoryImpl implements IRecipeRepository {
       const list: UnitConversion[] = [];
       snap.forEach((d) => list.push({ id: d.id, ...d.data() } as UnitConversion));
       return list;
-    } catch {
-      return [];
+    } catch (err: any) {
+      console.error('Firestore fetchUnitConversions error:', err?.message || err);
+      throw new Error(`Failed to fetch unit conversions: ${err?.message || 'Firestore query failed'}`);
     }
   }
 
@@ -572,80 +562,63 @@ export class RecipeRepositoryImpl implements IRecipeRepository {
       const list: StockCount[] = [];
       snap.forEach((d) => list.push({ id: d.id, ...d.data() } as StockCount));
       return list;
-    } catch {
-      return [];
+    } catch (err: any) {
+      console.error('Firestore fetchStockCounts error:', err?.message || err);
+      throw new Error(`Failed to fetch stock counts: ${err?.message || 'Firestore query failed'}`);
     }
   }
 
   async createStockCount(data: Omit<StockCount, 'id' | 'createdAt' | 'updatedAt'>): Promise<StockCount> {
-    const ref = doc(collection(db, STOCK_COUNTS_COLL));
-    const now = new Date().toISOString();
+    const { getAuthToken, getApiUrl } = await import('../../lib/firebase');
+    const token = await getAuthToken();
+    const idempotencyKey = `stock-count-create:${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const response = await fetch(getApiUrl('/api/inventory/stock-count'), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': idempotencyKey,
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify({
+        stockCountData: {
+          ...data,
+          branchId: (data as any).branchId || getEffectiveBranchId()
+        },
+        idempotencyKey
+      })
+    });
 
-    const countNumber = `STK-${Math.floor(10000 + Math.random() * 90000)}`;
-    const newCount: StockCount = {
-      ...data,
-      branchId: (data as any).branchId || getEffectiveBranchId(),
-      id: ref.id,
-      countNumber: data.countNumber || countNumber,
-      createdAt: now,
-      updatedAt: now
-    };
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `Failed to create stock count (${response.status}).`);
+    }
 
-    await setDoc(ref, newCount);
-    return newCount;
+    const result = await response.json();
+    return result.stockCount as StockCount;
   }
 
   async applyStockCountAdjustment(stockCountId: string, user: string): Promise<void> {
-    const ref = doc(db, STOCK_COUNTS_COLL, stockCountId);
-    const snap = await getDoc(ref);
-    if (!snap.exists()) return;
-
-    const countData = snap.data() as StockCount;
-    const now = new Date().toISOString();
-
-    if (countData.status === 'adjusted') return;
-
-    for (const [index, item] of countData.items.entries()) {
-      if (item.difference !== 0) {
-        const ingRef = doc(db, INGREDIENTS_COLL, item.ingredientId);
-        const ingSnap = await getDoc(ingRef);
-        if (ingSnap.exists()) {
-          const ingData = ingSnap.data() as Ingredient;
-          const token = await (await import('../../lib/firebase')).getAuthToken();
-          const idempotencyKey = `stock-count:${stockCountId}:${index}:${item.ingredientId}`;
-          const response = await fetch((await import('../../lib/firebase')).getApiUrl('/api/inventory/adjust'), {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Idempotency-Key': idempotencyKey,
-              ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-            },
-            body: JSON.stringify({
-              movementData: {
-                type: item.difference < 0 ? 'out' : 'in',
-                mode: 'delta',
-                itemType: 'ingredient',
-                itemId: ingData.id || item.ingredientId,
-                itemName: ingData.name || item.ingredientName,
-                quantity: Math.abs(item.difference),
-                reason: `Physical Stock Count Adjustment (${item.difference > 0 ? '+' : ''}${item.difference} ${item.unit})`,
-                createdBy: user,
-                idempotencyKey
-              }
-            })
-          });
-          if (!response.ok) {
-            const errorData = await response.json().catch(() => ({}));
-            throw new Error(errorData.error || `Stock count adjustment failed (${response.status}).`);
-          }
-        }
-      }
-    }
-
-    await updateDoc(ref, {
-      status: 'adjusted',
-      updatedAt: now
+    const { getAuthToken, getApiUrl } = await import('../../lib/firebase');
+    const token = await getAuthToken();
+    const idempotencyKey = `stock-count-apply:${stockCountId}`;
+    const response = await fetch(getApiUrl('/api/inventory/stock-count/apply'), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': idempotencyKey,
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify({
+        stockCountId,
+        user,
+        idempotencyKey
+      })
     });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `Stock count adjustment failed (${response.status}).`);
+    }
   }
 
   // ==========================================
@@ -653,21 +626,24 @@ export class RecipeRepositoryImpl implements IRecipeRepository {
   // ==========================================
   async fetchWasteRecords(branchId?: string): Promise<WasteRecord[]> {
     try {
-      const q = branchId && branchId !== 'all'
-        ? query(collection(db, WASTE_RECORDS_COLL), where('branchId', '==', branchId), orderBy('createdAt', 'desc'))
+      const effectiveBranch = branchId || getEffectiveBranchScope();
+      const q = effectiveBranch && effectiveBranch !== 'all'
+        ? query(collection(db, WASTE_RECORDS_COLL), where('branchId', '==', effectiveBranch), orderBy('createdAt', 'desc'))
         : query(collection(db, WASTE_RECORDS_COLL), orderBy('createdAt', 'desc'));
       const snap = await getDocs(q);
       const list: WasteRecord[] = [];
       snap.forEach((d) => list.push({ id: d.id, ...d.data() } as WasteRecord));
       return list;
-    } catch {
-      return [];
+    } catch (err: any) {
+      console.error('Firestore fetchWasteRecords error:', err?.message || err);
+      throw new Error(`Failed to fetch waste records: ${err?.message || 'Firestore query failed'}`);
     }
   }
 
   subscribeWasteRecords(callback: (records: WasteRecord[]) => void, branchId?: string): () => void {
-    const q = branchId && branchId !== 'all'
-      ? query(collection(db, WASTE_RECORDS_COLL), where('branchId', '==', branchId), orderBy('createdAt', 'desc'))
+    const effectiveBranch = branchId || getEffectiveBranchScope();
+    const q = effectiveBranch && effectiveBranch !== 'all'
+      ? query(collection(db, WASTE_RECORDS_COLL), where('branchId', '==', effectiveBranch), orderBy('createdAt', 'desc'))
       : query(collection(db, WASTE_RECORDS_COLL), orderBy('createdAt', 'desc'));
     return onSnapshot(
       q,

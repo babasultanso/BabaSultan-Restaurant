@@ -14,7 +14,8 @@ import {
   BranchOperation, 
   CustomerFeedback, 
   EquipmentItem, 
-  BankTransaction 
+  BankTransaction,
+  CustomerRefund
 } from '../types';
 import { getMogadishuDateString } from './dateUtils';
 
@@ -109,6 +110,7 @@ export interface CEODataPackage {
   feedbacks?: CustomerFeedback[];
   equipment?: EquipmentItem[];
   bankTransactions?: BankTransaction[];
+  refunds?: CustomerRefund[];
 }
 
 /**
@@ -131,25 +133,57 @@ export function calculateCEOAnalytics(data: CEODataPackage) {
     branches = [],
     feedbacks = [],
     equipment = [],
-    bankTransactions = []
+    bankTransactions = [],
+    refunds = []
   } = data;
 
   const todayStr = getMogadishuDateString();
 
   // 1. REVENUE, PROFIT & EXPENSES
-  const completedOrders = orders.filter(o => o.status === 'completed' || o.status === 'delivered' || o.prepStatus === 'delivered' || (o as any).deliveryStatus === 'delivered');
+  const completedOrders = orders.filter(o => {
+    const st = String(o.status || '').toLowerCase();
+    const pay = String(o.paymentStatus || '').toLowerCase();
+    if (st === 'cancelled' || st === 'void') return false;
+    return (
+      st === 'completed' ||
+      st === 'delivered' ||
+      o.prepStatus === 'delivered' ||
+      (o as any).deliveryStatus === 'delivered' ||
+      st === 'refunded' ||
+      st === 'partially_refunded' ||
+      pay === 'refunded' ||
+      pay === 'partially_refunded'
+    );
+  });
   const todayCompletedOrders = completedOrders.filter(o => o.createdAt && (getMogadishuDateString(o.createdAt) === todayStr || o.createdAt.startsWith(todayStr)));
 
-  const totalRevenue = completedOrders.reduce((sum, o) => sum + (Number(o.totalAmount) || 0), 0);
-  const totalCOGS = completedOrders.reduce((sum, o) => sum + (Number(o.cogs) || 0), 0);
-  const totalExpenses = expenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0) + salaries.reduce((sum, s) => sum + (Number(s.amount) || 0), 0);
+  const grossRevenue = completedOrders.reduce((sum, o) => sum + (Number(o.totalAmount) || 0), 0);
+  const totalRefunds = refunds.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+  const totalRevenue = Math.max(0, grossRevenue - totalRefunds);
+  const reversedCOGS = refunds.reduce((sum, r) => sum + (Number((r as any).cogsReversed) || 0), 0);
+  const totalCOGS = Math.max(0, completedOrders.reduce((sum, o) => sum + (Number(o.cogs ?? (o as any).costOfGoodsSold ?? (o as any).cogsTotal) || 0), 0) - reversedCOGS);
+  const paidSalaries = salaries.filter(s => !s.status || s.status === 'paid');
+  const totalExpenses = expenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0) + paidSalaries.reduce((sum, s) => sum + (Number(s.amount) || 0), 0);
 
   const grossProfit = totalRevenue - totalCOGS;
   const netProfit = grossProfit - totalExpenses;
 
-  const todayRevenue = todayCompletedOrders.reduce((sum, o) => sum + (Number(o.totalAmount) || 0), 0);
-  const todayCOGS = todayCompletedOrders.reduce((sum, o) => sum + (Number(o.cogs) || 0), 0);
-  const todayExpenses = expenses.filter(e => e.createdAt && (getMogadishuDateString(e.createdAt) === todayStr || e.createdAt.startsWith(todayStr))).reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+  const todayGrossRevenue = todayCompletedOrders.reduce((sum, o) => sum + (Number(o.totalAmount) || 0), 0);
+  const todayRefundDocs = refunds.filter(r => {
+    const rDate = r.createdAt || (r as any).processedAt || '';
+    return Boolean(rDate) && (getMogadishuDateString(rDate) === todayStr || String(rDate).startsWith(todayStr));
+  });
+  const todayRefunds = todayRefundDocs.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+  const todayRevenue = Math.max(0, todayGrossRevenue - todayRefunds);
+  const todayReversedCOGS = todayRefundDocs.reduce((sum, r) => sum + (Number((r as any).cogsReversed) || 0), 0);
+  const todayCOGS = Math.max(0, todayCompletedOrders.reduce((sum, o) => sum + (Number(o.cogs ?? (o as any).costOfGoodsSold ?? (o as any).cogsTotal) || 0), 0) - todayReversedCOGS);
+  const todayPaidSalaries = paidSalaries
+    .filter(s => {
+      const sDate = s.paidDate || (s as any).paymentDate || (s as any).createdAt || (s as any).date || '';
+      return Boolean(sDate) && (getMogadishuDateString(sDate) === todayStr || String(sDate).startsWith(todayStr));
+    })
+    .reduce((sum, s) => sum + (Number(s.amount) || 0), 0);
+  const todayExpenses = expenses.filter(e => e.createdAt && (getMogadishuDateString(e.createdAt) === todayStr || e.createdAt.startsWith(todayStr))).reduce((sum, e) => sum + (Number(e.amount) || 0), 0) + todayPaidSalaries;
   const todayProfit = todayRevenue - todayCOGS - todayExpenses;
 
   const totalOrdersCount = completedOrders.length;
@@ -158,21 +192,31 @@ export function calculateCEOAnalytics(data: CEODataPackage) {
   const averageObservedDailyRevenue = observedDays30 > 0 ? last30CompletedOrders.reduce((sum, o) => sum + Number(o.totalAmount || 0), 0) / observedDays30 : 0;
   const averageOrderValue = totalOrdersCount > 0 ? Number((totalRevenue / totalOrdersCount).toFixed(2)) : 0;
 
-  // 2. PRODUCT PERFORMANCE (BEST & WORST SELLING)
+  // 2. PRODUCT PERFORMANCE (BEST & WORST SELLING - Strictly Completed Orders without Double Counting)
   const productSalesMap: Record<string, { name: string; salesCount: number; revenue: number; stock: number }> = {};
+  const orderTalliedProductIds = new Set<string>();
   
   products.forEach(p => {
-    productSalesMap[p.id] = { name: p.name, salesCount: p.salesCount || 0, revenue: (p.salesCount || 0) * p.price, stock: p.stock };
+    productSalesMap[p.id] = { name: p.name, salesCount: 0, revenue: 0, stock: p.stock || 0 };
   });
 
-  orders.forEach(ord => {
+  completedOrders.forEach(ord => {
     ord.items?.forEach(item => {
       if (!productSalesMap[item.productId]) {
         productSalesMap[item.productId] = { name: item.productName, salesCount: 0, revenue: 0, stock: 0 };
       }
-      productSalesMap[item.productId].salesCount += item.quantity;
-      productSalesMap[item.productId].revenue += item.totalPrice;
+      orderTalliedProductIds.add(item.productId);
+      productSalesMap[item.productId].salesCount += Number(item.quantity) || 0;
+      productSalesMap[item.productId].revenue += Number(item.totalPrice ?? ((item.unitPrice || 0) * (item.quantity || 0))) || 0;
     });
+  });
+
+  // Fallback to product master salesCount only for products that had no item lines in completedOrders
+  products.forEach(p => {
+    if (!orderTalliedProductIds.has(p.id) && (p.salesCount || 0) > 0) {
+      productSalesMap[p.id].salesCount = p.salesCount || 0;
+      productSalesMap[p.id].revenue = (p.salesCount || 0) * (p.price || 0);
+    }
   });
 
   const sortedProducts = Object.values(productSalesMap).sort((a, b) => b.salesCount - a.salesCount);
@@ -197,13 +241,15 @@ export function calculateCEOAnalytics(data: CEODataPackage) {
   const activeDriversCount = drivers.filter(d => d.status === 'available' || d.status === 'in_transit').length;
 
   // 5. INVENTORY & EMPLOYEE PERFORMANCE
-  const lowStockItemsCount = products.filter(p => p.stock <= p.minStockAlert).length + ingredients.filter(i => i.stock <= i.minStockAlert).length;
-  const totalInventoryValuation = products.reduce((sum, p) => sum + (p.stock * p.cost), 0) + ingredients.reduce((sum, i) => sum + (i.stock * i.costPerUnit), 0);
+  const activeProducts = products.filter(p => !(p as any).deletedAt && !(p as any).isDeleted);
+  const activeIngredients = ingredients.filter(i => !(i as any).deletedAt && !(i as any).isDeleted);
+  const lowStockItemsCount = activeProducts.filter(p => p.stock <= p.minStockAlert).length + activeIngredients.filter(i => (Number(i.currentStockUsageUnit ?? i.stock) || 0) <= i.minStockAlert).length;
+  const totalInventoryValuation = activeProducts.reduce((sum, p) => sum + ((Number(p.stock) || 0) * (Number(p.cost ?? (p as any).costPrice) || 0)), 0) + activeIngredients.reduce((sum, i) => sum + ((Number(i.currentStockUsageUnit ?? i.stock) || 0) * (Number(i.costPerUsageUnit ?? i.costPerUnit) || 0)), 0);
   const supplierValueTotals: Record<string, number> = {};
-  ingredients.forEach((i) => {
+  activeIngredients.forEach((i) => {
     const supplier = String(i.supplierName || i.supplierId || '').trim();
     if (!supplier) return;
-    supplierValueTotals[supplier] = (supplierValueTotals[supplier] || 0) + Math.max(0, Number(i.stock || 0)) * Math.max(0, Number(i.costPerUnit || 0));
+    supplierValueTotals[supplier] = (supplierValueTotals[supplier] || 0) + Math.max(0, Number(i.currentStockUsageUnit ?? i.stock ?? 0)) * Math.max(0, Number(i.costPerUsageUnit ?? i.costPerUnit ?? 0));
   });
   const supplierExposure = Object.entries(supplierValueTotals).sort((a, b) => b[1] - a[1]);
   const topSupplier = supplierExposure[0];
@@ -216,8 +262,8 @@ export function calculateCEOAnalytics(data: CEODataPackage) {
   const employeeAttendanceRate = totalStaff > 0 ? Math.round(((presentCount + lateCount) / totalStaff) * 100) : 0;
 
   // 6. CASH FLOW & LIQUIDITY
-  const totalIncome = bankTransactions.filter(t => t.type === 'deposit').reduce((sum, t) => sum + t.amount, 0) + totalRevenue;
-  const totalOutflow = bankTransactions.filter(t => t.type === 'withdrawal').reduce((sum, t) => sum + t.amount, 0) + totalExpenses;
+  const totalIncome = bankTransactions.filter(t => t.type === 'deposit').reduce((sum, t) => sum + (Number(t.amount) || 0), 0) + totalRevenue;
+  const totalOutflow = bankTransactions.filter(t => t.type === 'withdrawal' || t.type === 'fee').reduce((sum, t) => sum + (Number(t.amount) || 0), 0) + totalExpenses;
   const cashFlowBalance = totalIncome - totalOutflow;
 
   // 7. COMPUTE BUSINESS HEALTH SCORE (0 - 100)

@@ -40,6 +40,7 @@ export const RecipeBuilderView: React.FC<RecipeBuilderViewProps> = ({
 
   const [showModal, setShowModal] = useState(false);
   const [editingRecipe, setEditingRecipe] = useState<Recipe | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
   const [historyModalRecipe, setHistoryModalRecipe] = useState<Recipe | null>(null);
   const [historyList, setHistoryList] = useState<any[]>([]);
 
@@ -150,18 +151,41 @@ export const RecipeBuilderView: React.FC<RecipeBuilderViewProps> = ({
   // Save Form
   const handleSaveRecipe = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!recipeName || !selectedProductId || recipeItems.length === 0) return;
+    if (!recipeName || !selectedProductId || recipeItems.length === 0 || isSaving) return;
 
-    const prod = products.find((p) => p.id === selectedProductId);
+    setIsSaving(true);
+    try {
+      const prod = products.find((p) => p.id === selectedProductId);
 
-    if (editingRecipe) {
-      await controller.updateRecipe(
-        editingRecipe.id,
-        {
+      if (editingRecipe) {
+        await controller.updateRecipe(
+          editingRecipe.id,
+          {
+            productId: selectedProductId,
+            productName: prod?.name || editingRecipe.productName,
+            productCategory: prod?.category || editingRecipe.productCategory,
+            recipeName,
+            items: recipeItems,
+            yieldQuantity,
+            totalCost: calc.totalCost,
+            costPerPortion: calc.costPerPortion,
+            sellingPrice,
+            foodCostPercentage: calc.foodCostPercentage,
+            grossProfit: calc.grossProfit,
+            grossProfitMargin: calc.grossProfitMargin,
+            netProfit: calc.netProfit,
+            notes
+          },
+          changeReason || 'Updated recipe parameters',
+          currentUser
+        );
+      } else {
+        await controller.createRecipe({
           productId: selectedProductId,
-          productName: prod?.name || editingRecipe.productName,
-          productCategory: prod?.category || editingRecipe.productCategory,
+          productName: prod?.name || 'Menu Dish',
+          productCategory: prod?.category || 'Main Course',
           recipeName,
+          version: 1,
           items: recipeItems,
           yieldQuantity,
           totalCost: calc.totalCost,
@@ -171,34 +195,16 @@ export const RecipeBuilderView: React.FC<RecipeBuilderViewProps> = ({
           grossProfit: calc.grossProfit,
           grossProfitMargin: calc.grossProfitMargin,
           netProfit: calc.netProfit,
-          notes
-        },
-        changeReason || 'Updated recipe parameters',
-        currentUser
-      );
-    } else {
-      await controller.createRecipe({
-        productId: selectedProductId,
-        productName: prod?.name || 'Menu Dish',
-        productCategory: prod?.category || 'Main Course',
-        recipeName,
-        version: 1,
-        items: recipeItems,
-        yieldQuantity,
-        totalCost: calc.totalCost,
-        costPerPortion: calc.costPerPortion,
-        sellingPrice,
-        foodCostPercentage: calc.foodCostPercentage,
-        grossProfit: calc.grossProfit,
-        grossProfitMargin: calc.grossProfitMargin,
-        netProfit: calc.netProfit,
-        notes,
-        isActive: true,
-        createdBy: currentUser
-      });
-    }
+          notes,
+          isActive: true,
+          createdBy: currentUser
+        });
+      }
 
-    setShowModal(false);
+      setShowModal(false);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   // Open Version History Modal

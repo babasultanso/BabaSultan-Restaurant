@@ -13,11 +13,15 @@ export class AdminRepositoryImpl implements IAdminRepository {
         ? collection(db, COLLECTIONS.CATEGORIES)
         : query(collection(db, COLLECTIONS.CATEGORIES), where('branchId', '==', branchScope)));
       const list: Category[] = [];
-      snap.forEach(d => list.push({ id: d.id, ...d.data() } as Category));
+      snap.forEach(d => {
+        const data = d.data() as any;
+        if (data.isDeleted || data.isArchived || data.isActive === false || data.status === 'deleted' || data.status === 'archived') return;
+        list.push({ id: d.id, ...data } as Category);
+      });
       return list;
     } catch (err) {
       handleFirestoreError(err, OperationType.GET, COLLECTIONS.CATEGORIES);
-      return [];
+      throw err;
     }
   }
 
@@ -35,7 +39,8 @@ export class AdminRepositoryImpl implements IAdminRepository {
 
   async deleteCategory(id: string): Promise<void> {
     try {
-      await updateDoc(doc(db, COLLECTIONS.CATEGORIES, id), { isDeleted: true, isArchived: true, status: 'archived', deletedAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+      const now = new Date().toISOString();
+      await updateDoc(doc(db, COLLECTIONS.CATEGORIES, id), { isDeleted: true, isArchived: true, isActive: false, status: 'archived', deletedAt: now, updatedAt: now });
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, COLLECTIONS.CATEGORIES);
       throw err;
@@ -49,17 +54,48 @@ export class AdminRepositoryImpl implements IAdminRepository {
         ? collection(db, COLLECTIONS.CUSTOMERS)
         : query(collection(db, COLLECTIONS.CUSTOMERS), where('branchId', '==', branchScope)));
       const list: Customer[] = [];
-      snap.forEach(d => list.push({ id: d.id, ...d.data() } as Customer));
+      snap.forEach(d => {
+        const data = d.data() as any;
+        if (data.isDeleted || data.isArchived || data.status === 'deleted' || data.status === 'archived') return;
+        list.push({ id: d.id, ...data } as Customer);
+      });
       return list;
     } catch (err) {
       handleFirestoreError(err, OperationType.GET, COLLECTIONS.CUSTOMERS);
-      return [];
+      throw err;
     }
   }
 
   async createCustomer(customer: Omit<Customer, 'id'>): Promise<Customer> {
     const branchId = getEffectiveBranchId(customer.branchId || (customer as any).branch);
-    const data = { ...customer, branchId, loyaltyPoints: 0, createdAt: new Date().toISOString() };
+    const {
+      totalSpending: _ts1,
+      totalSpent: _ts2,
+      totalOrders: _to,
+      averageOrderValue: _aov,
+      cancelledOrders: _co,
+      refundHistoryCount: _rhc,
+      membershipLevel: _ml,
+      loyaltyPoints: _lp,
+      favoriteProducts: _fp,
+      lastOrderDate: _lod,
+      ...safeCustomer
+    } = customer as any;
+    const data = {
+      ...safeCustomer,
+      branchId,
+      loyaltyPoints: 0,
+      totalOrders: 0,
+      totalSpending: 0,
+      totalSpent: 0,
+      averageOrderValue: 0,
+      cancelledOrders: 0,
+      refundHistoryCount: 0,
+      membershipLevel: 'Bronze',
+      favoriteProducts: [],
+      lastOrderDate: '',
+      createdAt: new Date().toISOString()
+    };
     try {
       const ref = await addDoc(collection(db, COLLECTIONS.CUSTOMERS), data);
       return { id: ref.id, ...data };
@@ -77,7 +113,7 @@ export class AdminRepositoryImpl implements IAdminRepository {
       return list;
     } catch (err) {
       handleFirestoreError(err, OperationType.GET, COLLECTIONS.BRANCHES);
-      return [];
+      throw err;
     }
   }
 

@@ -4,6 +4,7 @@ import {
   PurchaseOrder,
   Supplier,
   SupplierPayment,
+  PurchaseReturn,
   InventoryAlert
 } from '../entities/inventory';
 
@@ -28,6 +29,20 @@ export interface IInventoryRepository {
   approvePurchaseOrder(id: string, approvedBy: string): Promise<void>;
   receiveGoods(poId: string, receivedItems: { itemId: string; receivedQty: number; batchNumber?: string; expirationDate?: string }[], receivedBy: string): Promise<void>;
 
+  // Purchase Returns / Supplier Debit Notes
+  fetchPurchaseReturns(branchId?: string): Promise<PurchaseReturn[]>;
+  createPurchaseReturn(data: {
+    itemId: string;
+    supplierId?: string;
+    supplierName?: string;
+    poId?: string;
+    quantity: number;
+    unitCost?: number;
+    reason: string;
+    date?: string;
+    branchId?: string;
+  }): Promise<PurchaseReturn>;
+
   // Suppliers
   fetchSuppliers(branchId?: string): Promise<Supplier[]>;
   subscribeSuppliers(callback: (suppliers: Supplier[]) => void, branchId?: string): () => void;
@@ -36,6 +51,6 @@ export interface IInventoryRepository {
   deleteSupplier(id: string): Promise<void>;
 
   // Supplier Payments
-  fetchSupplierPayments(supplierId?: string): Promise<SupplierPayment[]>;
+  fetchSupplierPayments(supplierId?: string, branchId?: string, isHQ?: boolean): Promise<SupplierPayment[]>;
   recordSupplierPayment(payment: Omit<SupplierPayment, 'id' | 'createdAt'>): Promise<SupplierPayment>;
 }

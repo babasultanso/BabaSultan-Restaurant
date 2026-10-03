@@ -48,10 +48,12 @@ export const Header: React.FC<HeaderProps> = ({ onMobileMenuToggle, onOpenSetupW
   useEffect(() => {
     if (!user) return;
 
-    const isManagementRole = ['Owner', 'owner', 'Admin', 'admin', 'Manager', 'manager'].includes(userRecord?.role || role || '');
+    const currentRole = (userRecord?.role || role || '').toLowerCase();
+    const isManagementRole = ['owner', 'admin', 'manager'].includes(currentRole);
+    const isHqRole = ['owner', 'admin'].includes(currentRole);
     let q;
     if (isManagementRole) {
-      if (userRecord?.branchId && !['Owner', 'Admin'].includes(userRecord?.role || '')) {
+      if (userRecord?.branchId && userRecord.branchId !== 'all' && !isHqRole) {
         q = query(
           collection(db, COLLECTIONS.NOTIFICATIONS),
           where('branchId', '==', userRecord.branchId)
@@ -92,7 +94,7 @@ export const Header: React.FC<HeaderProps> = ({ onMobileMenuToggle, onOpenSetupW
         };
       }).filter(item => {
         if (!isManagementRole && item.recipientId && item.recipientId !== user.uid) return false;
-        if (item.branchId && userRecord?.branchId && item.branchId !== userRecord.branchId && !['Owner', 'Admin'].includes(userRecord.role)) return false;
+        if (item.branchId && userRecord?.branchId && item.branchId !== userRecord.branchId && !isHqRole) return false;
         return true;
       }).sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
 

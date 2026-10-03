@@ -129,20 +129,46 @@ export function downloadInvoicePDF(order: Order) {
   doc.save(`Invoice_${order.orderNumber}.pdf`);
 }
 
+export function sanitizeCSVCell(value: unknown): string {
+  if (value === null || value === undefined) return '""';
+  let str = String(value);
+  // Neutralize CSV / Spreadsheet formula injection characters
+  if (/^[=+\-@\t\r]/.test(str)) {
+    str = `'` + str;
+  }
+  return `"${str.replace(/"/g, '""')}"`;
+}
+
+function sanitizeFilename(name: string): string {
+  return String(name || 'export').replace(/[^a-zA-Z0-9_\-\u0600-\u06FF]/g, '_').slice(0, 80);
+}
+
+export function escapeHtml(str: unknown): string {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 export function exportToExcel(filename: string, columns: string[], rows: (string | number)[][]) {
   // UTF-8 BOM for Arabic/Somali & Excel encoding compatibility
   let csvContent = '\uFEFF';
-  csvContent += columns.map(col => `"${col.replace(/"/g, '""')}"`).join(',') + '\n';
+  csvContent += columns.map(col => sanitizeCSVCell(col)).join(',') + '\n';
 
   rows.forEach(row => {
-    csvContent += row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',') + '\n';
+    csvContent += row.map(cell => sanitizeCSVCell(cell)).join(',') + '\n';
   });
 
+  if (typeof document === 'undefined') return csvContent;
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
   const link = document.createElement('a');
   const url = URL.createObjectURL(blob);
   link.setAttribute('href', url);
-  link.setAttribute('download', `${filename}_${Date.now()}.csv`);
+  const safeName = sanitizeFilename(filename);
+  link.setAttribute('download', `${safeName}_${Date.now()}.csv`);
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
@@ -156,11 +182,15 @@ export function printReportWindow(title: string, subtitle: string, sections: Arr
   const printWindow = window.open('', '_blank', 'width=1000,height=800');
   if (!printWindow) return;
 
+  const safeTitle = escapeHtml(title);
+  const safeSubtitle = escapeHtml(subtitle);
+
   const htmlContent = `
     <!DOCTYPE html>
     <html>
       <head>
-        <title>${title}</title>
+        <title>${safeTitle}</title>
+        <meta charset="utf-8" />
         <style>
           body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 24px; color: #1e293b; }
           .header { border-bottom: 2px solid #0f172a; padding-bottom: 12px; margin-bottom: 24px; }
@@ -181,22 +211,22 @@ export function printReportWindow(title: string, subtitle: string, sections: Arr
       </head>
       <body>
         <div class="header">
-          <h1 class="title">${title}</h1>
-          <div class="subtitle">${subtitle} | Generated: ${new Date().toLocaleString()}</div>
+          <h1 class="title">${safeTitle}</h1>
+          <div class="subtitle">${safeSubtitle} | Generated: ${escapeHtml(new Date().toLocaleString())}</div>
         </div>
         ${sections.map(sec => `
           <div class="section">
-            <div class="section-title">${sec.heading}</div>
+            <div class="section-title">${escapeHtml(sec.heading)}</div>
             <table>
               <thead>
                 <tr>
-                  ${sec.columns.map(col => `<th>${col}</th>`).join('')}
+                  ${sec.columns.map(col => `<th>${escapeHtml(col)}</th>`).join('')}
                 </tr>
               </thead>
               <tbody>
                 ${sec.rows.map(row => `
                   <tr>
-                    ${row.map(cell => `<td>${cell}</td>`).join('')}
+                    ${row.map(cell => `<td>${escapeHtml(cell)}</td>`).join('')}
                   </tr>
                 `).join('')}
               </tbody>
@@ -240,22 +270,44 @@ export function generateCPAReport(
   let subtitle = 'Official Certified Public Accountant Audit Statement';
   const sections: Array<{ heading: string; columns: string[]; rows: (string | number)[][] }> = [];
 
-  if (type === 'daily' || type === 'weekly' || type === 'monthly' || type === 'yearly') {
-    title = `${type.toUpperCase()} CPA FINANCIAL REPORT`;
+  if (type === 'daily' || type === 'weekly' || type === 'monthly' || type === 'yearly' || type === 'audit') {
+    title = type === 'audit' ? 'COMPREHENSIVE CPA FINANCIAL AUDIT REPORT' : `${type.toUpperCase()} CPA FINANCIAL REPORT`;
     subtitle = `Audit Period: ${type.toUpperCase()} | Real-time Firestore Ledger Data`;
+
+    const periodSales = type === 'daily'
+      ? metrics.dailySales
+      : type === 'weekly'
+      ? metrics.weeklySales
+      : type === 'monthly' || type === 'audit'
+      ? metrics.monthlySales
+      : metrics.yearlySales;
 
     sections.push({
       heading: 'Executive Financial Summary',
       columns: ['KPI Metric', 'Amount ($)', 'Benchmarking / Analysis'],
       rows: [
-        ['Sales Revenue', `$${(type === 'daily' ? metrics.dailySales : type === 'weekly' ? metrics.weeklySales : type === 'monthly' ? metrics.monthlySales : metrics.yearlySales).toFixed(2)}`, 'Gross Sales Collected'],
-        ['Net Revenue', `$${metrics.netRevenue.toFixed(2)}`, 'Gross Revenue minus Customer Refunds'],
-        ['Cost of Goods Sold (COGS)', `$${metrics.cogs.toFixed(2)}`, `Food Cost %: ${metrics.foodCostPercentage.toFixed(1)}% (Target < 35%)`],
-        ['Gross Profit', `$${metrics.grossProfit.toFixed(2)}`, 'Net Revenue - COGS'],
-        ['Operating & Labor Expenses', `$${metrics.totalExpenses.toFixed(2)}`, `Labor %: ${metrics.laborCostPercentage.toFixed(1)}%`],
-        ['Net Operating Profit', `$${metrics.netProfit.toFixed(2)}`, `Margin: ${metrics.netProfitMargin.toFixed(1)}%`]
+        ['Sales Revenue', `$${(Number(periodSales) || 0).toFixed(2)}`, 'Gross Sales Collected'],
+        ['Customer Refunds', `-$${(Number(metrics.customerRefundsTotal) || 0).toFixed(2)}`, 'Recorded Customer Refunds'],
+        ['Net Revenue', `$${(Number(metrics.netRevenue) || 0).toFixed(2)}`, 'Gross Revenue minus Customer Refunds'],
+        ['Cost of Goods Sold (COGS)', `$${(Number(metrics.cogs) || 0).toFixed(2)}`, `Food Cost %: ${(Number(metrics.foodCostPercentage) || 0).toFixed(1)}% (Target < 35%)`],
+        ['Gross Profit', `$${(Number(metrics.grossProfit) || 0).toFixed(2)}`, 'Net Revenue - COGS'],
+        ['Operating & Labor Expenses', `$${(Number(metrics.totalExpenses) || 0).toFixed(2)}`, `Labor %: ${(Number(metrics.laborCostPercentage) || 0).toFixed(1)}%`],
+        ['Net Operating Profit', `$${(Number(metrics.netProfit) || 0).toFixed(2)}`, `Margin: ${(Number(metrics.netProfitMargin) || 0).toFixed(1)}%`]
       ]
     });
+
+    if (type === 'audit') {
+      sections.push({
+        heading: 'Liquidity & Tax Compliance Summary',
+        columns: ['Control Item', 'Balance / Liability ($)', 'Status'],
+        rows: [
+          ['Physical Cash Register & Safe', `$${(Number(metrics.cashBalance) || 0).toFixed(2)}`, 'Cash on Hand'],
+          ['Commercial Bank Corporate Account', `$${(Number(metrics.bankBalance) || 0).toFixed(2)}`, 'Operating Bank'],
+          ['Total Liquid Capital', `$${(Number(metrics.totalLiquidity) || 0).toFixed(2)}`, 'Combined Liquidity'],
+          ['Recorded VAT / Sales Tax Payable', `$${(Number(metrics.taxEstimatedVAT) || 0).toFixed(2)}`, 'Authoritative VAT']
+        ]
+      });
+    }
   } else if (type === 'pnl') {
     title = 'PROFIT AND LOSS STATEMENT (P&L)';
     subtitle = 'GAAP Standard CPA Income Statement';
@@ -316,7 +368,7 @@ export function generateCPAReport(
     sections.push({
       heading: 'Recorded Expenses',
       columns: ['Title', 'Category', 'Amount ($)', 'Created By', 'Date'],
-      rows: raw.expenses.map(e => [e.title, e.category, `$${e.amount.toFixed(2)}`, e.createdBy, new Date(e.createdAt).toLocaleDateString()])
+      rows: raw.expenses.map(e => [e.title, e.category, `$${(Number(e.amount) || 0).toFixed(2)}`, e.createdBy, new Date(e.createdAt).toLocaleDateString()])
     });
   } else if (type === 'sales') {
     title = 'SALES & REVENUE REPORT';
@@ -325,14 +377,19 @@ export function generateCPAReport(
     sections.push({
       heading: 'Completed Orders',
       columns: ['Order #', 'Customer', 'Amount ($)', 'COGS ($)', 'Profit ($)', 'Payment'],
-      rows: raw.orders.filter(o => o.status === 'completed').map(o => [
-        o.orderNumber || o.id || 'Order',
-        o.customerName || 'Walk-in',
-        `$${(o.totalAmount || 0).toFixed(2)}`,
-        `$${(o.cogs || 0).toFixed(2)}`,
-        `$${(o.profit || 0).toFixed(2)}`,
-        (o.paymentMethod || 'cash').toUpperCase()
-      ])
+      rows: raw.orders.filter(o => o.status === 'completed' || o.status === 'delivered' || o.prepStatus === 'delivered').map(o => {
+        const amt = Number(o.totalAmount) || 0;
+        const cogs = Number(o.cogs ?? (o as any).costOfGoodsSold) || 0;
+        const profit = typeof o.profit === 'number' && !isNaN(o.profit) ? o.profit : (amt - cogs);
+        return [
+          o.orderNumber || o.id || 'Order',
+          o.customerName || 'Walk-in',
+          `$${amt.toFixed(2)}`,
+          `$${cogs.toFixed(2)}`,
+          `$${profit.toFixed(2)}`,
+          (o.paymentMethod || 'cash').toUpperCase()
+        ];
+      })
     });
   } else if (type === 'inventory_cost') {
     title = 'INVENTORY COST & VALUATION REPORT';
@@ -341,14 +398,36 @@ export function generateCPAReport(
     sections.push({
       heading: 'Raw Ingredients Inventory',
       columns: ['Ingredient Name', 'Stock Qty', 'Unit Cost ($)', 'Total Asset Value ($)', 'Supplier'],
-      rows: raw.ingredients.map(i => [
-        i.name,
-        `${i.stock} ${i.unit}`,
-        `$${i.costPerUnit.toFixed(2)}`,
-        `$${(i.stock * i.costPerUnit).toFixed(2)}`,
-        i.supplierName
-      ])
+      rows: raw.ingredients.map(i => {
+        const stock = Number(i.currentStockUsageUnit ?? i.stock) || 0;
+        const unitCost = Number(i.costPerUsageUnit ?? i.costPerUnit ?? (i as any).unitCost) || 0;
+        return [
+          i.name,
+          `${stock} ${i.usageUnit || i.unit || ''}`.trim(),
+          `$${unitCost.toFixed(2)}`,
+          `$${(stock * unitCost).toFixed(2)}`,
+          i.supplierName || 'Default Supplier'
+        ];
+      })
     });
+
+    if (Array.isArray(raw.products) && raw.products.length > 0) {
+      sections.push({
+        heading: 'Products & Menu Stock Inventory',
+        columns: ['Product Name', 'Category', 'Stock Qty', 'Unit Cost ($)', 'Total Asset Value ($)'],
+        rows: raw.products.map(p => {
+          const stock = Number(p.stock) || 0;
+          const unitCost = Number(p.cost ?? (p as any).costPrice) || 0;
+          return [
+            p.name,
+            p.category || 'General',
+            `${stock}`,
+            `$${unitCost.toFixed(2)}`,
+            `$${(stock * unitCost).toFixed(2)}`
+          ];
+        })
+      });
+    }
   } else if (type === 'payroll') {
     title = 'PAYROLL & SALARY REPORT';
     subtitle = 'Staff Remuneration & Disbursements';
@@ -399,5 +478,6 @@ export function generateCPAReport(
 
     exportToExcel((title || 'report').toLowerCase().replace(/\s+/g, '_'), exportCols, exportRows);
   }
+  return { title, subtitle, sections };
 }
 

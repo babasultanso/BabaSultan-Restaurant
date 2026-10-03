@@ -34,6 +34,7 @@ export const IngredientManagerView: React.FC<IngredientManagerViewProps> = ({
 
   const [showModal, setShowModal] = useState(false);
   const [editingIng, setEditingIng] = useState<Ingredient | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('ALL');
 
@@ -81,40 +82,48 @@ export const IngredientManagerView: React.FC<IngredientManagerViewProps> = ({
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name || conversionFactor <= 0) return;
+    if (!name || conversionFactor <= 0 || isSaving) return;
 
-    if (editingIng) {
-      await controller.updateIngredient(editingIng.id, {
-        code,
-        name,
-        category,
-        purchaseUnit,
-        usageUnit,
-        conversionFactor,
-        currentStockUsageUnit,
-        minStockUsageUnit,
-        purchaseCost,
-        supplierName
-      });
-    } else {
+    setIsSaving(true);
+    try {
       const calculatedCostPerUsageUnit = conversionFactor > 0 ? purchaseCost / conversionFactor : purchaseCost;
-      await controller.createIngredient({
-        code,
-        name,
-        category,
-        purchaseUnit,
-        usageUnit,
-        conversionFactor,
-        currentStockUsageUnit,
-        minStockUsageUnit,
-        purchaseCost,
-        costPerUsageUnit: calculatedCostPerUsageUnit,
-        supplierName,
-        status: 'in_stock'
-      });
-    }
+      if (editingIng) {
+        const prevStock = Number(editingIng.currentStockUsageUnit ?? (editingIng as any).stock ?? 0);
+        const stockChanged = Math.abs(Number(currentStockUsageUnit) - prevStock) > 1e-9;
+        await controller.updateIngredient(editingIng.id, {
+          code,
+          name,
+          category,
+          purchaseUnit,
+          usageUnit,
+          conversionFactor,
+          ...(stockChanged ? { currentStockUsageUnit } : {}),
+          minStockUsageUnit,
+          purchaseCost,
+          costPerUsageUnit: calculatedCostPerUsageUnit,
+          supplierName
+        });
+      } else {
+        await controller.createIngredient({
+          code,
+          name,
+          category,
+          purchaseUnit,
+          usageUnit,
+          conversionFactor,
+          currentStockUsageUnit,
+          minStockUsageUnit,
+          purchaseCost,
+          costPerUsageUnit: calculatedCostPerUsageUnit,
+          supplierName,
+          status: 'in_stock'
+        });
+      }
 
-    setShowModal(false);
+      setShowModal(false);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const filtered = ingredients.filter((ing) => {

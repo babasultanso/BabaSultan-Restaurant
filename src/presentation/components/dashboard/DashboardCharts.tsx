@@ -31,13 +31,21 @@ export const SalesTrendChart: React.FC<{ orders: Order[] }> = ({ orders }) => {
   // Aggregate sales by date (or hours for today)
   const salesByDate: Record<string, { date: string; sales: number; profit: number; count: number }> = {};
 
-  orders.forEach(o => {
+  const completedOrders = orders.filter(o => {
+    const st = String(o.status || '').toLowerCase();
+    const prep = String(o.prepStatus || '').toLowerCase();
+    return st === 'completed' || st === 'delivered' || prep === 'delivered';
+  });
+
+  completedOrders.forEach(o => {
     const dateStr = o.createdAt ? new Date(o.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric' }) : 'Today';
     if (!salesByDate[dateStr]) {
       salesByDate[dateStr] = { date: dateStr, sales: 0, profit: 0, count: 0 };
     }
-    salesByDate[dateStr].sales += o.totalAmount || 0;
-    salesByDate[dateStr].profit += o.profit || ((o.totalAmount || 0) - (o.cogs || 0));
+    const amt = Number(o.totalAmount) || 0;
+    const cogsVal = Number(o.cogs ?? (o as any).costOfGoodsSold) || 0;
+    salesByDate[dateStr].sales += amt;
+    salesByDate[dateStr].profit += typeof o.profit === 'number' && !Number.isNaN(o.profit) ? o.profit : (amt - cogsVal);
     salesByDate[dateStr].count += 1;
   });
 
@@ -92,9 +100,14 @@ export const SalesTrendChart: React.FC<{ orders: Order[] }> = ({ orders }) => {
 
 export const ProfitExpenseChart: React.FC<{ orders: Order[]; expenses: Expense[] }> = ({ orders, expenses }) => {
   const { t } = useAuth();
-  const totalRev = orders.reduce((s, o) => s + (o.totalAmount || 0), 0);
-  const totalExp = expenses.reduce((s, e) => s + (e.amount || 0), 0);
-  const cogs = orders.reduce((s, o) => s + (o.cogs || 0), 0);
+  const completedOrders = orders.filter(o => {
+    const st = String(o.status || '').toLowerCase();
+    const prep = String(o.prepStatus || '').toLowerCase();
+    return st === 'completed' || st === 'delivered' || prep === 'delivered';
+  });
+  const totalRev = completedOrders.reduce((s, o) => s + (Number(o.totalAmount) || 0), 0);
+  const totalExp = expenses.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  const cogs = completedOrders.reduce((s, o) => s + (Number(o.cogs ?? (o as any).costOfGoodsSold) || 0), 0);
   const netProfit = totalRev - totalExp - cogs;
 
   const data = [

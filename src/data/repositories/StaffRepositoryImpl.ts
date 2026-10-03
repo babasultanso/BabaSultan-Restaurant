@@ -14,11 +14,37 @@ export class StaffRepositoryImpl implements IStaffRepository {
         : query(collection(db, COLLECTIONS.EMPLOYEES), where('branchId', '==', effectiveBranch));
       const snap = await getDocs(q);
       const list: Employee[] = [];
+      let isPrivilegedViewer = true;
+      let viewerUid = '';
+      let viewerEmpId = '';
+      let viewerEmail = '';
+      if (typeof window !== 'undefined') {
+        try {
+          const stored = localStorage.getItem('user_profile');
+          if (stored) {
+            const u = JSON.parse(stored);
+            const role = String(u?.role || '').trim().toLowerCase();
+            isPrivilegedViewer = ['owner', 'admin', 'manager', 'accountant'].includes(role) || u?.isOwner === true || u?.isAdmin === true;
+            viewerUid = String(u?.id || u?.uid || '').trim();
+            viewerEmpId = String(u?.employeeId || '').trim();
+            viewerEmail = String(u?.email || '').trim().toLowerCase();
+          }
+        } catch {}
+      }
       snap.forEach(d => {
         const data = d.data();
+        if (data.isDeleted || data.isArchived || data.status === 'deleted') return;
         const empName = data.fullName || data.name || 'Unnamed Employee';
-        const empRole = data.role || data.jobTitle || 'Staff';
+        const empRole = data.role || data.jobTitle || (data as any).position || 'Staff';
+        const canViewSensitive = isPrivilegedViewer ||
+          (viewerUid !== '' && (d.id === viewerUid || data.userId === viewerUid || data.uid === viewerUid)) ||
+          (viewerEmpId !== '' && d.id === viewerEmpId) ||
+          (viewerEmail !== '' && String(data.email || '').trim().toLowerCase() === viewerEmail);
+        const normalizedFreq = ['daily', 'weekly', 'monthly'].includes(String(data.payFrequency || '').toLowerCase())
+          ? String(data.payFrequency).toLowerCase()
+          : 'monthly';
         list.push({
+          ...data,
           id: d.id,
           employeeId: data.employeeId || d.id,
           fullName: empName,
@@ -27,22 +53,23 @@ export class StaffRepositoryImpl implements IStaffRepository {
           phone: data.phone || '',
           role: empRole as any,
           jobTitle: empRole,
-          salary: Number(data.salary) || 0,
-          payFrequency: ['daily', 'weekly', 'monthly'].includes(String(data.payFrequency || '').toLowerCase()) ? String(data.payFrequency).toLowerCase() : 'monthly',
+          position: empRole,
+          salary: canViewSensitive ? (Number(data.salary) || 0) : 0,
+          payFrequency: normalizedFreq,
           status: data.status || 'active',
           employmentStatus: data.employmentStatus || 'Active',
           department: data.department || 'Operations',
           branch: data.branch || data.branchId || '',
           branchId: data.branchId || data.branch || '',
-          nationalIdOrPassport: data.nationalIdOrPassport || '',
+          nationalIdOrPassport: canViewSensitive ? (data.nationalIdOrPassport || data.nationalId || '') : '',
+          bankAccount: canViewSensitive ? data.bankAccount : undefined,
           address: data.address || '',
           dateOfBirth: data.dateOfBirth || '',
           gender: data.gender || '',
           nationality: data.nationality || '',
           hireDate: data.hireDate || getMogadishuDateString(),
           emergencyContact: data.emergencyContact || { name: '', relationship: '', phone: '' },
-          createdAt: data.createdAt || new Date().toISOString(),
-          ...data
+          createdAt: data.createdAt || new Date().toISOString()
         } as Employee);
       });
       return list;
@@ -62,6 +89,7 @@ export class StaffRepositoryImpl implements IStaffRepository {
       const list: Supplier[] = [];
       snap.forEach(d => {
         const data = d.data();
+        if (data.isDeleted || data.isArchived || data.isActive === false || data.status === 'deleted') return;
         const sName = data.name || data.companyName || 'Unnamed Supplier';
         list.push({
           id: d.id,
@@ -100,10 +128,11 @@ export class StaffRepositoryImpl implements IStaffRepository {
 
   async createEmployee(payload: NewEmployeePayload): Promise<Employee> {
     const now = new Date().toISOString();
+    const entropy = `${Date.now().toString(36).slice(-4)}${Math.random().toString(36).slice(2, 4)}`.toUpperCase();
     const data = {
       fullName: payload.name,
       name: payload.name,
-      employeeId: `EMP-${Math.floor(1000 + Math.random() * 9000)}`,
+      employeeId: `EMP-${entropy}`,
       email: payload.email || '',
       phone: '',
       address: '',
@@ -113,6 +142,7 @@ export class StaffRepositoryImpl implements IStaffRepository {
       nationality: '',
       hireDate: now.split('T')[0],
       jobTitle: payload.role || 'Staff',
+      position: payload.role || 'Staff',
       department: 'Operations',
       branch: getEffectiveBranchId(),
       branchId: getEffectiveBranchId(),
@@ -120,11 +150,14 @@ export class StaffRepositoryImpl implements IStaffRepository {
       status: 'active',
       role: (payload.role as any) || 'Employee',
       salary: Number(payload.salary) || 0,
+      baseSalary: Number(payload.salary) || 0,
       payFrequency: payload.payFrequency || 'monthly',
       totalSales: 0,
       ordersCount: 0,
       emergencyContact: { name: '', relationship: '', phone: '' },
-      createdAt: now
+      createdAt: now,
+      updatedAt: now,
+      isDeleted: false
     };
     const docRef = await addDoc(collection(db, COLLECTIONS.EMPLOYEES), data);
     return { id: docRef.id, ...data };
@@ -132,12 +165,17 @@ export class StaffRepositoryImpl implements IStaffRepository {
 
   async createSupplier(payload: NewSupplierPayload): Promise<Supplier> {
     const branchId = getEffectiveBranchId(payload.branchId || (payload as any).branch);
+    const sName = payload.name || (payload as any).companyName || 'Supplier';
+    const contact = payload.contactPerson || (payload as any).contactName || '';
     const data = {
       // Supplier balances are server-derived from purchases/payments, never client-provided.
-      name: payload.name,
-      contactPerson: payload.contactPerson,
-      phone: payload.phone,
-      itemsSupplied: payload.itemsSupplied,
+      name: sName,
+      companyName: (payload as any).companyName || sName,
+      contactPerson: contact,
+      contactName: contact,
+      phone: payload.phone || '',
+      itemsSupplied: payload.itemsSupplied || '',
+      category: payload.itemsSupplied || (payload as any).category || 'General Supplies',
       branchId,
       branch: (payload as any).branch || branchId,
       pendingAmount: 0,

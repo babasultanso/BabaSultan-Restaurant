@@ -52,11 +52,13 @@ export interface Employee {
   nationality: string;
   hireDate: string;
   jobTitle: string;
+  position?: string; // Legacy field compatibility
   department: string;
   branchId?: string; // Authoritative branch identifier
   branch: string; // Branch name or code
   employmentStatus: EmploymentStatus;
   status?: string; // Legacy status compatibility
+  isDeleted?: boolean;
   role: EmployeeRole;
   systemRole?: string;
   salary: number;

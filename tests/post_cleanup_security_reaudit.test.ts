@@ -191,5 +191,39 @@ describe('POST-CLEANUP SECURITY RE-AUDIT MATRIX', () => {
       expect(moveBranch.allowed).toBe(false);
       expect(moveBranch.error).toMatch(/Admin cannot move user across branches/i);
     });
+
+    it('Enforces existing resource branch check and branchId immutability on operational collection updates in firestore.rules', async () => {
+      const fs = await import('node:fs');
+      const rules = fs.readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
+      for (const col of [
+        'delivery_drivers',
+        'kitchen_stations',
+        'stations',
+        'reservations',
+        'dining_tables',
+        'tables',
+        'delivery_zones',
+        'hold_orders',
+        'categories',
+        'unit_conversions',
+        'stock_counts',
+        'shifts',
+        'employee_documents',
+        'performance',
+        'equipment_items'
+      ]) {
+        const marker = `match /${col}/`;
+        const start = rules.indexOf(marker);
+        expect(start).toBeGreaterThanOrEqual(0);
+        const next = rules.indexOf('\n    match /', start + marker.length);
+        const block = rules.slice(start, next >= 0 ? next : rules.length);
+        if (block.includes('allow write: if false;')) {
+          expect(block).toContain('allow write: if false;');
+        } else {
+          expect(block).toContain("isUserBranch(resource.data.get('branchId', ''))");
+          expect(block).toContain("request.resource.data.get('branchId', '') == resource.data.get('branchId', '')");
+        }
+      }
+    });
   });
 });

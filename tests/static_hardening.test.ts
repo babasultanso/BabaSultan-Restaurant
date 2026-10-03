@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { calculateCEOAnalytics } from '../src/lib/ceoAnalytics';
 
 describe('Static hardening guards', () => {
   it('requires an explicit Firebase project ID in production builds', () => {
@@ -274,3 +275,63 @@ it('removed direct client privilege writers', () => {
   expect(userView).toContain('/api/users/admin-update');
   expect(authContext).toContain('// Only write non-security session metadata from the client.');
 });
+
+it('uses rules-compliant soft-delete rollback for ingredients and server endpoints for product_options', () => {
+  const recipeRepo = readFileSync(new URL('../src/data/repositories/RecipeRepositoryImpl.ts', import.meta.url), 'utf8');
+  const firebaseLib = readFileSync(new URL('../src/lib/firebase.ts', import.meta.url), 'utf8');
+  const dockerfile = readFileSync(new URL('../Dockerfile', import.meta.url), 'utf8');
+  expect(recipeRepo).not.toContain('await deleteDoc(ref)');
+  expect(recipeRepo).toContain("status: 'deleted'");
+  expect(recipeRepo).toContain('throw err;');
+  expect(firebaseLib).toContain("getApiUrl('/api/product-options')");
+  expect(dockerfile).toContain('FROM node:22-bookworm-slim');
+  expect(dockerfile).toContain('CMD ["node", "dist/server.cjs"]');
+});
+
+it('reconciles refunded orders, cogsReversed, and soft-deleted ingredients in BIAnalyticsDashboard, SpecializedReportModule, and CEO analytics', () => {
+  const biSource = readFileSync(new URL('../src/presentation/components/reports/BIAnalyticsDashboard.tsx', import.meta.url), 'utf8');
+  const specSource = readFileSync(new URL('../src/presentation/components/reports/SpecializedReportModule.tsx', import.meta.url), 'utf8');
+  expect(biSource).toContain("status === 'refunded'");
+  expect(biSource).toContain('cogsReversed');
+  expect(biSource).toContain('!(i as any).deletedAt && !(i as any).isDeleted');
+  expect(specSource).toContain("status === 'refunded'");
+  expect(specSource).toContain('cogsReversed');
+  expect(specSource).toContain('taxReversed');
+  expect(specSource).toContain('!(i as any).deletedAt && !(i as any).isDeleted');
+
+  const todayIso = new Date().toISOString();
+  const intel = calculateCEOAnalytics({
+    orders: [
+      { id: 'o1', orderNumber: '101', totalAmount: 100, cogs: 30, status: 'completed', paymentStatus: 'paid', createdAt: todayIso, items: [] } as any,
+      { id: 'o2', orderNumber: '102', totalAmount: 50, cogs: 15, status: 'refunded', paymentStatus: 'refunded', createdAt: todayIso, items: [] } as any
+    ],
+    refunds: [
+      { id: 'r1', orderId: 'o2', amount: 50, cogsReversed: 15, createdAt: todayIso } as any
+    ],
+    products: [],
+    ingredients: [
+      { id: 'i_active', name: 'Active Flour', stock: 10, costPerUnit: 4, minStockAlert: 2 } as any,
+      { id: 'i_deleted', name: 'Deleted Sugar', stock: 50, costPerUnit: 5, minStockAlert: 2, isDeleted: true, deletedAt: todayIso } as any
+    ],
+    expenses: [],
+    purchases: [],
+    employees: [],
+    salaries: [],
+    suppliers: [],
+    drivers: [],
+    stations: [],
+    attendance: [],
+    reservations: [],
+    branches: [],
+    feedbacks: [],
+    equipment: [],
+    bankTransactions: []
+  });
+  // Gross Revenue = 150, Refunds = 50 -> Today Revenue = 100. Gross COGS = 45, cogsReversed = 15 -> Today COGS = 30. Today Profit = 70.
+  expect(intel.executiveBriefing.todayRevenue).toBe(100);
+  expect(intel.executiveBriefing.todayProfit).toBe(70);
+  // Active Flour only: 10 * 4 = 40 (Deleted Sugar excluded)
+  expect(intel.executiveBriefing.totalInventoryValuation).toBe(40);
+});
+
+

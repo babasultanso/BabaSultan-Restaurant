@@ -16,6 +16,7 @@ import {
   Product, 
   Customer, 
   SalaryPayment,
+  CustomerRefund,
   Language 
 } from '../../../types';
 import { 
@@ -106,10 +107,11 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
   language
 }) => {
   const { userRecord, language: authLang, role, t } = useAuth();
-  const isManagementRole = ['Owner', 'owner', 'Admin', 'admin', 'Manager', 'manager'].includes(role || '');
-  const canManageBranches = role === 'Owner' || role === 'owner' || userRecord?.isHQ === true || ((role === 'Admin' || role === 'admin') && userRecord?.branchId === 'all');
-  const canCreateBranchTransfer = role === 'Owner' || role === 'owner' || userRecord?.isHQ === true || ((role === 'Admin' || role === 'admin') && userRecord?.branchId === 'all');
-  const canApproveTransfers = ['Owner', 'owner', 'Admin', 'admin', 'Manager', 'manager', 'Accountant', 'accountant'].includes(role || '');
+  const normalizedRole = (role || '').toLowerCase();
+  const isManagementRole = ['owner', 'admin', 'manager'].includes(normalizedRole);
+  const canManageBranches = normalizedRole === 'owner' || userRecord?.isHQ === true || (normalizedRole === 'admin' && userRecord?.branchId === 'all');
+  const canCreateBranchTransfer = normalizedRole === 'owner' || userRecord?.isHQ === true || (normalizedRole === 'admin' && userRecord?.branchId === 'all');
+  const canApproveTransfers = ['owner', 'admin', 'manager', 'accountant'].includes(normalizedRole);
   const activeLang = (language || authLang || 'en') as Language;
   const [currentLang, setCurrentLang] = useState<Language>(activeLang);
 
@@ -129,6 +131,7 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
   const [products, setProducts] = useState<Product[]>(initialProducts);
   const [customers, setCustomers] = useState<Customer[]>(initialCustomers);
   const [salaries, setSalaries] = useState<SalaryPayment[]>(initialSalaries);
+  const [refunds, setRefunds] = useState<CustomerRefund[]>([]);
   const [transfers, setTransfers] = useState<BranchTransfer[]>([]);
 
   // Selected Branch for Individual Branch Dashboard
@@ -265,6 +268,10 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
       ? query(collection(db, COLLECTIONS.SALARIES), where('branchId', '==', userBranch))
       : query(collection(db, COLLECTIONS.SALARIES));
 
+    const refundsQuery = isBranchScoped
+      ? query(collection(db, COLLECTIONS.REFUNDS), where('branchId', '==', userBranch))
+      : query(collection(db, COLLECTIONS.REFUNDS));
+
     const unsubBranches = onSnapshot(query(collection(db, COLLECTIONS.BRANCHES)), (snap) => {
       const list: Branch[] = [];
       snap.forEach((d) => list.push(normalizeBranch(d.id, d.data())));
@@ -298,12 +305,18 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
       setSalaries(list);
     }, handleBranchErr);
 
+    const unsubRefunds = onSnapshot(refundsQuery, (snap) => {
+      const list: CustomerRefund[] = [];
+      snap.forEach((d) => list.push({ id: d.id, ...d.data() } as CustomerRefund));
+      setRefunds(list);
+    }, handleBranchErr);
+
     const transferSnapshot = (snap: any, bucket: Map<string, BranchTransfer>) => {
       snap.forEach((d: any) => bucket.set(d.id, { id: d.id, ...d.data() } as BranchTransfer));
       setTransfers(Array.from(bucket.values()));
     };
     const transferBucket = new Map<string, BranchTransfer>();
-    const transferQueries = (role === 'Owner' || role === 'owner' || userRecord?.isHQ === true || ((role === 'Admin' || role === 'admin') && userRecord?.branchId === 'all'))
+    const transferQueries = (userRoleStr === 'owner' || userRecord?.isHQ === true || (userRoleStr === 'admin' && userRecord?.branchId === 'all'))
       ? [query(collection(db, COLLECTIONS.BRANCH_TRANSFERS))]
       : [
           query(collection(db, COLLECTIONS.BRANCH_TRANSFERS), where('sourceBranchId', '==', String(userRecord?.branchId || userRecord?.branch || ''))),
@@ -317,12 +330,14 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
       unsubExpenses();
       unsubEmployees();
       unsubSalaries();
+      unsubRefunds();
       unsubTransferFns.forEach((unsub) => unsub());
     };
   }, [role, userRecord?.branchId, userRecord?.branch]);
 
   const visibleBranches = useMemo(() => {
-    if (role === 'Owner' || role === 'owner' || userRecord?.isHQ === true || (role === 'Admin' || role === 'admin') && userRecord?.branchId === 'all') {
+    const curRole = (role || '').toLowerCase();
+    if (curRole === 'owner' || userRecord?.isHQ === true || (curRole === 'admin' && userRecord?.branchId === 'all')) {
       return branches;
     }
     const activeBranchId = String(userRecord?.branchId || userRecord?.branch || '').trim();
@@ -346,9 +361,10 @@ export const BranchManagementView: React.FC<BranchManagementViewProps> = ({
       products,
       customers,
       transfers,
-      salaries
+      salaries,
+      refunds
     });
-  }, [visibleBranches, orders, expenses, employees, ingredients, products, customers, transfers, salaries]);
+  }, [visibleBranches, orders, expenses, employees, ingredients, products, customers, transfers, salaries, refunds]);
 
   // Selected Branch Data for Individual Dashboard
   const currentBranch = useMemo(() => {

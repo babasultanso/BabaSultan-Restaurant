@@ -8,6 +8,7 @@ import {
   PurchaseOrder,
   Supplier,
   SupplierPayment,
+  PurchaseReturn,
   InventoryAlert
 } from '../../../domain/entities/inventory';
 import { InventoryRepositoryImpl } from '../../../data/repositories/InventoryRepositoryImpl';
@@ -20,6 +21,10 @@ import { PurchaseOrdersView } from './PurchaseOrdersView';
 import { GoodsReceivingView } from './GoodsReceivingView';
 import { SupplierListView } from './SupplierListView';
 import { InventoryReportsView } from './InventoryReportsView';
+import { InventoryCountView } from '../recipe/InventoryCountView';
+import { RecipeRepositoryImpl } from '../../../data/repositories/RecipeRepositoryImpl';
+import { RecipeController } from '../../../controllers/RecipeController';
+import { StockCount, Ingredient } from '../../../domain/entities/recipe';
 
 import {
   LayoutDashboard,
@@ -33,7 +38,8 @@ import {
   Bell,
   X,
   AlertTriangle,
-  RefreshCw
+  RefreshCw,
+  ClipboardCheck
 } from 'lucide-react';
 
 interface InventoryManagementSystemProps {
@@ -67,14 +73,34 @@ export const InventoryManagementSystem: React.FC<InventoryManagementSystemProps>
 
   // Active Tab
   const [activeTab, setActiveTab] = useState<
-    'dashboard' | 'list' | 'movements' | 'purchases' | 'receiving' | 'suppliers' | 'reports'
+    'dashboard' | 'list' | 'movements' | 'purchases' | 'receiving' | 'suppliers' | 'counts' | 'reports'
   >('dashboard');
 
   // Firestore Subscriptions State
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [movements, setMovements] = useState<InventoryMovement[]>([]);
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
+  const [purchaseReturns, setPurchaseReturns] = useState<PurchaseReturn[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [stockCounts, setStockCounts] = useState<StockCount[]>([]);
+  const [recipeIngredients, setRecipeIngredients] = useState<Ingredient[]>([]);
+  const recipeRepo = useMemo(() => new RecipeRepositoryImpl(), []);
+  const recipeController = useMemo(() => new RecipeController(recipeRepo), [recipeRepo]);
+
+  const loadPurchaseReturnsAndCounts = async () => {
+    try {
+      const [rets, counts, ings] = await Promise.all([
+        controller.getPurchaseReturns(effectiveBranchId),
+        recipeRepo.fetchStockCounts(),
+        recipeRepo.fetchIngredients()
+      ]);
+      setPurchaseReturns(rets);
+      setStockCounts(counts);
+      setRecipeIngredients(ings);
+    } catch (e) {
+      console.warn('Error loading purchase returns / stock counts:', e);
+    }
+  };
 
   // Quick Movement Modal
   const [quickMovType, setQuickMovType] = useState<
@@ -90,6 +116,7 @@ export const InventoryManagementSystem: React.FC<InventoryManagementSystemProps>
     const unsubMovements = controller.subscribeMovements(setMovements, effectiveBranchId);
     const unsubPOs = controller.subscribePurchaseOrders(setPurchaseOrders, effectiveBranchId);
     const unsubSuppliers = controller.subscribeSuppliers(setSuppliers, effectiveBranchId);
+    loadPurchaseReturnsAndCounts();
 
     return () => {
       unsubItems();
@@ -249,6 +276,17 @@ export const InventoryManagementSystem: React.FC<InventoryManagementSystemProps>
           </button>
 
           <button
+            onClick={() => setActiveTab('counts')}
+            className={`px-4 py-2.5 rounded-2xl text-xs font-bold transition cursor-pointer flex items-center gap-2 shrink-0 ${
+              activeTab === 'counts'
+                ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20 font-black'
+                : 'bg-slate-950 text-slate-400 hover:text-white hover:bg-slate-800/60'
+            }`}
+          >
+            <ClipboardCheck className="w-4 h-4" /> {translateRawUi('Physical Stock Count')}
+          </button>
+
+          <button
             onClick={() => setActiveTab('reports')}
             className={`px-4 py-2.5 rounded-2xl text-xs font-bold transition cursor-pointer flex items-center gap-2 shrink-0 ${
               activeTab === 'reports'
@@ -310,6 +348,7 @@ export const InventoryManagementSystem: React.FC<InventoryManagementSystemProps>
         {activeTab === 'purchases' && (
           <PurchaseOrdersView
             purchaseOrders={purchaseOrders}
+            purchaseReturns={purchaseReturns}
             suppliers={suppliers}
             inventoryItems={items}
             lang={lang}
@@ -319,6 +358,10 @@ export const InventoryManagementSystem: React.FC<InventoryManagementSystemProps>
             onNavigateToReceiving={(poId) => {
               setSelectedReceivingPOId(poId);
               setActiveTab('receiving');
+            }}
+            onCreatePurchaseReturn={async (ret) => {
+              await controller.createPurchaseReturn(ret);
+              await loadPurchaseReturnsAndCounts();
             }}
           />
         )}
@@ -344,6 +387,34 @@ export const InventoryManagementSystem: React.FC<InventoryManagementSystemProps>
             onUpdateSupplier={async (id, s) => { await controller.updateSupplier(id, s); }}
             onDeleteSupplier={async (id) => { await controller.deleteSupplier(id); }}
             onRecordPayment={async (p) => { await controller.recordSupplierPayment(p); }}
+          />
+        )}
+
+        {activeTab === 'counts' && (
+          <InventoryCountView
+            controller={recipeController}
+            ingredients={
+              recipeIngredients.length > 0
+                ? recipeIngredients
+                : items.map((it) => ({
+                    id: it.id,
+                    name: it.itemName,
+                    code: it.itemCode,
+                    category: it.category,
+                    purchaseUnit: it.unit,
+                    usageUnit: it.unit,
+                    conversionFactor: 1,
+                    purchaseCost: it.purchaseCost || 0,
+                    costPerUsageUnit: it.purchaseCost || 0,
+                    currentStockUsageUnit: it.currentQuantity || 0,
+                    minStockUsageUnit: it.minimumQuantity || 0,
+                    status: (it.status === 'out_of_stock' ? 'out_of_stock' : it.status === 'low_stock' ? 'low_stock' : 'in_stock') as Ingredient['status'],
+                    createdAt: it.createdAt,
+                    updatedAt: it.updatedAt
+                  }))
+            }
+            lang={lang}
+            currentUser={userRecord?.name || userRole}
           />
         )}
 

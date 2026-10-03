@@ -234,9 +234,37 @@ export const POSView: React.FC<POSViewProps> = ({ products, onOrderCompleted }) 
   const effectiveTaxRate = taxRatePercent ?? 0;
   const cartTotals = calculateCartTotals(cart, effectiveTaxRate, discountValue, discountType);
 
+  const isDirectStockTracked = (p: Product): boolean => {
+    if ((p as any).trackStock === true) return true;
+    if ((p as any).trackStock === false) return false;
+    const hasRecipe =
+      Boolean((p as any).activeRecipeId) ||
+      (Array.isArray((p as any).recipe) && (p as any).recipe.length > 0) ||
+      (Array.isArray(p.ingredients) && p.ingredients.length > 0);
+    if (hasRecipe) return false;
+    return typeof p.stock === 'number' && Number.isFinite(p.stock);
+  };
+
+  const isProductOutOfStock = (p: Product): boolean => {
+    if (
+      p.availabilityStatus === 'out_of_stock' ||
+      p.availabilityStatus === 'disabled' ||
+      (p as any).isAvailable === false ||
+      (p as any).isActive === false ||
+      (p as any).isDeleted === true ||
+      (p as any).isArchived === true
+    ) {
+      return true;
+    }
+    if (isDirectStockTracked(p)) {
+      return Number(p.stock ?? 0) <= 0;
+    }
+    return false;
+  };
+
   // Product Click Handler
   const handleProductClick = (product: Product) => {
-    if (product.stock <= 0 || product.availabilityStatus === 'out_of_stock' || product.availabilityStatus === 'disabled') {
+    if (isProductOutOfStock(product)) {
       return;
     }
 
@@ -248,7 +276,7 @@ export const POSView: React.FC<POSViewProps> = ({ products, onOrderCompleted }) 
       setCart(prev => {
         const existing = prev.find(i => i.product.id === product.id && !i.selectedOptions?.length);
         if (existing) {
-          if (existing.quantity >= product.stock) return prev;
+          if (isDirectStockTracked(product) && existing.quantity >= Number(product.stock ?? 0)) return prev;
           return prev.map(i =>
             i.product.id === product.id && !i.selectedOptions?.length
               ? { ...i, quantity: i.quantity + 1, totalPrice: (i.quantity + 1) * i.unitPrice }
@@ -297,7 +325,7 @@ export const POSView: React.FC<POSViewProps> = ({ products, onOrderCompleted }) 
           if (idx === index) {
             const newQty = item.quantity + delta;
             if (newQty <= 0) return null;
-            if (newQty > item.product.stock) return item;
+            if (isDirectStockTracked(item.product) && newQty > Number(item.product.stock ?? 0)) return item;
             return {
               ...item,
               quantity: newQty,
@@ -555,7 +583,8 @@ export const POSView: React.FC<POSViewProps> = ({ products, onOrderCompleted }) 
           {/* Product Catalog Cards Grid */}
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             {filteredProducts.map(p => {
-              const isOutOfStock = p.stock <= 0 || p.availabilityStatus === 'out_of_stock' || p.availabilityStatus === 'disabled';
+              const isOutOfStock = isProductOutOfStock(p);
+              const directStock = isDirectStockTracked(p);
               const itemsInCart = cart.filter(i => i.product.id === p.id);
               const totalCartQty = itemsInCart.reduce((s, i) => s + i.quantity, 0);
 
@@ -579,11 +608,11 @@ export const POSView: React.FC<POSViewProps> = ({ products, onOrderCompleted }) 
                       <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${
                         isOutOfStock
                           ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
-                          : p.stock <= (Number.isFinite(Number(p.minStockAlert)) ? Number(p.minStockAlert) : 0)
+                          : directStock && Number(p.stock ?? 0) <= (Number.isFinite(Number(p.minStockAlert)) ? Number(p.minStockAlert) : 0)
                           ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
                           : 'bg-emerald-500/10 text-emerald-400'
                       }`}>
-                        {isOutOfStock ? t.pos.outOfStock : `${p.stock} ${t.pos.leftInStock}`}
+                        {isOutOfStock ? t.pos.outOfStock : directStock ? `${p.stock} ${t.pos.leftInStock}` : 'Available'}
                       </span>
                     </div>
 

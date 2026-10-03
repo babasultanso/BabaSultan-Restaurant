@@ -1846,7 +1846,8 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       await db.collection('accounts').doc('bank_acc_branch_2').set({
         id: 'bank_acc_branch_2',
         balance: 1000,
-        branchId: 'branch_02'
+        branchId: 'branch_02',
+        type: 'bank'
       });
 
       const res = await request(app)

@@ -20,7 +20,7 @@ import {
   Building2,
   Calendar,
 } from 'lucide-react';
-import { Order, Product, Ingredient, Expense, Employee, Supplier, Purchase, Customer } from '../../../types';
+import { Order, Product, Ingredient, Expense, Employee, Supplier, Purchase, Customer, CustomerRefund, SalaryPayment } from '../../../types';
 import { downloadPDFReport, exportToExcel, exportToCSV, printReportWindow } from '../../../lib/reports';
 import { employeeMonthlyPayrollEquivalent } from '../../../lib/payroll';
 
@@ -48,6 +48,8 @@ interface SpecializedReportModuleProps {
   suppliers: Supplier[];
   purchases: Purchase[];
   customers: Customer[];
+  refunds?: CustomerRefund[];
+  salaries?: SalaryPayment[];
 }
 
 export const SpecializedReportModule: React.FC<SpecializedReportModuleProps> = ({
@@ -60,6 +62,8 @@ export const SpecializedReportModule: React.FC<SpecializedReportModuleProps> = (
   suppliers,
   purchases,
   customers,
+  refunds = [],
+  salaries = [],
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -74,7 +78,17 @@ export const SpecializedReportModule: React.FC<SpecializedReportModuleProps> = (
   const completedOrders = orders.filter((o) => {
     const status = String(o.status || '').toLowerCase();
     const prepStatus = String(o.prepStatus || '').toLowerCase();
-    return status === 'completed' || prepStatus === 'delivered';
+    const paymentStatus = String(o.paymentStatus || '').toLowerCase();
+    if (status === 'cancelled' || status === 'void') return false;
+    return (
+      status === 'completed' ||
+      status === 'delivered' ||
+      prepStatus === 'delivered' ||
+      status === 'refunded' ||
+      status === 'partially_refunded' ||
+      paymentStatus === 'refunded' ||
+      paymentStatus === 'partially_refunded'
+    );
   });
   const paidOrders = orders.filter(
     (o) => o.paymentStatus === 'paid' && (o.status as string) !== 'cancelled' && (o.status as string) !== 'void'
@@ -148,8 +162,8 @@ export const SpecializedReportModule: React.FC<SpecializedReportModuleProps> = (
     columns = ['Customer Name', 'Phone / Contact', 'Total Orders', 'Total Spend ($)', 'Loyalty Tier', 'Last Order Date'];
     rows = customers.map((c) => {
       const anyCust = c as any;
-      const custOrders = orders.filter((o) => o.customerName === c.name || o.customerId === c.id || (o.customerPhone && o.customerPhone === c.phone));
-      const ordersSpend = custOrders.reduce((s, o) => s + (o.totalAmount || 0), 0);
+      const custOrders = completedOrders.filter((o) => o.customerName === c.name || o.customerId === c.id || (o.customerPhone && o.customerPhone === c.phone));
+      const ordersSpend = custOrders.reduce((s, o) => s + (Number(o.totalAmount) || 0), 0);
       const recordedSpend = Number(c.totalSpending ?? c.totalSpent ?? anyCust.orderSummary?.totalSpent ?? 0);
       const totalSpend = Math.max(ordersSpend, recordedSpend);
       const totalOrdersCount = Math.max(custOrders.length, anyCust.orderSummary?.totalOrders || 0, c.totalOrders || 0);
@@ -168,9 +182,11 @@ export const SpecializedReportModule: React.FC<SpecializedReportModuleProps> = (
   } else if (reportType === 'inventory') {
     title = 'Inventory Asset Valuation & Stock Turnover Report';
     subtitle = 'Raw ingredient stock reserves, dish costs, supplier bindings and low stock alert triggers';
-    const totalIngVal = ingredients.reduce((s, i) => s + i.stock * i.costPerUnit, 0);
-    const totalProdVal = products.reduce((s, p) => s + p.stock * p.cost, 0);
-    const lowStockCount = ingredients.filter((i) => i.stock <= i.minStockAlert).length;
+    const activeIngredients = ingredients.filter((i) => !(i as any).deletedAt && !(i as any).isDeleted);
+    const activeProducts = products.filter((p) => !(p as any).deletedAt && !(p as any).isDeleted);
+    const totalIngVal = activeIngredients.reduce((s, i) => s + (Number(i.currentStockUsageUnit ?? i.stock) || 0) * (Number(i.costPerUsageUnit ?? i.costPerUnit ?? (i as any).unitCost) || 0), 0);
+    const totalProdVal = activeProducts.reduce((s, p) => s + (Number(p.stock) || 0) * (Number(p.cost ?? (p as any).costPrice) || 0), 0);
+    const lowStockCount = activeIngredients.filter((i) => (Number(i.currentStockUsageUnit ?? i.stock) || 0) <= (Number(i.minStockAlert) || 0)).length;
 
     summaryCards = [
       { label: 'Ingredients Valuation', value: `$${totalIngVal.toFixed(2)}`, color: 'text-emerald-400' },
@@ -180,15 +196,20 @@ export const SpecializedReportModule: React.FC<SpecializedReportModuleProps> = (
     ];
 
     columns = ['Ingredient Name', 'Category / Type', 'Current Stock', 'Min Alert', 'Unit Cost ($)', 'Total Asset Value ($)', 'Supplier'];
-    rows = ingredients.map((i) => [
-      i.name,
-      'Raw Kitchen Ingredient',
-      `${i.stock} ${i.unit}`,
-      `${i.minStockAlert} ${i.unit}`,
-      `$${i.costPerUnit.toFixed(2)}`,
-      `$${(i.stock * i.costPerUnit).toFixed(2)}`,
-      i.supplierName || 'Default Supplier',
-    ]);
+    rows = activeIngredients.map((i) => {
+      const stock = Number(i.currentStockUsageUnit ?? i.stock) || 0;
+      const unitCost = Number(i.costPerUsageUnit ?? i.costPerUnit ?? (i as any).unitCost) || 0;
+      const unitLabel = i.usageUnit || i.unit || '';
+      return [
+        i.name,
+        'Raw Kitchen Ingredient',
+        `${stock} ${unitLabel}`.trim(),
+        `${Number(i.minStockAlert) || 0} ${unitLabel}`.trim(),
+        `$${unitCost.toFixed(2)}`,
+        `$${(stock * unitCost).toFixed(2)}`,
+        i.supplierName || 'Default Supplier',
+      ];
+    });
   } else if (reportType === 'employees') {
     title = 'Employee Performance & Labor Cost Audit';
     subtitle = 'Staff sales contribution, total handled order volume, role rankings and salary disbursements';
@@ -311,58 +332,72 @@ export const SpecializedReportModule: React.FC<SpecializedReportModuleProps> = (
   } else if (reportType === 'revenue') {
     title = 'Gross Revenue & Tax Liability Audit';
     subtitle = 'Gross sales, tax computations, customer refunds and net revenue recognition';
-    const grossRev = completedOrders.reduce((s, o) => s + o.totalAmount, 0);
-    const taxVat = completedOrders.reduce((s, o) => s + (o.tax || 0), 0);
-    const netRev = grossRev - taxVat;
+    const grossRev = completedOrders.reduce((s, o) => s + (Number(o.totalAmount) || 0), 0);
+    const refundsTotal = refunds.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+    const reversedTax = refunds.reduce((s, r) => s + (Number((r as any).taxReversed) || 0), 0);
+    const taxVat = Math.max(0, completedOrders.reduce((s, o) => s + (Number(o.tax) || 0), 0) - reversedTax);
+    const netRev = grossRev - refundsTotal - taxVat;
 
     summaryCards = [
       { label: 'Gross Sales Revenue', value: `$${grossRev.toFixed(2)}`, color: 'text-emerald-400' },
+      { label: 'Customer Refunds', value: `-$${refundsTotal.toFixed(2)}`, color: 'text-rose-400' },
       { label: 'Recorded Tax / VAT', value: `$${taxVat.toFixed(2)}`, color: 'text-amber-400' },
       { label: 'Net Taxable Revenue', value: `$${netRev.toFixed(2)}`, color: 'text-indigo-400' },
     ];
 
     columns = ['Revenue Period / Order', 'Source Channel', 'Payment Method', 'Gross Sales ($)', 'Recorded Tax ($)', 'Net Revenue ($)'];
     rows = completedOrders.map((o) => {
+      const amt = Number(o.totalAmount) || 0;
       const orderTax = typeof o.tax === 'number' ? o.tax : 0;
-      const orderNet = o.totalAmount - orderTax;
+      const orderNet = amt - orderTax;
       return [
         o.orderNumber || o.id.slice(0, 6),
         (o.orderType || 'pos').toUpperCase(),
         (o.paymentMethod || 'cash').toUpperCase(),
-        `$${o.totalAmount.toFixed(2)}`,
+        `$${amt.toFixed(2)}`,
         `$${orderTax.toFixed(2)}`,
         `$${orderNet.toFixed(2)}`,
       ];
     });
   } else if (reportType === 'profit') {
     title = 'Gross & Net Profitability Audit';
-    subtitle = 'Revenue minus COGS, Operating Overhead, Labor costs and Net Income Margin breakdown';
-    const grossRev = completedOrders.reduce((s, o) => s + o.totalAmount, 0);
-    const cogs = completedOrders.reduce((s, o) => s + o.cogs, 0);
-    const exp = expenses.reduce((s, e) => s + e.amount, 0);
-    const grossProf = grossRev - cogs;
-    const netProf = grossProf - exp;
+    subtitle = 'Revenue minus Refunds, COGS, Operating Overhead, Labor costs and Net Income Margin breakdown';
+    const grossRev = completedOrders.reduce((s, o) => s + (Number(o.totalAmount) || 0), 0);
+    const refundsTotal = refunds.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+    const netRev = grossRev - refundsTotal;
+    const grossCogs = completedOrders.reduce((s, o) => s + (Number(o.cogs ?? (o as any).costOfGoodsSold) || 0), 0);
+    const reversedCogs = refunds.reduce((s, r) => s + (Number((r as any).cogsReversed) || 0), 0);
+    const cogs = Math.max(0, grossCogs - reversedCogs);
+    const exp = expenses.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+    const paidSalaries = salaries.filter((s) => s.status === 'paid').reduce((s, sal) => s + (Number(sal.amount) || 0), 0);
+    const totalOperatingAndLabor = exp + paidSalaries;
+    const grossProf = netRev - cogs;
+    const netProf = grossProf - totalOperatingAndLabor;
 
     summaryCards = [
-      { label: 'Gross Revenue', value: `$${grossRev.toFixed(2)}`, color: 'text-white' },
+      { label: 'Net Sales Revenue', value: `$${netRev.toFixed(2)}`, color: 'text-white' },
       { label: 'Cost of Goods Sold (COGS)', value: `-$${cogs.toFixed(2)}`, color: 'text-amber-400' },
       { label: 'Gross Operating Profit', value: `$${grossProf.toFixed(2)}`, color: 'text-emerald-400' },
-      { label: 'Net Profit Margin', value: `$${netProf.toFixed(2)} (${grossRev > 0 ? ((netProf / grossRev) * 100).toFixed(1) : 0}%)`, color: 'text-indigo-400' },
+      { label: 'Net Profit Margin', value: `$${netProf.toFixed(2)} (${netRev > 0 ? ((netProf / netRev) * 100).toFixed(1) : 0}%)`, color: 'text-indigo-400' },
     ];
 
     columns = ['Financial Line Item', 'Category Type', 'Amount ($USD)', 'Percentage of Revenue (%)'];
     rows = [
       ['Gross Sales Revenue', 'Revenue Inflow', `$${grossRev.toFixed(2)}`, '100.0%'],
-      ['Cost of Goods Sold (Raw Food COGS)', 'Direct Product Cost', `-$${cogs.toFixed(2)}`, `${grossRev > 0 ? ((cogs / grossRev) * 100).toFixed(1) : 0}%`],
-      ['Gross Operating Margin', 'Gross Profit', `$${grossProf.toFixed(2)}`, `${grossRev > 0 ? ((grossProf / grossRev) * 100).toFixed(1) : 0}%`],
-      ['Operating Expenses & Overhead', 'Operating Overhead', `-$${exp.toFixed(2)}`, `${grossRev > 0 ? ((exp / grossRev) * 100).toFixed(1) : 0}%`],
-      ['NET OPERATING PROFIT', 'Bottom-line Income', `$${netProf.toFixed(2)}`, `${grossRev > 0 ? ((netProf / grossRev) * 100).toFixed(1) : 0}%`],
+      ['Less: Customer Refunds', 'Revenue Contra', `-$${refundsTotal.toFixed(2)}`, `${grossRev > 0 ? ((refundsTotal / grossRev) * 100).toFixed(1) : 0}%`],
+      ['Net Sales Revenue', 'Net Revenue', `$${netRev.toFixed(2)}`, `${grossRev > 0 ? ((netRev / grossRev) * 100).toFixed(1) : 0}%`],
+      ['Cost of Goods Sold (Raw Food COGS)', 'Direct Product Cost', `-$${cogs.toFixed(2)}`, `${netRev > 0 ? ((cogs / netRev) * 100).toFixed(1) : 0}%`],
+      ['Gross Operating Margin', 'Gross Profit', `$${grossProf.toFixed(2)}`, `${netRev > 0 ? ((grossProf / netRev) * 100).toFixed(1) : 0}%`],
+      ['Operating Expenses & Paid Payroll', 'Operating Overhead', `-$${totalOperatingAndLabor.toFixed(2)}`, `${netRev > 0 ? ((totalOperatingAndLabor / netRev) * 100).toFixed(1) : 0}%`],
+      ['NET OPERATING PROFIT', 'Bottom-line Income', `$${netProf.toFixed(2)}`, `${netRev > 0 ? ((netProf / netRev) * 100).toFixed(1) : 0}%`],
     ];
   } else if (reportType === 'cashflow') {
     title = 'Cash Flow & Liquidity Movements Report';
-    subtitle = 'Direct cash inflows from sales, outflows for raw materials and operating expenses';
-    const cashIn = completedOrders.reduce((s, o) => s + o.totalAmount, 0);
-    const cashOut = expenses.reduce((s, e) => s + e.amount, 0) + purchases.reduce((s, p) => s + p.totalCost, 0);
+    subtitle = 'Direct cash inflows from sales, outflows for raw materials, refunds, salaries and operating expenses';
+    const cashIn = completedOrders.reduce((s, o) => s + (Number(o.totalAmount) || 0), 0);
+    const refundsOut = refunds.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+    const paidSalariesOut = salaries.filter((s) => s.status === 'paid').reduce((s, sal) => s + (Number(sal.amount) || 0), 0);
+    const cashOut = expenses.reduce((s, e) => s + (Number(e.amount) || 0), 0) + purchases.reduce((s, p) => s + (Number(p.totalCost) || 0), 0) + refundsOut + paidSalariesOut;
     const netCashFlow = cashIn - cashOut;
 
     summaryCards = [

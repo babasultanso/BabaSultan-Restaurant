@@ -5,6 +5,7 @@ import {
   PurchaseOrder,
   Supplier,
   SupplierPayment,
+  PurchaseReturn,
   InventoryAlert,
   InventoryValuationReport
 } from '../domain/entities/inventory';
@@ -56,9 +57,10 @@ export class InventoryController {
     itemId: string,
     newQuantity: number,
     reason: string,
-    adjustedBy: string
+    adjustedBy: string,
+    branchId?: string
   ): Promise<void> {
-    const items = await this.repo.fetchInventoryItems();
+    const items = await this.repo.fetchInventoryItems(branchId);
     const item = items.find((i) => i.id === itemId);
     if (!item) throw new Error('Inventory item not found');
 
@@ -75,7 +77,8 @@ export class InventoryController {
       previousQuantity: prevQty,
       newQuantity: newQuantity,
       reason: reason || 'Manual Stock Count / Adjustment',
-      createdBy: adjustedBy
+      createdBy: adjustedBy,
+      branchId: item.branchId || branchId
     });
   }
 
@@ -84,11 +87,14 @@ export class InventoryController {
     quantity: number,
     fromLocation: string,
     toLocation: string,
-    transferredBy: string
+    transferredBy: string,
+    branchId?: string
   ): Promise<void> {
-    const items = await this.repo.fetchInventoryItems();
+    const items = await this.repo.fetchInventoryItems(branchId);
     const item = items.find((i) => i.id === itemId);
     if (!item) throw new Error('Inventory item not found');
+    if (quantity <= 0) throw new Error('Transfer quantity must be positive');
+    if (item.currentQuantity < quantity) throw new Error(`Insufficient stock for transfer. Current: ${item.currentQuantity}, requested: ${quantity}`);
 
     await this.repo.updateInventoryItem(itemId, { storageLocation: toLocation });
 
@@ -103,7 +109,8 @@ export class InventoryController {
       toLocation,
       reason: `Stock Transfer from ${fromLocation} to ${toLocation}`,
       createdBy: transferredBy,
-      itemType: 'inventory'
+      itemType: 'inventory',
+      branchId: item.branchId || branchId
     });
   }
 
@@ -111,11 +118,13 @@ export class InventoryController {
     itemId: string,
     quantity: number,
     reason: string,
-    recordedBy: string
+    recordedBy: string,
+    branchId?: string
   ): Promise<void> {
-    const items = await this.repo.fetchInventoryItems();
+    const items = await this.repo.fetchInventoryItems(branchId);
     const item = items.find((i) => i.id === itemId);
     if (!item) throw new Error('Inventory item not found');
+    if (quantity <= 0) throw new Error('Waste quantity must be positive');
 
     const newQty = Math.max(0, item.currentQuantity - quantity);
 
@@ -131,7 +140,8 @@ export class InventoryController {
       newQuantity: newQty,
       reason: `Waste Logged: ${reason}`,
       cost: quantity * (item.purchaseCost || 0),
-      createdBy: recordedBy
+      createdBy: recordedBy,
+      branchId: item.branchId || branchId
     });
   }
 
@@ -156,6 +166,24 @@ export class InventoryController {
     return this.repo.receiveGoods(poId, receivedItems, receivedBy);
   }
 
+  async getPurchaseReturns(branchId?: string): Promise<PurchaseReturn[]> {
+    return this.repo.fetchPurchaseReturns(branchId);
+  }
+
+  async createPurchaseReturn(data: {
+    itemId: string;
+    supplierId?: string;
+    supplierName?: string;
+    poId?: string;
+    quantity: number;
+    unitCost?: number;
+    reason: string;
+    date?: string;
+    branchId?: string;
+  }): Promise<PurchaseReturn> {
+    return this.repo.createPurchaseReturn(data);
+  }
+
   // Suppliers
   async getSuppliers(): Promise<Supplier[]> {
     return this.repo.fetchSuppliers();
@@ -171,6 +199,10 @@ export class InventoryController {
 
   async deleteSupplier(id: string): Promise<void> {
     return this.repo.deleteSupplier(id);
+  }
+
+  async fetchSupplierPayments(supplierId?: string, branchId?: string, isHQ?: boolean): Promise<SupplierPayment[]> {
+    return this.repo.fetchSupplierPayments(supplierId, branchId, isHQ);
   }
 
   async recordSupplierPayment(payment: Omit<SupplierPayment, 'id' | 'createdAt'>): Promise<SupplierPayment> {

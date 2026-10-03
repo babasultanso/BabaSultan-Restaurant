@@ -41,14 +41,19 @@ export const AccountantView: React.FC<AccountantViewProps> = ({
   const { t } = useAuth();
   const d: Record<string, any> = t.dashboard || {};
 
-  // 1. Revenue Calculations
-  const grossRevenue = orders.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
-  const totalRefunds = refunds.reduce((sum, r) => sum + (r.amount || 0), 0);
+  // 1. Revenue Calculations (strictly completed/delivered orders)
+  const completedOrders = orders.filter(o => {
+    const st = String(o.status || '').toLowerCase();
+    const prep = String(o.prepStatus || '').toLowerCase();
+    return st === 'completed' || st === 'delivered' || prep === 'delivered';
+  });
+  const grossRevenue = completedOrders.reduce((sum, o) => sum + (Number(o.totalAmount) || 0), 0);
+  const totalRefunds = refunds.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
   const netRevenue = grossRevenue - totalRefunds;
 
   // 2. Expenses & COGS
-  const totalExpenses = expenses.reduce((sum, e) => sum + (e.amount || 0), 0);
-  const cogs = orders.reduce((sum, o) => sum + (o.cogs || 0), 0);
+  const totalExpenses = expenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+  const cogs = completedOrders.reduce((sum, o) => sum + (Number(o.cogs ?? (o as any).costOfGoodsSold) || 0), 0);
 
   // 3. Profit & Loss
   const grossProfit = netRevenue - cogs;
@@ -56,16 +61,20 @@ export const AccountantView: React.FC<AccountantViewProps> = ({
   const profitMargin = netRevenue > 0 ? (netProfit / netRevenue) * 100 : 0;
 
   // 4. Supplier Accounts Payable
-  const totalSupplierPending = suppliers.reduce((sum, s) => sum + (s.pendingAmount || 0), 0);
-  const totalSupplierOverdue = suppliers.reduce((sum, s) => sum + (s.overdueAmount || 0), 0);
+  const totalSupplierPending = suppliers.reduce((sum, s) => sum + (Number(s.pendingAmount) || 0), 0);
+  const totalSupplierOverdue = suppliers.reduce((sum, s) => sum + (Number(s.overdueAmount) || 0), 0);
 
-  // 5. Cash & Bank Balance
-  const cashBalance = accounts.find(a => String(a.type || '').toLowerCase() === 'cash' || String(a.accountType || '').toLowerCase() === 'cash' || String(a.code || '').startsWith('101'))?.balance ?? 0;
-  const bankBalance = accounts.find(a => String(a.type || '').toLowerCase() === 'bank' || String(a.accountType || '').toLowerCase() === 'bank' || String(a.code || '').startsWith('102'))?.balance ?? 0;
+  // 5. Cash & Bank Balance (sum all cash and bank accounts)
+  const cashBalance = accounts
+    .filter(a => String(a.type || '').toLowerCase() === 'cash' || String(a.accountType || '').toLowerCase() === 'cash' || String(a.code || '').startsWith('101'))
+    .reduce((sum, a) => sum + (Number(a.balance) || 0), 0);
+  const bankBalance = accounts
+    .filter(a => String(a.type || '').toLowerCase() === 'bank' || String(a.accountType || '').toLowerCase() === 'bank' || String(a.code || '').startsWith('102'))
+    .reduce((sum, a) => sum + (Number(a.balance) || 0), 0);
   const totalLiquidity = cashBalance + bankBalance;
 
   // Recorded Tax / VAT
-  const recordedVAT = orders.reduce((sum, o) => sum + (o.tax || 0), 0);
+  const recordedVAT = completedOrders.reduce((sum, o) => sum + (Number(o.tax) || 0), 0);
 
   // Receivables are sourced from the authoritative order lifecycle rather than a display-only constant.
   const pendingReceivables = orders

@@ -37,10 +37,15 @@ export const FinancialsView: React.FC<FinancialsViewProps> = ({
   const [description, setDescription] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
-  // Financial calculations
-  const totalRevenue = orders.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
-  const totalCOGS = orders.reduce((sum, o) => sum + (o.cogs || 0), 0);
-  const totalExpenses = expenses.reduce((sum, e) => sum + (e.amount || 0), 0);
+  // Financial calculations (strictly completed/delivered orders)
+  const completedOrders = orders.filter(o => {
+    const status = String(o.status || '').toLowerCase();
+    const prepStatus = String(o.prepStatus || '').toLowerCase();
+    return status === 'completed' || status === 'delivered' || prepStatus === 'delivered';
+  });
+  const totalRevenue = completedOrders.reduce((sum, o) => sum + (Number(o.totalAmount) || 0), 0);
+  const totalCOGS = completedOrders.reduce((sum, o) => sum + (Number(o.cogs ?? (o as any).costOfGoodsSold) || 0), 0);
+  const totalExpenses = expenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
   const netProfit = totalRevenue - totalExpenses - totalCOGS;
   const margin = totalRevenue > 0 ? ((netProfit / totalRevenue) * 100).toFixed(1) : '0.0';
 

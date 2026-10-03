@@ -103,7 +103,9 @@ export const ProductManagementView: React.FC = () => {
       : query(collection(db, collectionName), where('branchId', '==', branchId));
 
     const unsubProducts = onSnapshot(scopeQuery(COLLECTIONS.PRODUCTS), (snap) => {
-      const items = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Product));
+      const items = snap.docs
+        .map((d) => ({ id: d.id, ...d.data() } as Product))
+        .filter((p) => !(p as any).isDeleted && !(p as any).isArchived && (p as any).status !== 'deleted');
       setProducts(items);
       setLoading(false);
     }, (err) => {
@@ -113,7 +115,9 @@ export const ProductManagementView: React.FC = () => {
     });
 
     const unsubCategories = onSnapshot(scopeQuery(COLLECTIONS.CATEGORIES), (snap) => {
-      const items = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Category));
+      const items = snap.docs
+        .map((d) => ({ id: d.id, ...d.data() } as Category))
+        .filter((c) => !(c as any).isDeleted && !(c as any).isArchived && (c as any).isActive !== false && (c as any).status !== 'deleted');
       items.sort((a, b) => (a.order || 0) - (b.order || 0));
       setCategories(items);
     }, (err) => {
@@ -122,7 +126,9 @@ export const ProductManagementView: React.FC = () => {
     });
 
     const unsubIngredients = onSnapshot(scopeQuery(COLLECTIONS.INGREDIENTS), (snap) => {
-      const items = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Ingredient));
+      const items = snap.docs
+        .map((d) => ({ id: d.id, ...d.data() } as Ingredient))
+        .filter((ing) => !(ing as any).isDeleted && !(ing as any).isArchived && (ing as any).isActive !== false && (ing as any).status !== 'deleted');
       setIngredients(items);
     }, (err) => {
       console.warn('Ingredients snapshot error:', err);
@@ -158,7 +164,11 @@ export const ProductManagementView: React.FC = () => {
   // Metrics calculation
   const totalProducts = products.length;
   const activeProductsCount = products.filter((p) => p.availabilityStatus === 'enabled' || !p.availabilityStatus).length;
-  const lowStockCount = products.filter((p) => typeof p.minStockAlert === 'number' && p.stock <= p.minStockAlert).length;
+  const lowStockCount = products.filter((p) => {
+    const effectiveStock = Number(p.stock ?? p.currentStock ?? 0);
+    const effectiveMin = p.minStockLevel ?? p.minStockAlert;
+    return typeof effectiveMin === 'number' && effectiveStock <= effectiveMin;
+  }).length;
   const featuredCount = products.filter((p) => p.isFeatured).length;
 
   // Handlers
@@ -509,8 +519,8 @@ export const ProductManagementView: React.FC = () => {
                     </div>
                     <div>
                       <span className="block text-slate-500 text-[9px]">{translateRawUi('STOCK')}</span>
-                      <span className={`font-bold block ${product.stock <= (product.minStockAlert ?? 0) ? 'text-amber-400' : 'text-slate-300'}`}>
-                        {product.stock} {product.unit || 'Portion'}
+                      <span className={`font-bold block ${Number(product.stock ?? product.currentStock ?? 0) <= Number(product.minStockLevel ?? product.minStockAlert ?? 0) ? 'text-amber-400' : 'text-slate-300'}`}>
+                        {Number(product.stock ?? product.currentStock ?? 0)} {product.unit || 'Portion'}
                       </span>
                     </div>
                   </div>
@@ -629,8 +639,8 @@ export const ProductManagementView: React.FC = () => {
                       </td>
 
                       <td className="p-4 font-bold">
-                        <span className={p.stock <= (p.minStockAlert ?? 0) ? 'text-amber-400' : 'text-slate-200'}>
-                          {p.stock} {p.unit || '—'}
+                        <span className={Number(p.stock ?? p.currentStock ?? 0) <= Number(p.minStockLevel ?? p.minStockAlert ?? 0) ? 'text-amber-400' : 'text-slate-200'}>
+                          {Number(p.stock ?? p.currentStock ?? 0)} {p.unit || '—'}
                         </span>
                       </td>
 

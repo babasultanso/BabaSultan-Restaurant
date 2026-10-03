@@ -9,6 +9,9 @@ export class ProductService {
     isFeaturedOnly: boolean
   ): Product[] {
     return products.filter((p) => {
+      if ((p as any).isDeleted || (p as any).isArchived || (p as any).status === 'deleted') {
+        return false;
+      }
       // Category filter
       if (selectedCategory && selectedCategory !== 'all') {
         const matchesCategory = p.categoryId === selectedCategory || p.category === selectedCategory;

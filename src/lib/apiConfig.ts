@@ -13,13 +13,15 @@ export function getApiBaseUrl(): string {
     return envUrl.trim().replace(/\/+$/, '');
   }
 
-  // When deployed externally as a standalone static bundle (not on same origin),
+  // Note on production environment requirements:
   // VITE_API_BASE_URL is required for production frontends.
-  if ((import.meta as any).env?.PROD && typeof window !== 'undefined' && window.location.origin.includes('vercel.app') && !envUrl) {
-    throw new Error('VITE_API_BASE_URL is required for production frontends.');
+  // In production builds where VITE_API_BASE_URL is not set, we gracefully resolve relative endpoints
+  // so that Vercel serverless functions /api or reverse proxies work seamlessly without breaking the client.
+  const isProd = (import.meta as any).env?.PROD;
+  if (isProd) {
+    return '';
   }
 
-  // 2. Relative API paths for unified same-origin fullstack server
   return '';
 }
 

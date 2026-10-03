@@ -10,7 +10,8 @@ import {
   BankAccount,
   BankTransaction,
   TaxConfig,
-  FinancialStatements
+  FinancialStatements,
+  AccountingPeriod
 } from '../entities/accounting';
 
 export interface IAccountingRepository {
@@ -50,6 +51,7 @@ export interface IAccountingRepository {
   getBankAccounts(): Promise<BankAccount[]>;
   createBankAccount(account: Omit<BankAccount, 'id' | 'createdAt' | 'currentBalance'>, initialBalance?: number): Promise<BankAccount>;
   getBankTransactions(bankAccountId?: string, branchId?: string): Promise<BankTransaction[]>;
+  recordBankTransaction(txData: { bankAccountId: string; type: 'deposit' | 'withdrawal' | 'fee'; amount: number; reference?: string; description?: string; date?: string; branchId?: string }): Promise<any>;
   transferFunds(fromAccountId: string, toAccountId: string, amount: number, reference: string, description: string): Promise<void>;
   
   // Tax
@@ -59,4 +61,9 @@ export interface IAccountingRepository {
   
   // Financial Statements & Reports
   getFinancialStatements(startDate?: string, endDate?: string, branchId?: string): Promise<FinancialStatements>;
+
+  // Accounting Periods
+  getAccountingPeriods(branchId?: string): Promise<AccountingPeriod[]>;
+  saveAccountingPeriod(period: { id?: string; name: string; startDate: string; endDate: string; status: 'Open' | 'Closed' | 'Locked'; branchId?: string; notes?: string }): Promise<AccountingPeriod>;
+  updateAccountingPeriodStatus(id: string, status: 'Open' | 'Closed' | 'Locked'): Promise<AccountingPeriod>;
 }

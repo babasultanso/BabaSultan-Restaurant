@@ -43,8 +43,40 @@ interface SystemSettingsViewProps {
 export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({ language = 'en', onOpenSetupWizard, defaultTab }) => {
   const { t } = useAuth();
   const [activeTab, setActiveTab] = useState<
-    'general' | 'restaurant' | 'tax_currency' | 'localization' | 'printers_payment' | 'backup_recovery' | 'docs' | 'readiness' | 'developer_tools'
+    'general' | 'restaurant' | 'tax_currency' | 'localization' | 'printers_payment' | 'backup_recovery' | 'audit_logs' | 'docs' | 'readiness' | 'developer_tools'
   >((defaultTab as any) || 'general');
+
+  // Audit Logs State
+  const [auditLogs, setAuditLogs] = useState<any[]>([]);
+  const [isLoadingAudit, setIsLoadingAudit] = useState<boolean>(false);
+  const [auditSearch, setAuditSearch] = useState<string>('');
+  const [auditModuleFilter, setAuditModuleFilter] = useState<string>('all');
+
+  const loadAuditLogs = async () => {
+    setIsLoadingAudit(true);
+    try {
+      const token = await getAuthToken();
+      const branchId = getEffectiveBranchId();
+      const q = branchId && branchId !== 'all' ? `?branchId=${encodeURIComponent(branchId)}&limit=300` : '?limit=300';
+      const resp = await fetch(getApiUrl(`/api/audit/logs${q}`), {
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        setAuditLogs(Array.isArray(data.logs) ? data.logs : []);
+      }
+    } catch (e) {
+      console.warn('Failed to fetch audit logs:', e);
+    } finally {
+      setIsLoadingAudit(false);
+    }
+  };
+
+  React.useEffect(() => {
+    if (activeTab === 'audit_logs') {
+      loadAuditLogs();
+    }
+  }, [activeTab]);
 
   // General Settings State
   const [generalSettings, setGeneralSettings] = useState({
@@ -293,6 +325,17 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({ language
           </button>
 
           <button
+            onClick={() => setActiveTab('audit_logs')}
+            className={`px-4 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+              activeTab === 'audit_logs'
+                ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20 font-black'
+                : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800/80'
+            }`}
+          >
+            <FileText className="w-4 h-4 text-amber-400" /> {translateRawUi('Audit & Security Logs')}
+          </button>
+
+          <button
             onClick={() => setActiveTab('docs')}
             className={`px-4 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
               activeTab === 'docs'
@@ -319,6 +362,134 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({ language
       {/* TAB: DEVELOPER TOOLS & SYSTEM DIAGNOSTICS */}
       {activeTab === 'developer_tools' && (
         <DeveloperSystemDiagnosticsView language={language} />
+      )}
+
+      {/* TAB: ENTERPRISE AUDIT & SECURITY LOGS */}
+      {activeTab === 'audit_logs' && (
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-5 shadow-xl">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+            <div>
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <ShieldCheck className="w-5 h-5 text-amber-400" />
+                {translateRawUi('Enterprise Audit Trail & Security Event Ledger')}
+              </h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                {translateRawUi('Immutable record of financial mutations, period locks, stock adjustments, purchase returns, and user actions.')}
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="text"
+                value={auditSearch}
+                onChange={(e) => setAuditSearch(e.target.value)}
+                placeholder={translateRawUi('Search action, user, details...')}
+                className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white"
+              />
+              <select
+                value={auditModuleFilter}
+                onChange={(e) => setAuditModuleFilter(e.target.value)}
+                className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white"
+              >
+                <option value="all">{translateRawUi('All Modules')}</option>
+                {Array.from(new Set(auditLogs.map((l) => l.module || 'System'))).map((m) => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+              </select>
+              <button
+                onClick={loadAuditLogs}
+                className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isLoadingAudit ? 'animate-spin' : ''}`} />
+                <span>{translateRawUi('Refresh')}</span>
+              </button>
+              <button
+                onClick={() => {
+                  if (auditLogs.length === 0) return;
+                  exportToExcel(
+                    'Enterprise_Audit_Logs',
+                    ['Timestamp', 'Action', 'Module', 'User', 'Role', 'Branch', 'Details'],
+                    auditLogs.map((l) => [
+                      String(l.timestamp || ''),
+                      String(l.action || ''),
+                      String(l.module || ''),
+                      String(l.userName || ''),
+                      String(l.userRole || ''),
+                      String(l.branchId || ''),
+                      String(l.details || '')
+                    ])
+                  );
+                }}
+                className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-extrabold cursor-pointer"
+              >
+                {translateRawUi('Export CSV')}
+              </button>
+            </div>
+          </div>
+
+          {isLoadingAudit ? (
+            <div className="py-12 text-center text-xs text-slate-400">{translateRawUi('Loading authoritative audit logs...')}</div>
+          ) : (
+            <div className="overflow-x-auto max-h-[520px] overflow-y-auto">
+              <table className="w-full text-left text-xs text-slate-300">
+                <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] font-bold border-b border-slate-800 sticky top-0">
+                  <tr>
+                    <th className="py-3 px-4">{translateRawUi('Timestamp')}</th>
+                    <th className="py-3 px-4">{translateRawUi('Action')}</th>
+                    <th className="py-3 px-4">{translateRawUi('Module')}</th>
+                    <th className="py-3 px-4">{translateRawUi('User')}</th>
+                    <th className="py-3 px-4">{translateRawUi('Branch')}</th>
+                    <th className="py-3 px-4">{translateRawUi('Details')}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60">
+                  {auditLogs
+                    .filter((l) => {
+                      if (auditModuleFilter !== 'all' && l.module !== auditModuleFilter) return false;
+                      if (!auditSearch.trim()) return true;
+                      const q = auditSearch.toLowerCase();
+                      return (
+                        (l.action || '').toLowerCase().includes(q) ||
+                        (l.userName || '').toLowerCase().includes(q) ||
+                        (l.details || '').toLowerCase().includes(q) ||
+                        (l.entityId || '').toLowerCase().includes(q)
+                      );
+                    })
+                    .map((log) => (
+                      <tr key={log.id} className="hover:bg-slate-800/40 transition">
+                        <td className="py-3 px-4 font-mono text-[11px] text-slate-400 whitespace-nowrap">
+                          {log.timestamp ? new Date(log.timestamp).toLocaleString() : '-'}
+                        </td>
+                        <td className="py-3 px-4 font-mono font-bold text-amber-400 whitespace-nowrap">
+                          {log.action}
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className="px-2 py-0.5 rounded-full bg-slate-800 text-slate-200 text-[10px] font-bold">
+                            {log.module}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 font-bold text-white whitespace-nowrap">
+                          {log.userName}
+                          {log.userRole && (
+                            <span className="ml-1.5 text-[10px] text-emerald-400 font-normal">({log.userRole})</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 font-mono text-[11px] text-cyan-400">{log.branchId}</td>
+                        <td className="py-3 px-4 text-slate-300">{log.details}</td>
+                      </tr>
+                    ))}
+                  {auditLogs.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="py-8 text-center text-slate-500">
+                        {translateRawUi('No audit log entries found.')}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       )}
 
       {/* TAB 1: GENERAL INFO */}

@@ -135,6 +135,7 @@ export const SupplierListView: React.FC<SupplierListViewProps> = ({
     await onRecordPayment({
       supplierId: payingSupplier.id,
       supplierName: payingSupplier.companyName,
+      branchId: payingSupplier.branchId,
       amount: payAmount,
       paymentMethod: methodMap[payMethod] || 'bank_transfer',
       referenceNumber: payRef || `PAY-${Date.now().toString().slice(-6)}`,

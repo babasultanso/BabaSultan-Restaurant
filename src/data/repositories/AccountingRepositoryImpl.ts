@@ -25,7 +25,8 @@ import {
   TaxConfig,
   FinancialStatements,
   ARPayment,
-  APPayment
+  APPayment,
+  AccountingPeriod
 } from '../../domain/entities/accounting';
 import { IAccountingRepository } from '../../domain/repositories/IAccountingRepository';
 import { getApiUrl } from '../../lib/apiConfig';
@@ -59,7 +60,7 @@ export class AccountingRepositoryImpl implements IAccountingRepository {
       const branchId = getEffectiveBranchScope();
       const q = branchId === 'all'
         ? collection(db, COLLECTIONS.ACCOUNTS)
-        : query(collection(db, COLLECTIONS.ACCOUNTS), where('branchId', '==', branchId));
+        : query(collection(db, COLLECTIONS.ACCOUNTS), where('branchId', 'in', [branchId, 'all']));
       const snap = await getDocs(q);
       if (snap.empty) {
         return [];
@@ -149,8 +150,10 @@ export class AccountingRepositoryImpl implements IAccountingRepository {
   }
 
   async createExpense(expenseData: Omit<AccountingExpense, 'id' | 'createdAt' | 'expenseNumber'>): Promise<AccountingExpense> {
-    const expenseNumber = `EXP-${Math.floor(100000 + Math.random() * 900000)}`;
     const now = new Date().toISOString();
+    const datePart = getMogadishuDateString(now).replace(/-/g, '');
+    const entropy = `${Date.now().toString(36).slice(-4)}${Math.random().toString(36).slice(2, 4)}`.toUpperCase();
+    const expenseNumber = `EXP-${datePart}-${entropy}`;
 
     const payload = {
       ...expenseData,
@@ -297,8 +300,9 @@ export class AccountingRepositoryImpl implements IAccountingRepository {
 
   async getBankTransactions(bankAccountId?: string, branchId?: string): Promise<BankTransaction[]> {
     try {
-      const q = branchId && branchId !== 'all'
-        ? query(collection(db, COLLECTIONS.BANK_TRANSACTIONS), where('branchId', '==', branchId))
+      const effectiveBranch = branchId || getEffectiveBranchScope();
+      const q = effectiveBranch && effectiveBranch !== 'all'
+        ? query(collection(db, COLLECTIONS.BANK_TRANSACTIONS), where('branchId', '==', effectiveBranch))
         : query(collection(db, COLLECTIONS.BANK_TRANSACTIONS));
       const snap = await getDocs(q);
       let items = snap.docs.map(d => ({ id: d.id, ...d.data() } as BankTransaction));
@@ -310,6 +314,31 @@ export class AccountingRepositoryImpl implements IAccountingRepository {
       console.error('Error in getBankTransactions:', err?.message || err);
       throw err;
     }
+  }
+
+  async recordBankTransaction(txData: {
+    bankAccountId: string;
+    type: 'deposit' | 'withdrawal' | 'fee';
+    amount: number;
+    reference?: string;
+    description?: string;
+    date?: string;
+    branchId?: string;
+  }): Promise<any> {
+    return authFetch('/api/bank-transactions', {
+      method: 'POST',
+      body: JSON.stringify({
+        bankTransactionData: {
+          bankAccountId: txData.bankAccountId,
+          type: txData.type,
+          amount: txData.amount,
+          reference: txData.reference || `BNK-${Date.now().toString().slice(-6)}`,
+          description: txData.description || `Bank ${txData.type}`,
+          date: txData.date || getMogadishuDateString(),
+          branchId: txData.branchId || getEffectiveBranchId()
+        }
+      })
+    });
   }
 
   async transferFunds(fromAccountId: string, toAccountId: string, amount: number, reference: string, description: string): Promise<void> {
@@ -333,6 +362,7 @@ export class AccountingRepositoryImpl implements IAccountingRepository {
       source: 'Manual',
       status: 'Posted',
       createdBy: 'Accounting System',
+      branchId: fromAcc.branchId || getEffectiveBranchId(),
       totalDebit: amount,
       totalCredit: amount,
       lines: [
@@ -375,26 +405,32 @@ export class AccountingRepositoryImpl implements IAccountingRepository {
   }
 
   // --- FINANCIAL STATEMENTS ---
-  async getFinancialStatements(startDate?: string, endDate?: string, branchId?: string): Promise<FinancialStatements> {
-    const accounts = await this.getAccounts();
-    const effectiveBranch = branchId || getEffectiveBranchScope();
+  protected async fetchJournalLinesForScope(effectiveBranch: string): Promise<any[]> {
     const linesQuery = effectiveBranch !== 'all'
       ? query(collection(db, COLLECTIONS.JOURNAL_LINES), where('branchId', '==', effectiveBranch))
       : query(collection(db, COLLECTIONS.JOURNAL_LINES));
     const linesSnap = await getDocs(linesQuery);
-    const allLines = linesSnap.docs.map(d => ({ id: d.id, ...d.data() } as any));
+    return linesSnap.docs.map(d => ({ id: d.id, ...d.data() } as any));
+  }
+
+  async getFinancialStatements(startDate?: string, endDate?: string, branchId?: string): Promise<FinancialStatements> {
+    const accounts = await this.getAccounts();
+    const effectiveBranch = branchId || getEffectiveBranchScope();
+    const allLines = await this.fetchJournalLinesForScope(effectiveBranch);
     const start = startDate ? new Date(startDate) : undefined;
     const end = endDate ? new Date(endDate) : undefined;
     const lineDate = (l: any) => new Date(String(l.date || l.createdAt || ''));
+    const inclusiveEndDate = (() => {
+      if (!end) return undefined;
+      const d = new Date(end);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(String(endDate || ''))) d.setHours(23, 59, 59, 999);
+      return d;
+    })();
     const inPeriod = (l: any) => {
       const d = lineDate(l);
       if (!Number.isFinite(d.getTime())) return false;
       if (start && d < start) return false;
-      if (end) {
-        const inclusiveEnd = new Date(end);
-        if (/^\d{4}-\d{2}-\d{2}$/.test(String(endDate || ''))) inclusiveEnd.setHours(23, 59, 59, 999);
-        if (d > inclusiveEnd) return false;
-      }
+      if (inclusiveEndDate && d > inclusiveEndDate) return false;
       return true;
     };
     const periodLines = (startDate || endDate) ? allLines.filter(inPeriod) : allLines;
@@ -406,12 +442,22 @@ export class AccountingRepositoryImpl implements IAccountingRepository {
       return debitNature ? debit - credit : credit - debit;
     };
     const asOfBalance = (a: Account) => {
+      if (effectiveBranch !== 'all' && a.branchId === 'all') {
+        let branchBal = 0;
+        for (const l of allLines) {
+          if (String(l.accountId) !== String(a.id)) continue;
+          const d = lineDate(l);
+          if (inclusiveEndDate && Number.isFinite(d.getTime()) && d > inclusiveEndDate) continue;
+          branchBal += deltaFor(a, l);
+        }
+        return Number.isFinite(branchBal) ? branchBal : 0;
+      }
       let balance = Number(a.balance || 0);
-      if (!end) return balance;
+      if (!inclusiveEndDate) return balance;
       for (const l of allLines) {
         if (String(l.accountId) !== String(a.id)) continue;
         const d = lineDate(l);
-        if (Number.isFinite(d.getTime()) && d > end) balance -= deltaFor(a, l);
+        if (Number.isFinite(d.getTime()) && d > inclusiveEndDate) balance -= deltaFor(a, l);
       }
       return Number.isFinite(balance) ? balance : 0;
     };
@@ -426,12 +472,29 @@ export class AccountingRepositoryImpl implements IAccountingRepository {
       periodAmountByAccount.set(id, (periodAmountByAccount.get(id) || 0) + deltaFor(account, l));
     }
 
-    const revenuesList = accounts.filter(a => a.type === 'Revenue').map(a => ({ accountCode: a.code, accountName: a.name, amount: Math.max(0, -(periodAmountByAccount.get(a.id) || 0)) }));
+    let priorPeriodEarnings = 0;
+    if (start) {
+      for (const l of allLines) {
+        const d = lineDate(l);
+        if (!Number.isFinite(d.getTime()) || d >= start) continue;
+        if (inclusiveEndDate && d > inclusiveEndDate) continue;
+        const id = String(l.accountId || '');
+        const account = accounts.find(a => String(a.id) === id);
+        if (!account) continue;
+        const debit = Number(l.debit || 0);
+        const credit = Number(l.credit || 0);
+        if (!Number.isFinite(debit) || !Number.isFinite(credit) || debit < 0 || credit < 0 || (debit > 0 && credit > 0)) continue;
+        if (account.type === 'Revenue') priorPeriodEarnings += deltaFor(account, l);
+        else if (account.type === 'COGS' || account.type === 'Expense') priorPeriodEarnings -= deltaFor(account, l);
+      }
+    }
+
+    const revenuesList = accounts.filter(a => a.type === 'Revenue').map(a => ({ accountCode: a.code, accountName: a.name, amount: periodAmountByAccount.get(a.id) || 0 }));
     const totalRevenue = revenuesList.reduce((s, r) => s + r.amount, 0);
-    const cogsList = accounts.filter(a => a.type === 'COGS').map(a => ({ accountCode: a.code, accountName: a.name, amount: Math.max(0, periodAmountByAccount.get(a.id) || 0) }));
+    const cogsList = accounts.filter(a => a.type === 'COGS').map(a => ({ accountCode: a.code, accountName: a.name, amount: periodAmountByAccount.get(a.id) || 0 }));
     const totalCOGS = cogsList.reduce((s, c) => s + c.amount, 0);
     const grossProfit = totalRevenue - totalCOGS;
-    const expensesList = accounts.filter(a => a.type === 'Expense').map(a => ({ accountCode: a.code, accountName: a.name, amount: Math.max(0, periodAmountByAccount.get(a.id) || 0) }));
+    const expensesList = accounts.filter(a => a.type === 'Expense').map(a => ({ accountCode: a.code, accountName: a.name, amount: periodAmountByAccount.get(a.id) || 0 }));
     const totalExpenses = expensesList.reduce((s, e) => s + e.amount, 0);
     const netProfit = grossProfit - totalExpenses;
 
@@ -440,6 +503,7 @@ export class AccountingRepositoryImpl implements IAccountingRepository {
     const liabilitiesList = accounts.filter(a => a.type === 'Liability').map(a => ({ accountCode: a.code, accountName: a.name, amount: asOfBalance(a) }));
     const totalLiabilities = liabilitiesList.reduce((s, l) => s + l.amount, 0);
     const equityList = accounts.filter(a => a.type === 'Equity').map(a => ({ accountCode: a.code, accountName: a.name, amount: asOfBalance(a) }));
+    if (Math.abs(priorPeriodEarnings) > 0.005) equityList.push({ accountCode: 'PRIOR_EARNINGS', accountName: 'Retained Earnings (Prior Periods)', amount: priorPeriodEarnings });
     if (Math.abs(netProfit) > 0.005) equityList.push({ accountCode: 'CURRENT_EARNINGS', accountName: 'Current Period Earnings', amount: netProfit });
     const totalEquity = equityList.reduce((s, e) => s + e.amount, 0);
     const totalLiabilitiesAndEquity = totalLiabilities + totalEquity;
@@ -465,5 +529,47 @@ export class AccountingRepositoryImpl implements IAccountingRepository {
       balanceSheet: { assets: assetsList, totalAssets, liabilities: liabilitiesList, totalLiabilities, equity: equityList, totalEquity, totalLiabilitiesAndEquity, isBalanced },
       trialBalance, totalTrialDebit, totalTrialCredit, isTrialBalanced
     };
+  }
+
+  // --- ACCOUNTING PERIODS ---
+  async getAccountingPeriods(branchId?: string): Promise<AccountingPeriod[]> {
+    try {
+      const effectiveBranch = branchId || getEffectiveBranchScope();
+      const queryParam = effectiveBranch ? `?branchId=${encodeURIComponent(effectiveBranch)}` : '';
+      const data = await authFetch(`/api/accounting/periods${queryParam}`);
+      return Array.isArray(data?.periods) ? data.periods : [];
+    } catch (err: any) {
+      console.warn('Error in getAccountingPeriods:', err?.message || err);
+      return [];
+    }
+  }
+
+  async saveAccountingPeriod(period: {
+    id?: string;
+    name: string;
+    startDate: string;
+    endDate: string;
+    status: 'Open' | 'Closed' | 'Locked';
+    branchId?: string;
+    notes?: string;
+  }): Promise<AccountingPeriod> {
+    const data = await authFetch('/api/accounting/periods', {
+      method: 'POST',
+      body: JSON.stringify({
+        periodData: {
+          ...period,
+          branchId: period.branchId || getEffectiveBranchId()
+        }
+      })
+    });
+    return data.period || data;
+  }
+
+  async updateAccountingPeriodStatus(id: string, status: 'Open' | 'Closed' | 'Locked'): Promise<AccountingPeriod> {
+    const data = await authFetch(`/api/accounting/periods/${encodeURIComponent(id)}/status`, {
+      method: 'POST',
+      body: JSON.stringify({ status })
+    });
+    return data.period || data;
   }
 }

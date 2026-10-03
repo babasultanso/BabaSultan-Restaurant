@@ -9,7 +9,8 @@ import {
   query,
   where,
   orderBy,
-  deleteDoc
+  deleteDoc,
+  runTransaction
 } from 'firebase/firestore';
 import { db, COLLECTIONS, getAuthToken, getEffectiveBranchId, getEffectiveBranchScope } from '../../lib/firebase';
 import { getApiUrl } from '../../lib/apiConfig';
@@ -28,6 +29,36 @@ import {
   HRMAnalyticsData
 } from '../../domain/entities/hrm';
 
+function normalizePayFrequency(value: unknown): PayFrequency {
+  const normalized = String(value || '').trim().toLowerCase();
+  return (['daily', 'weekly', 'monthly'].includes(normalized) ? normalized : 'monthly') as PayFrequency;
+}
+
+function canReadSensitiveEmployeeFields(employee?: { id?: string; userId?: string; email?: string }): boolean {
+  if (typeof window === 'undefined') return true;
+  try {
+    const stored = localStorage.getItem('user_profile');
+    if (!stored) return true;
+    const u = JSON.parse(stored);
+    if (!u || typeof u !== 'object') return true;
+    const role = String(u.role || '').trim().toLowerCase();
+    if (['owner', 'admin', 'manager', 'accountant'].includes(role) || u.isOwner === true || u.isAdmin === true) {
+      return true;
+    }
+    const uid = String(u.id || u.uid || '').trim();
+    const empId = String(u.employeeId || '').trim();
+    const email = String(u.email || '').trim().toLowerCase();
+    if (employee) {
+      if (uid && (employee.id === uid || employee.userId === uid)) return true;
+      if (empId && employee.id === empId) return true;
+      if (email && String(employee.email || '').trim().toLowerCase() === email) return true;
+    }
+    return false;
+  } catch {
+    return true;
+  }
+}
+
 export class HRMRepositoryImpl implements IHRMRepository {
   // ==========================================
   // EMPLOYEE MANAGEMENT
@@ -40,15 +71,27 @@ export class HRMRepositoryImpl implements IHRMRepository {
         ? collection(db, COLLECTIONS.EMPLOYEES)
         : query(collection(db, COLLECTIONS.EMPLOYEES), where('branchId', '==', effectiveBranch));
       const snap = await getDocs(q);
-      const employees: Employee[] = snap.docs.map((d) => {
+      const employees: Employee[] = snap.docs
+        .filter((d) => {
+          const data = d.data();
+          return !data.isDeleted && !data.isArchived && data.status !== 'deleted';
+        })
+        .map((d) => {
         const data = d.data();
+        const empName = data.fullName || data.name || 'Unnamed Employee';
+        const empRole = data.jobTitle || data.position || data.role || 'Staff Member';
+        const canViewSensitive = canReadSensitiveEmployeeFields({
+          id: d.id,
+          userId: data.userId || data.uid,
+          email: data.email
+        });
         return {
           id: d.id,
           employeeId: data.employeeId || d.id,
-          fullName: data.fullName || data.name || 'Unnamed Employee',
-          name: data.name || data.fullName || 'Unnamed Employee',
+          fullName: empName,
+          name: empName,
           photo: data.photo || data.photoUrl || '',
-          nationalIdOrPassport: data.nationalIdOrPassport || data.nationalId || '',
+          nationalIdOrPassport: canViewSensitive ? (data.nationalIdOrPassport || data.nationalId || '') : '',
           phone: data.phone || '',
           email: data.email || '',
           address: data.address || '',
@@ -56,18 +99,19 @@ export class HRMRepositoryImpl implements IHRMRepository {
           gender: data.gender || '',
           nationality: data.nationality || '',
           hireDate: data.hireDate || getMogadishuDateString(),
-          jobTitle: data.jobTitle || data.role || 'Staff Member',
+          jobTitle: empRole,
+          position: empRole,
           department: data.department || 'General Operations',
           branchId: data.branchId || data.branch || '',
           branch: data.branch || data.branchId || '',
           employmentStatus: data.employmentStatus || 'Active',
           status: data.status || (data.employmentStatus === 'Active' ? 'active' : 'on_leave'),
           role: data.role || 'Employee',
-          salary: Number.isFinite(Number(data.salary)) ? Number(data.salary) : 0,
-          payFrequency: ['daily', 'weekly', 'monthly'].includes(String(data.payFrequency || '').toLowerCase()) ? String(data.payFrequency).toLowerCase() : 'monthly',
+          salary: canViewSensitive && Number.isFinite(Number(data.salary)) ? Number(data.salary) : 0,
+          payFrequency: normalizePayFrequency(data.payFrequency),
           totalSales: Number(data.totalSales) || 0,
           ordersCount: Number(data.ordersCount) || 0,
-          bankAccount: data.bankAccount,
+          bankAccount: canViewSensitive ? data.bankAccount : undefined,
           emergencyContact: data.emergencyContact || {
             name: '',
             relationship: '',
@@ -91,13 +135,20 @@ export class HRMRepositoryImpl implements IHRMRepository {
     const snap = await getDoc(ref);
     if (!snap.exists()) return null;
     const data = snap.data();
+    if (data.isDeleted || data.isArchived || data.status === 'deleted') return null;
+    const empRole = data.jobTitle || data.position || data.role || 'Staff Member';
+    const canViewSensitive = canReadSensitiveEmployeeFields({
+      id: snap.id,
+      userId: data.userId || data.uid,
+      email: data.email
+    });
     return {
       id: snap.id,
       employeeId: data.employeeId || snap.id,
       fullName: data.fullName || data.name || 'Unnamed Employee',
       name: data.name || data.fullName || 'Unnamed Employee',
       photo: data.photo || data.photoUrl || '',
-      nationalIdOrPassport: data.nationalIdOrPassport || '',
+      nationalIdOrPassport: canViewSensitive ? (data.nationalIdOrPassport || data.nationalId || '') : '',
       phone: data.phone || '',
       email: data.email || '',
       address: data.address || '',
@@ -105,17 +156,19 @@ export class HRMRepositoryImpl implements IHRMRepository {
       gender: data.gender || '',
       nationality: data.nationality || '',
       hireDate: data.hireDate || getMogadishuDateString(),
-      jobTitle: data.jobTitle || data.role || 'Staff Member',
+      jobTitle: empRole,
+      position: empRole,
       department: data.department || 'General Operations',
       branchId: data.branchId || data.branch || '',
       branch: data.branch || data.branchId || '',
       employmentStatus: data.employmentStatus || 'Active',
       status: data.status || (data.employmentStatus === 'Active' ? 'active' : 'on_leave'),
       role: data.role || 'Employee',
-      salary: Number.isFinite(Number(data.salary)) ? Number(data.salary) : 0,
+      salary: canViewSensitive && Number.isFinite(Number(data.salary)) ? Number(data.salary) : 0,
+      payFrequency: normalizePayFrequency(data.payFrequency),
       totalSales: Number(data.totalSales) || 0,
       ordersCount: Number(data.ordersCount) || 0,
-      bankAccount: data.bankAccount,
+      bankAccount: canViewSensitive ? data.bankAccount : undefined,
       emergencyContact: data.emergencyContact || {
         name: 'Emergency Contact',
         relationship: 'Family',
@@ -133,12 +186,24 @@ export class HRMRepositoryImpl implements IHRMRepository {
     const now = new Date().toISOString();
     const effectiveBranchId = getEffectiveBranchId(employee.branchId || employee.branch);
 
+    const empName = employee.fullName || (employee as any).name || 'Employee';
+    const empRole = employee.jobTitle || (employee as any).position || employee.role || 'Staff Member';
+
     const newEmp: Employee = {
       ...employee,
+      fullName: empName,
+      name: empName,
+      jobTitle: empRole,
+      position: empRole,
+      role: employee.role || (empRole as any),
+      payFrequency: normalizePayFrequency(employee.payFrequency),
+      totalSales: 0,
+      ordersCount: 0,
       branchId: effectiveBranchId,
       branch: employee.branch || effectiveBranchId,
       id: docRef.id,
-      employeeId: employee.employeeId || `EMP-${Math.floor(1000 + Math.random() * 9000)}`,
+      employeeId: employee.employeeId || `EMP-${docRef.id.slice(0, 6).toUpperCase()}`,
+      isDeleted: false,
       createdAt: now,
       updatedAt: now
     };
@@ -149,12 +214,16 @@ export class HRMRepositoryImpl implements IHRMRepository {
 
   async updateEmployee(id: string, employee: Partial<Employee>): Promise<Employee> {
     const ref = doc(db, COLLECTIONS.EMPLOYEES, id);
+    const { branchId: _branchId, branch: _branch, totalSales: _ts, ordersCount: _oc, ...safeEmployee } = employee as any;
+    if (safeEmployee.payFrequency !== undefined) {
+      safeEmployee.payFrequency = normalizePayFrequency(safeEmployee.payFrequency);
+    }
     const updatedData = {
-      ...employee,
+      ...safeEmployee,
       updatedAt: new Date().toISOString()
     };
 
-    await setDoc(ref, updatedData, { merge: true });
+    await updateDoc(ref, updatedData);
     const updated = await this.getEmployeeById(id);
     if (!updated) throw new Error('Failed to retrieve updated employee');
     return updated;
@@ -196,7 +265,8 @@ export class HRMRepositoryImpl implements IHRMRepository {
 
   async clockIn(employeeId: string, employeeName: string, notes?: string): Promise<AttendanceRecord> {
     const token = await getAuthToken();
-    const response = await fetch(getApiUrl('/api/hrm/attendance/clock-in'), { method:'POST', headers:{'Content-Type':'application/json', ...(token?{'Authorization':`Bearer ${token}`}:{})}, body:JSON.stringify({employeeId, employeeName, notes}) });
+    const idempotencyKey = `attendance-clockin:${employeeId}:${getMogadishuDateString()}`;
+    const response = await fetch(getApiUrl('/api/hrm/attendance/clock-in'), { method:'POST', headers:{'Content-Type':'application/json', 'Idempotency-Key': idempotencyKey, ...(token?{'Authorization':`Bearer ${token}`}:{})}, body:JSON.stringify({employeeId, employeeName, notes, idempotencyKey}) });
     const data = await response.json().catch(()=>({}));
     if (!response.ok) throw new Error(data.error || `Attendance clock-in failed (${response.status})`);
     return data.attendance as AttendanceRecord;
@@ -204,7 +274,8 @@ export class HRMRepositoryImpl implements IHRMRepository {
 
   async clockOut(attendanceId: string, notes?: string): Promise<AttendanceRecord> {
     const token = await getAuthToken();
-    const response = await fetch(getApiUrl(`/api/hrm/attendance/${attendanceId}/clock-out`), { method:'POST', headers:{'Content-Type':'application/json', ...(token?{'Authorization':`Bearer ${token}`}:{})}, body:JSON.stringify({notes}) });
+    const idempotencyKey = `attendance-clockout:${attendanceId}`;
+    const response = await fetch(getApiUrl(`/api/hrm/attendance/${attendanceId}/clock-out`), { method:'POST', headers:{'Content-Type':'application/json', 'Idempotency-Key': idempotencyKey, ...(token?{'Authorization':`Bearer ${token}`}:{})}, body:JSON.stringify({notes, idempotencyKey}) });
     const data = await response.json().catch(()=>({}));
     if (!response.ok) throw new Error(data.error || `Attendance clock-out failed (${response.status})`);
     return data.attendance as AttendanceRecord;
@@ -212,7 +283,8 @@ export class HRMRepositoryImpl implements IHRMRepository {
 
   async recordAttendanceManually(record: Omit<AttendanceRecord, 'id' | 'createdAt'>): Promise<AttendanceRecord> {
     const token = await getAuthToken();
-    const response = await fetch(getApiUrl('/api/hrm/attendance/manual'), { method:'POST', headers:{'Content-Type':'application/json', ...(token?{'Authorization':`Bearer ${token}`}:{})}, body:JSON.stringify({record}) });
+    const idempotencyKey = `attendance-manual:${record.employeeId}:${record.date}:${record.clockIn}`;
+    const response = await fetch(getApiUrl('/api/hrm/attendance/manual'), { method:'POST', headers:{'Content-Type':'application/json', 'Idempotency-Key': idempotencyKey, ...(token?{'Authorization':`Bearer ${token}`}:{})}, body:JSON.stringify({record, idempotencyKey}) });
     const data = await response.json().catch(()=>({}));
     if (!response.ok) throw new Error(data.error || `Manual attendance failed (${response.status})`);
     return data.attendance as AttendanceRecord;
@@ -243,7 +315,11 @@ export class HRMRepositoryImpl implements IHRMRepository {
 
   async updateShift(id: string, shift: Partial<Shift>): Promise<Shift> {
     const ref = doc(db, COLLECTIONS.HRM_SHIFTS, id);
-    await setDoc(ref, shift, { merge: true });
+    const { branchId: _branchId, branch: _branch, ...safeShift } = shift as any;
+    await updateDoc(ref, {
+      ...safeShift,
+      updatedAt: new Date().toISOString()
+    });
     const snap = await getDoc(ref);
     return { id: snap.id, ...snap.data() } as Shift;
   }
@@ -340,6 +416,12 @@ export class HRMRepositoryImpl implements IHRMRepository {
           periodStart: current.periodStart,
           periodEnd: current.periodEnd,
           payFrequency: current.payFrequency,
+          baseSalary: current.basicSalary,
+          overtimePay: current.overtimePay || 0,
+          bonuses: current.bonuses || 0,
+          allowances: (current as any).allowances || 0,
+          deductions: current.deductions || 0,
+          advances: current.advances || 0,
           netPaid: current.netSalary,
           paymentMethod,
           branchId: current.branchId || (current as any).branch || ''
@@ -385,24 +467,61 @@ export class HRMRepositoryImpl implements IHRMRepository {
   async createLeaveRequest(
     request: Omit<LeaveRequest, 'id' | 'leaveNumber' | 'createdAt' | 'workflowStatus'>
   ): Promise<LeaveRequest> {
+    const start = new Date(request.startDate);
+    const end = new Date(request.endDate);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+      throw new Error('Invalid leave start or end date.');
+    }
+    if (start.getTime() > end.getTime()) {
+      throw new Error('Leave start date cannot be after end date.');
+    }
+
     const docRef = doc(collection(db, COLLECTIONS.HRM_LEAVE_REQUESTS));
     const now = new Date().toISOString();
 
-    const start = new Date(request.startDate);
-    const end = new Date(request.endDate);
+    // Prevent overlapping active/approved leave requests for this employee
+    const existingQ = query(
+      collection(db, COLLECTIONS.HRM_LEAVE_REQUESTS),
+      where('employeeId', '==', request.employeeId)
+    );
+    const existingSnap = await getDocs(existingQ);
+    const newStartMs = start.getTime();
+    const newEndMs = end.getTime();
+    for (const d of existingSnap.docs) {
+      const data = d.data();
+      if (['Rejected', 'Cancelled', 'cancelled'].includes(data.workflowStatus)) continue;
+      const exStartMs = new Date(data.startDate).getTime();
+      const exEndMs = new Date(data.endDate).getTime();
+      if (Number.isFinite(exStartMs) && Number.isFinite(exEndMs)) {
+        if (Math.max(newStartMs, exStartMs) <= Math.min(newEndMs, exEndMs)) {
+          throw new Error(`Overlapping leave request already exists (#${data.leaveNumber || d.id}) from ${data.startDate} to ${data.endDate}.`);
+        }
+      }
+    }
+
     const diffTime = Math.abs(end.getTime() - start.getTime());
     const daysCount = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
 
-    const leaveNumber = `LR-${Math.floor(1000 + Math.random() * 9000)}`;
+    const leaveNumber = `LR-${getMogadishuDateString(now).replace(/-/g, '')}-${docRef.id.slice(0, 6).toUpperCase()}`;
     const effectiveBranchId = getEffectiveBranchId(request.branchId || request.branch);
+    const {
+      managerApproval: _ma,
+      hrApproval: _hra,
+      approvedBy: _ab,
+      approvedAt: _aa,
+      rejectedReason: _rr,
+      ...safeRequest
+    } = request as any;
 
     const newReq: LeaveRequest = {
-      ...request,
+      ...safeRequest,
       branchId: effectiveBranchId,
       branch: request.branch || effectiveBranchId,
       id: docRef.id,
       leaveNumber,
       daysCount: daysCount || 1,
+      status: 'pending' as any,
+      approvalStatus: 'pending' as any,
       workflowStatus: 'Request',
       createdAt: now
     };
@@ -411,58 +530,133 @@ export class HRMRepositoryImpl implements IHRMRepository {
     return newReq;
   }
 
-  async approveLeaveByManager(id: string, approvedBy: string, notes?: string): Promise<LeaveRequest> {
+  async approveLeaveByManager(id: string, approvedBy: string = 'Manager', notes?: string): Promise<LeaveRequest> {
     const ref = doc(db, COLLECTIONS.HRM_LEAVE_REQUESTS, id);
     const now = new Date().toISOString();
 
-    const updated: Partial<LeaveRequest> = {
-      workflowStatus: 'Manager Approval',
-      managerApproval: {
-        approvedBy,
-        approvedAt: now,
-        notes: notes || 'Approved by Manager'
+    return await runTransaction(db, async (transaction) => {
+      const currentSnap = await transaction.get(ref);
+      if (!currentSnap.exists()) throw new Error('Leave request not found.');
+      const leaveData = currentSnap.data() as LeaveRequest;
+      if (leaveData.workflowStatus === 'Rejected' || (leaveData as any).status === 'rejected') {
+        throw new Error('Cannot approve a rejected leave request.');
       }
-    };
+      if (leaveData.workflowStatus === 'Completed' || (leaveData as any).status === 'approved') {
+        throw new Error('Leave request is already approved and completed.');
+      }
 
-    await updateDoc(ref, updated);
-    const snap = await getDoc(ref);
-    return { id: snap.id, ...snap.data() } as LeaveRequest;
+      const updated: Record<string, any> = {
+        workflowStatus: 'Manager Approval',
+        managerApproval: {
+          approvedBy: approvedBy || 'Manager',
+          approvedAt: now,
+          notes: notes || 'Approved by Manager'
+        },
+        updatedAt: now
+      };
+
+      transaction.update(ref, updated);
+      return { ...leaveData, ...updated, id: currentSnap.id } as LeaveRequest;
+    });
   }
 
-  async approveLeaveByHR(id: string, approvedBy: string, notes?: string): Promise<LeaveRequest> {
+  async approveLeaveByHR(id: string, approvedBy: string = 'HR Admin', notes?: string): Promise<LeaveRequest> {
     const ref = doc(db, COLLECTIONS.HRM_LEAVE_REQUESTS, id);
     const now = new Date().toISOString();
+    const today = getMogadishuDateString(now);
 
-    const updated: Partial<LeaveRequest> = {
-      workflowStatus: 'Completed',
-      hrApproval: {
-        approvedBy,
-        approvedAt: now,
-        notes: notes || 'Final Approval by HR'
+    return await runTransaction(db, async (transaction) => {
+      const currentSnap = await transaction.get(ref);
+      if (!currentSnap.exists()) throw new Error('Leave request not found.');
+      const leaveData = currentSnap.data() as LeaveRequest;
+      if (!leaveData.employeeId) {
+        throw new Error('Leave request is missing employeeId.');
       }
-    };
+      if (leaveData.workflowStatus === 'Rejected' || (leaveData as any).status === 'rejected') {
+        throw new Error('Cannot approve a rejected leave request.');
+      }
+      if (leaveData.workflowStatus === 'Request') {
+        throw new Error('Leave request requires Manager Approval before final HR approval.');
+      }
 
-    await updateDoc(ref, updated);
-    const snap = await getDoc(ref);
-    return { id: snap.id, ...snap.data() } as LeaveRequest;
+      const empRef = doc(db, COLLECTIONS.EMPLOYEES, leaveData.employeeId);
+      const empSnap = await transaction.get(empRef);
+      if (!empSnap.exists()) {
+        throw new Error(`Linked employee "${leaveData.employeeId}" not found for ongoing leave approval.`);
+      }
+
+      const updated: Record<string, any> = {
+        workflowStatus: 'Completed',
+        status: 'approved',
+        approvalStatus: 'approved',
+        hrApproval: {
+          approvedBy: approvedBy || 'HR Admin',
+          approvedAt: now,
+          notes: notes || 'Final Approval by HR'
+        },
+        updatedAt: now
+      };
+
+      transaction.update(ref, updated);
+      const isLeaveActiveToday = !leaveData.startDate || !leaveData.endDate || (today >= leaveData.startDate && today <= leaveData.endDate);
+      if (isLeaveActiveToday) {
+        transaction.update(empRef, {
+          status: 'on_leave',
+          employmentStatus: 'On Leave',
+          updatedAt: now
+        });
+      }
+
+      return {
+        ...leaveData,
+        ...updated,
+        id: currentSnap.id
+      } as LeaveRequest;
+    });
   }
 
-  async rejectLeaveRequest(id: string, rejectedBy: string, notes?: string): Promise<LeaveRequest> {
+  async rejectLeaveRequest(id: string, rejectedBy: string = 'HR Admin', notes?: string): Promise<LeaveRequest> {
     const ref = doc(db, COLLECTIONS.HRM_LEAVE_REQUESTS, id);
     const now = new Date().toISOString();
 
-    const updated: Partial<LeaveRequest> = {
-      workflowStatus: 'Rejected',
-      hrApproval: {
-        approvedBy: rejectedBy,
-        approvedAt: now,
-        notes: notes || 'Leave request rejected'
+    return await runTransaction(db, async (transaction) => {
+      const currentSnap = await transaction.get(ref);
+      if (!currentSnap.exists()) throw new Error('Leave request not found.');
+      const leaveData = currentSnap.data() as LeaveRequest;
+      let empRef: any = null;
+      let empSnap: any = null;
+      if (leaveData.employeeId && (leaveData.workflowStatus === 'Completed' || (leaveData as any).status === 'approved')) {
+        empRef = doc(db, COLLECTIONS.EMPLOYEES, leaveData.employeeId);
+        empSnap = await transaction.get(empRef);
       }
-    };
 
-    await updateDoc(ref, updated);
-    const snap = await getDoc(ref);
-    return { id: snap.id, ...snap.data() } as LeaveRequest;
+      const updated: Record<string, any> = {
+        workflowStatus: 'Rejected',
+        status: 'rejected',
+        approvalStatus: 'rejected',
+        rejectedReason: notes || 'Leave request rejected',
+        hrApproval: {
+          approvedBy: rejectedBy || 'HR Admin',
+          approvedAt: now,
+          notes: notes || 'Leave request rejected'
+        },
+        updatedAt: now
+      };
+
+      transaction.update(ref, updated);
+      if (empRef && empSnap?.exists()) {
+        const empData = empSnap.data() || {};
+        if (empData.status === 'on_leave' || empData.employmentStatus === 'On Leave') {
+          transaction.update(empRef, {
+            status: 'active',
+            employmentStatus: 'Active',
+            updatedAt: now
+          });
+        }
+      }
+
+      return { ...leaveData, ...updated, id: currentSnap.id } as LeaveRequest;
+    });
   }
 
   // ==========================================
