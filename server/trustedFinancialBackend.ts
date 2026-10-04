@@ -2970,6 +2970,22 @@ export async function handleCustomerRefund(req: express.Request, res: express.Re
 
       applyAccountBalanceDeltasInTransaction(transaction, __refundAccountState, lines, timestamp);
 
+      if (__refundSettlement.bankAccountId && __refundSettlement.bankRef && __refundSettlement.bankData) {
+        applyBankSubledgerImpactInTransaction(transaction, db, {
+          bankRef: __refundSettlement.bankRef,
+          bankData: __refundSettlement.bankData,
+          amount: refundAmount,
+          direction: 'outflow',
+          type: 'payment',
+          date: dateStr,
+          reference: orderData.orderNumber || orderId,
+          description: `Customer Refund payout for Order #${orderData.orderNumber || orderId} via ${effectivePayMethod}`,
+          source: 'Refund',
+          branchId: targetBranchId,
+          createdBy: user.name
+        }, timestamp);
+      }
+
       // Update Receivables for Credit Order Refunds
       if (recQuery && !recQuery.empty) {
         recQuery.docs.forEach((docSnap) => {
@@ -4401,23 +4417,35 @@ export async function handleBankTransaction(req: express.Request, res: express.R
         const bankDoc = await transaction.get(bankRef);
         if (bankDoc.exists) {
           const bankData = bankDoc.data() || {};
+          if (bankData.status === 'Inactive' || bankData.isActive === false) {
+            throw Object.assign(new Error(`Bank account "${bankData.accountName || bankDoc.id}" is inactive. Transactions on inactive bank accounts are prohibited.`), { statusCode: 400 });
+          }
           const glAccountId = bankData.glAccountId ? String(bankData.glAccountId) : bankDoc.id;
           primaryAccRef = db.collection('accounts').doc(glAccountId);
           const accDoc = await transaction.get(primaryAccRef);
           if (!accDoc.exists) throw new Error(`Linked GL account for bank account "${bankDoc.id}" not found.`);
           primaryAccData = accDoc.data() || {};
+          if (primaryAccData.status === 'Inactive' || primaryAccData.isActive === false) {
+            throw Object.assign(new Error(`Linked GL account for bank account "${bankDoc.id}" is inactive.`), { statusCode: 400 });
+          }
           primaryAccData.__bankRef = bankRef;
           primaryAccData.__bankData = bankData;
         } else {
-          // Legacy compatibility: accept an account ID only when it is itself a valid branch-scoped Bank/Cash GL account.
+          // Reject arbitrary generic Asset accounts (e.g. AR, Inventory)
           primaryAccRef = db.collection('accounts').doc(String(bankTransactionData.bankAccountId).trim());
           const accDoc = await transaction.get(primaryAccRef);
           if (!accDoc.exists) throw Object.assign(new Error(`Bank account with ID "${bankTransactionData.bankAccountId}" not found.`), { statusCode: 404 });
           primaryAccData = accDoc.data() || {};
+          if (primaryAccData.status === 'Inactive' || primaryAccData.isActive === false) {
+            throw Object.assign(new Error(`Account "${primaryAccData.name || bankTransactionData.bankAccountId}" is inactive.`), { statusCode: 400 });
+          }
           const accType = String(primaryAccData.type || '').toLowerCase();
+          const accSubType = String(primaryAccData.subType || primaryAccData.accountType || '').toLowerCase();
           const accCode = String(primaryAccData.code || '');
-          if (accType !== 'bank' && accType !== 'cash' && accType !== 'asset' && !accCode.startsWith('10')) {
-            throw Object.assign(new Error(`Account "${primaryAccData.name || bankTransactionData.bankAccountId}" is not a valid bank or cash account.`), { statusCode: 400 });
+          const isExplicitBank = accType === 'bank' || accSubType === 'bank' || accCode === '1020' || accCode.startsWith('1020-');
+          const isExplicitCash = accType === 'cash' || accSubType === 'cash' || accCode === '1010' || accCode.startsWith('1010-');
+          if (!isExplicitBank && !isExplicitCash) {
+            throw Object.assign(new Error(`Account "${primaryAccData.name || bankTransactionData.bankAccountId}" (${accCode}) is not a valid bank or cash account. Generic asset, revenue, liability, or inventory accounts are prohibited.`), { statusCode: 400 });
           }
         }
         if (primaryAccData.branchId) {
@@ -4445,18 +4473,35 @@ export async function handleBankTransaction(req: express.Request, res: express.R
         const destBankDoc = await transaction.get(destBankRef);
         if (destBankDoc.exists) {
           const destBankData = destBankDoc.data() || {};
+          if (destBankData.status === 'Inactive' || destBankData.isActive === false) {
+            throw Object.assign(new Error(`Destination bank account "${destBankData.accountName || destBankDoc.id}" is inactive. Transfers to inactive bank accounts are prohibited.`), { statusCode: 400 });
+          }
           const destGlId = destBankData.glAccountId ? String(destBankData.glAccountId) : destBankDoc.id;
           destAccRef = db.collection('accounts').doc(destGlId);
           const destAccDoc = await transaction.get(destAccRef);
           if (!destAccDoc.exists) throw new Error(`Linked GL account for destination bank account "${destBankDoc.id}" not found.`);
           destAccData = destAccDoc.data() || {};
+          if (destAccData.status === 'Inactive' || destAccData.isActive === false) {
+            throw Object.assign(new Error(`Linked GL account for destination bank account "${destBankDoc.id}" is inactive.`), { statusCode: 400 });
+          }
           destAccData.__bankRef = destBankRef;
           destAccData.__bankData = destBankData;
         } else {
           destAccRef = db.collection('accounts').doc(String(destAccountId).trim());
           const destAccDoc = await transaction.get(destAccRef);
-          if (!destAccDoc.exists) throw new Error(`Destination bank account with ID "${destAccountId}" not found.`);
+          if (!destAccDoc.exists) throw Object.assign(new Error(`Destination bank account with ID "${destAccountId}" not found.`), { statusCode: 404 });
           destAccData = destAccDoc.data() || {};
+          if (destAccData.status === 'Inactive' || destAccData.isActive === false) {
+            throw Object.assign(new Error(`Destination account "${destAccData.name || destAccountId}" is inactive.`), { statusCode: 400 });
+          }
+          const destType = String(destAccData.type || '').toLowerCase();
+          const destSubType = String(destAccData.subType || destAccData.accountType || '').toLowerCase();
+          const destCode = String(destAccData.code || '');
+          const isExplicitBank = destType === 'bank' || destSubType === 'bank' || destCode === '1020' || destCode.startsWith('1020-');
+          const isExplicitCash = destType === 'cash' || destSubType === 'cash' || destCode === '1010' || destCode.startsWith('1010-');
+          if (!isExplicitBank && !isExplicitCash) {
+            throw Object.assign(new Error(`Destination account "${destAccData.name || destAccountId}" (${destCode}) is not a valid bank or cash account. Generic asset, revenue, liability, or inventory accounts are prohibited.`), { statusCode: 400 });
+          }
         }
         if (destAccData.branchId) {
           const destBranchCheck = checkBranchAuthorization(user, destAccData.branchId);
@@ -4497,8 +4542,8 @@ export async function handleBankTransaction(req: express.Request, res: express.R
       transaction.set(newTxRef, cleanUndefined(fullTxDoc));
 
       if (primaryAccRef) {
-        if (primaryNewBal < 0 && (isWithdrawal || isFee || isTransfer)) {
-          throw new Error('Insufficient bank balance for this transaction.');
+        if (primaryNewBal < 0 && (isWithdrawal || isFee || isTransfer) && primaryAccData?.__bankData?.allowOverdraft !== true) {
+          throw Object.assign(new Error(`Insufficient bank balance for this transaction: account balance $${(Number(primaryAccData.__bankData?.currentBalance ?? primaryAccData.__bankData?.balance ?? primaryAccData.balance ?? 0)).toFixed(2)} cannot cover outflow of $${amount.toFixed(2)}. Overdraft is prohibited.`), { statusCode: 400 });
         }
         // GL account balance is updated exactly once by the central journal balance helper below.
         if (primaryAccData?.__bankRef) {
@@ -6505,8 +6550,8 @@ export function isControlAccount(account: { id?: string; code?: string; type?: s
   const id = String(account.id || '').trim().toLowerCase();
   if (CONTROL_ACCOUNT_IDS.has(id)) return true;
   const code = String(account.code || '').trim();
-  if (['1010', '1020', '1200', '1300', '2010', '2020', '2030'].includes(code)) return true;
-  if (code.startsWith('1020-')) return true; // Branch sub-bank GL accounts
+  if (['1010', '1020', '1030', '1200', '1300', '2010', '2020', '2030'].includes(code)) return true;
+  if (code.startsWith('1010-') || code.startsWith('1020-') || code.startsWith('1030-') || code.startsWith('1200-') || code.startsWith('1300-') || code.startsWith('2010-') || code.startsWith('2020-') || code.startsWith('2030-')) return true;
   if (account.isControlAccount === true) return true;
   return false;
 }
@@ -6584,7 +6629,10 @@ export async function handleCreateJournalEntry(req: express.Request, res: expres
         }
         if (isControlAccount({ id: accId, code: accData.code, type: accData.type, isControlAccount: accData.isControlAccount })) {
           hasControlAccount = true;
-          controlAccountDetails = { id: accId, name: accData.name, code: accData.code };
+          controlAccountDetails = { id: accId, name: accData.name, code: accData.code, branchId: accBranch };
+          if (accBranch && accBranch !== 'all' && !areBranchesMatching(accBranch, branchId)) {
+            throw Object.assign(new Error(`Cross-branch control account manual override rejected! Control account '${accId}' belongs to branch '${accBranch}' and cannot be overridden from branch '${branchId}'.`), { statusCode: 403 });
+          }
         }
         accMap.set(accId, { ref: accRef, data: accData, balance: Number(accData.balance || 0) });
       }
@@ -6608,6 +6656,22 @@ export async function handleCreateJournalEntry(req: express.Request, res: expres
 
       // Phase 2 (All Writes)
       const jeRef = db.collection('journal_entries').doc();
+      if (hasControlAccount) {
+        const auditRef = db.collection('activity_logs').doc();
+        transaction.set(auditRef, cleanUndefined({
+          id: auditRef.id,
+          userId: user.uid,
+          userName: user.name,
+          userRole: user.role,
+          action: 'CONTROL_ACCOUNT_MANUAL_JOURNAL_OVERRIDE',
+          module: 'Accounting',
+          description: `Manual override executed for control account ${controlAccountDetails?.name || controlAccountDetails?.id} (${controlAccountDetails?.code || ''}) on entry ${entryNumber}. Reason: ${overrideReason}`,
+          branchId,
+          entryNumber,
+          overrideReason,
+          timestamp: now
+        }));
+      }
       const newEntryPayload = cleanUndefined({
         id: jeRef.id,
         entryNumber,
@@ -7199,15 +7263,16 @@ export async function handleRecordAPPayment(req: express.Request, res: express.R
       }
 
       const currentPaid = Number(item.paidAmount) || 0;
+      const currentCreditNote = Number(item.creditNoteAmount || item.returnedAmount || 0);
       const totalAmt = Number(item.totalAmount) || 0;
-      const currentRemaining = Math.max(0, totalAmt - currentPaid);
+      const currentRemaining = Math.max(0, totalAmt - currentPaid - currentCreditNote);
 
       if (paymentAmount > currentRemaining + 0.001) {
         throw new Error(`Payment amount (${paymentAmount.toFixed(2)}) exceeds remaining payable balance (${currentRemaining.toFixed(2)}).`);
       }
 
       const newPaidAmount = currentPaid + paymentAmount;
-      const newRemaining = Math.max(0, totalAmt - newPaidAmount);
+      const newRemaining = Math.max(0, totalAmt - newPaidAmount - currentCreditNote);
       const newStatus = newRemaining <= 0.001 ? 'Paid' : 'Partial';
 
       const timestamp = new Date().toISOString();
@@ -8450,6 +8515,9 @@ export async function handleRecordSupplierPayment(req: express.Request, res: exp
       const supBranchCheck = checkBranchAuthorization(user, sup.branchId);
       if (!supBranchCheck.authorized) {
         throw Object.assign(new Error(`Unauthorized cross-branch supplier payment! Supplier belongs to branch "${sup.branchId}". ${supBranchCheck.error}`), { statusCode: 403 });
+      }
+      if (sup.branchId !== 'all' && targetBranchId !== 'all' && !areBranchesMatching(sup.branchId, targetBranchId)) {
+        throw Object.assign(new Error(`Unauthorized cross-branch supplier payment: Supplier branch "${sup.branchId}" does not match target branch "${targetBranchId}".`), { statusCode: 403 });
       }
       const currentBal = Number(sup.outstandingBalance) || 0;
       if (paymentAmount > currentBal + 0.001) {
@@ -10366,6 +10434,21 @@ export async function handleWalletRecharge(req: express.Request, res: express.Re
       if (payMethodStr === 'cash' && walletCashRegisterState) {
         await applyCashRegisterMovementInTransaction(transaction, db, targetBranchId, rechargeAmt, 'customer wallet recharge', walletCashRegisterState);
       }
+      if (walletSettlement.bankAccountId && walletSettlement.bankRef && walletSettlement.bankData) {
+        applyBankSubledgerImpactInTransaction(transaction, db, {
+          bankRef: walletSettlement.bankRef,
+          bankData: walletSettlement.bankData,
+          amount: rechargeAmt,
+          direction: 'inflow',
+          type: 'deposit',
+          date: dateStr,
+          reference: txRef.id,
+          description: `Customer Wallet deposit for ${walletPayload.customerName} via ${payMethodStr}`,
+          source: 'Customer Wallet',
+          branchId: targetBranchId,
+          createdBy: user.name
+        }, timestamp);
+      }
       const out = { status: 'success', walletId: walletRef.id, newBalance, transactionId: txRef.id, journalEntryId: journalRef.id };
       transaction.set(walletIdemRef, cleanUndefined({ ...out, idempotencyKey: dedupeKey, branchId: targetBranchId, createdAt: timestamp }));
       return out;
@@ -11187,19 +11270,28 @@ export async function getFinancialSummaryData(
         }, 0);
 
   const latestMovement = new Map<string, any>();
+  const earliestMovementAfter = new Map<string, any>();
   if (endDate) {
     for (const mv of inventoryMovements) {
       const d = new Date(mv.createdAt || mv.date || '');
-      if (!Number.isFinite(d.getTime()) || d > endDate) continue;
+      if (!Number.isFinite(d.getTime())) continue;
       const key = `${String(mv.itemType || '')}:${String(mv.itemId || '')}`;
-      const prev = latestMovement.get(key);
-      if (!prev || new Date(prev.createdAt || prev.date || 0) < d) latestMovement.set(key, mv);
+      if (d <= endDate) {
+        const prev = latestMovement.get(key);
+        if (!prev || new Date(prev.createdAt || prev.date || 0) < d) latestMovement.set(key, mv);
+      } else {
+        const prev = earliestMovementAfter.get(key);
+        if (!prev || new Date(prev.createdAt || prev.date || 0) > d) earliestMovementAfter.set(key, mv);
+      }
     }
   }
   const historicalStock = (item: any, itemType: string) => {
     if (!endDate) return Math.max(0, Number(item.currentStockUsageUnit ?? item.stock ?? item.currentQuantity ?? 0));
-    const mv = latestMovement.get(`${itemType}:${String(item.id)}`);
+    const key = `${itemType}:${String(item.id)}`;
+    const mv = latestMovement.get(key);
     if (mv && Number.isFinite(Number(mv.newQuantity))) return Math.max(0, Number(mv.newQuantity));
+    const mvAfter = earliestMovementAfter.get(key);
+    if (mvAfter && Number.isFinite(Number(mvAfter.previousQuantity))) return Math.max(0, Number(mvAfter.previousQuantity));
     const created = new Date(item.createdAt || item.date || '');
     return Number.isFinite(created.getTime()) && created <= endDate ? Math.max(0, Number(item.currentStockUsageUnit ?? item.stock ?? item.currentQuantity ?? 0)) : 0;
   };
@@ -15508,7 +15600,8 @@ export async function handleCreatePurchaseReturn(req: express.Request, res: expr
             if (pStatus === 'paid' || pStatus === 'cancelled') return false;
             const pTotal = Number(p.data.totalAmount ?? p.data.amount ?? 0);
             const pPaid = Number(p.data.paidAmount || 0);
-            if (pTotal - pPaid <= 0.001) return false;
+            const pCreditNote = Number(p.data.creditNoteAmount || p.data.returnedAmount || 0);
+            if (pTotal - pPaid - pCreditNote <= 0.001) return false;
             if (poId && p.data.poId === poId) return true;
             if (supplierId && (p.data.supplierId === supplierId || p.data.vendorId === supplierId)) return true;
             if (!supplierId && targetSupName && String(p.data.vendorName || p.data.supplierName || '').trim().toLowerCase() === targetSupName) return true;
@@ -15521,11 +15614,12 @@ export async function handleCreatePurchaseReturn(req: express.Request, res: expr
           if (remainingCredit <= 0.001) break;
           const pTotal = Number(p.data.totalAmount ?? p.data.amount ?? 0);
           const pPaid = Number(p.data.paidAmount || 0);
-          const pRem = Math.max(0, pTotal - pPaid);
+          const pCreditNote = Number(p.data.creditNoteAmount || p.data.returnedAmount || 0);
+          const pRem = Math.max(0, pTotal - pPaid - pCreditNote);
           const alloc = Math.min(pRem, remainingCredit);
           if (alloc > 0) {
-            const nextPaid = Math.round((pPaid + alloc) * 100) / 100;
-            const nextRem = Math.max(0, Math.round((pTotal - nextPaid) * 100) / 100);
+            const nextCreditNote = Math.round((pCreditNote + alloc) * 100) / 100;
+            const nextRem = Math.max(0, Math.round((pTotal - pPaid - nextCreditNote) * 100) / 100);
             const nextStatus = nextRem <= 0.001 ? 'Paid' : 'Partial';
             const creditRecord = {
               id: returnRef.id,
@@ -15536,9 +15630,12 @@ export async function handleCreatePurchaseReturn(req: express.Request, res: expr
               notes: `Vendor Debit Note / Purchase Return: ${reason}`
             };
             transaction.update(p.ref, cleanUndefined({
-              paidAmount: nextPaid,
+              paidAmount: pPaid, // Preserved without adding vendor credit
+              creditNoteAmount: nextCreditNote,
+              returnedAmount: nextCreditNote,
               remainingBalance: nextRem,
               status: nextStatus,
+              creditNotes: [...(Array.isArray(p.data.creditNotes) ? p.data.creditNotes : []), creditRecord],
               payments: [...(Array.isArray(p.data.payments) ? p.data.payments : []), creditRecord],
               updatedAt: now
             }));
@@ -16005,9 +16102,15 @@ export async function handleGetAuditLogs(req: express.Request, res: express.Resp
   const db = getAdminDb();
 
   try {
+    let auditQ: any = db.collection('audit_logs');
+    let activityQ: any = db.collection('activity_logs');
+    if (effectiveBranch && effectiveBranch !== 'all') {
+      auditQ = auditQ.where('branchId', '==', effectiveBranch);
+      activityQ = activityQ.where('branchId', '==', effectiveBranch);
+    }
     const [auditSnap, activitySnap] = await Promise.all([
-      db.collection('audit_logs').get(),
-      db.collection('activity_logs').get()
+      auditQ.limit(limitCount).get(),
+      activityQ.limit(limitCount).get()
     ]);
 
     const normalizeEntry = (id: string, raw: any, source: 'audit_logs' | 'activity_logs') => ({

@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { getMogadishuDateString } from '../../../lib/dateUtils';
+import { sanitizeCSVCell } from '../../../lib/reports';
 import { AccountingController } from '../../../controllers/AccountingController';
 import { Supplier } from '../../../types';
 import { db, COLLECTIONS } from '../../../lib/firebase';
@@ -618,16 +619,22 @@ export const AccountingManagementView: React.FC = () => {
   // CSV Export
   const exportToCSV = (data: any[], filename: string) => {
     if (!data || data.length === 0) return;
-    const headers = Object.keys(data[0]).join(',');
-    const rows = data.map(obj => Object.values(obj).map(v => `"${v}"`).join(','));
-    const csvContent = 'data:text/csv;charset=utf-8,' + [headers, ...rows].join('\n');
-    const encodedUri = encodeURI(csvContent);
+    const headers = Object.keys(data[0]);
+    const csvContent =
+      '\uFEFF' +
+      [
+        headers.map(h => sanitizeCSVCell(h)).join(','),
+        ...data.map(obj => headers.map(h => sanitizeCSVCell(obj[h])).join(','))
+      ].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const encodedUri = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `${filename}.csv`);
+    link.setAttribute('download', `${filename.replace(/[^a-zA-Z0-9_\-]/g, '_')}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(encodedUri);
   };
 
   // Compute UI Metrics

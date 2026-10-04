@@ -342,34 +342,46 @@ export class AccountingRepositoryImpl implements IAccountingRepository {
   }
 
   async transferFunds(fromAccountId: string, toAccountId: string, amount: number, reference: string, description: string): Promise<void> {
-    const accounts = await this.getAccounts();
-    const fromAcc = accounts.find(a => a.id === fromAccountId);
-    const toAcc = accounts.find(a => a.id === toAccountId);
-
-    if (!fromAcc || !toAcc) {
+    if (!fromAccountId || !toAccountId) {
       throw new Error('Invalid account selected for transfer');
     }
-
-    if (fromAcc.balance < amount) {
-      throw new Error(`Insufficient funds in source account ${fromAcc.name}! Balance: $${fromAcc.balance}`);
+    if (fromAccountId === toAccountId) {
+      throw new Error('Source and destination accounts must be different');
+    }
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new Error('Transfer amount must be a positive number');
     }
 
-    // Post balanced Journal Entry via server endpoint
-    await this.createJournalEntry({
-      date: getMogadishuDateString(),
-      reference,
-      description: `Fund Transfer: ${fromAcc.name} -> ${toAcc.name} (${description})`,
-      source: 'Manual',
-      status: 'Posted',
-      createdBy: 'Accounting System',
-      branchId: fromAcc.branchId || getEffectiveBranchId(),
-      totalDebit: amount,
-      totalCredit: amount,
-      lines: [
-        { id: `l1-${Date.now()}`, journalEntryId: '', accountId: toAcc.id, accountCode: toAcc.code, accountName: toAcc.name, debit: amount, credit: 0, memo: `Deposit into ${toAcc.name}` },
-        { id: `l2-${Date.now()}`, journalEntryId: '', accountId: fromAcc.id, accountCode: fromAcc.code, accountName: fromAcc.name, debit: 0, credit: amount, memo: `Transfer out from ${fromAcc.name}` }
-      ]
+    const token = await getAuthToken();
+    const effectiveBranch = getEffectiveBranchScope();
+    const targetBranch = effectiveBranch === 'all' ? 'all' : effectiveBranch;
+    const idempotencyKey = `transfer-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+
+    const res = await fetch(getApiUrl('/api/accounting/bank-transaction'), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+        'Idempotency-Key': idempotencyKey
+      },
+      body: JSON.stringify({
+        bankTransactionData: {
+          bankAccountId: fromAccountId,
+          toAccountId: toAccountId,
+          type: 'transfer',
+          amount,
+          date: getMogadishuDateString(),
+          reference: reference || `TRF-${Date.now().toString().slice(-6)}`,
+          description: description || `Transfer from ${fromAccountId} to ${toAccountId}`,
+          branchId: targetBranch
+        }
+      })
     });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Fund Transfer Failed' }));
+      throw new Error(err.error || 'Fund Transfer Failed');
+    }
   }
 
   // --- TAX ---

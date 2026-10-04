@@ -129,9 +129,9 @@ describe('ERP GAP CLOSURE VERIFICATION SUITE', () => {
     const supSnap = await db.collection('suppliers').doc('sup_ret_1').get();
     expect(supSnap.data()?.outstandingBalance).toBe(380);
 
-    // Check AP bill paidAmount increased by $120 and remainingBalance reduced to $380
+    // Check AP bill creditNoteAmount recorded $120 and remainingBalance reduced to $380
     const apSnap = await db.collection('payables').doc('ap_ret_1').get();
-    expect(apSnap.data()?.paidAmount).toBe(120);
+    expect(apSnap.data()?.creditNoteAmount).toBe(120);
     expect(apSnap.data()?.remainingBalance).toBe(380);
     expect(apSnap.data()?.status).toBe('Partial');
 

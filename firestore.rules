@@ -42,6 +42,10 @@ service cloud.firestore {
       );
     }
 
+    function isHROrAdmin() {
+      return isHQOrAdmin() || isRole(['Owner', 'owner', 'Admin', 'admin', 'HR', 'hr', 'HR Manager', 'hr_manager']);
+    }
+
     function isUserBranch(branchVal) {
       return isActiveUser() && branchVal != null && branchVal != '' && branchVal != 'null' && branchVal != 'all' && (
         isHQOrOwner() ||
@@ -152,12 +156,18 @@ service cloud.firestore {
         resource.data.get('uid', '') == request.auth.uid ||
         getUserData().get('employeeId', '') == employeeId
       );
-      allow create: if isManagementOrAccountant() && isUserBranch(request.resource.data.get('branchId', ''));
+      allow create: if isManagementOrAccountant() && isUserBranch(request.resource.data.get('branchId', '')) && (
+        isHQOrAdmin() || !request.resource.data.keys().hasAny([
+          'salary', 'baseSalary', 'salaryAmount', 'payFrequency', 'bonuses', 'allowances',
+          'deductions', 'advances', 'bankAccount', 'role', 'permissions', 'isPrivileged',
+          'isHQ', 'totalSales', 'ordersCount'
+        ])
+      );
       allow update: if isManagementOrAccountant() && isUserBranch(resource.data.get('branchId', '')) && isUserBranch(request.resource.data.get('branchId', '')) && (
         isHQOrAdmin() || !request.resource.data.diff(resource.data).affectedKeys().hasAny([
           'salary', 'baseSalary', 'salaryAmount', 'payFrequency', 'bonuses', 'allowances',
           'deductions', 'advances', 'bankAccount', 'role', 'branchId', 'employeeId',
-          'permissions', 'totalSales', 'ordersCount'
+          'permissions', 'isPrivileged', 'isHQ', 'totalSales', 'ordersCount'
         ])
       );
       allow delete: if false;
@@ -199,7 +209,7 @@ service cloud.firestore {
     }
 
     match /suppliers/{supplierId} {
-      allow read: if isActiveUser() && (isHQOrOwner() || isUserBranch(resource.data.get('branchId', '')));
+      allow read: if isManagementOrAccountant() && (isHQOrOwner() || isUserBranch(resource.data.get('branchId', '')));
       allow create: if isManagementOrAccountant() &&
         (request.resource.data.get('branchId', '') == '' ? isHQOrAdmin() : isUserBranch(request.resource.data.get('branchId', ''))) &&
         request.resource.data.keys().hasOnly([
@@ -713,8 +723,12 @@ service cloud.firestore {
     }
     match /unit_conversions/{id} {
       allow read: if isActiveUser() && isUserBranch(resource.data.get('branchId', ''));
-      allow create: if isManagement() && isUserBranch(request.resource.data.get('branchId', ''));
-      allow update: if isManagement() && isUserBranch(resource.data.get('branchId', '')) && isUserBranch(request.resource.data.get('branchId', '')) && request.resource.data.get('branchId', '') == resource.data.get('branchId', '');
+      allow create: if isManagement() && isUserBranch(request.resource.data.get('branchId', '')) &&
+        request.resource.data.keys().hasOnly(['id', 'fromUnit', 'toUnit', 'factor', 'multiplier', 'branchId', 'createdAt', 'updatedAt', 'notes', 'ingredientId', 'itemName']) &&
+        (request.resource.data.get('factor', 1) > 0 || request.resource.data.get('multiplier', 1) > 0);
+      allow update: if isManagement() && isUserBranch(resource.data.get('branchId', '')) && isUserBranch(request.resource.data.get('branchId', '')) && request.resource.data.get('branchId', '') == resource.data.get('branchId', '') &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['factor', 'multiplier', 'notes', 'updatedAt']) &&
+        (request.resource.data.get('factor', 1) > 0 || request.resource.data.get('multiplier', 1) > 0);
       allow delete: if isManagement() && isUserBranch(resource.data.get('branchId', ''));
     }
     match /stock_counts/{id} {
@@ -781,7 +795,7 @@ service cloud.firestore {
             (
               request.resource.data.get('workflowStatus', resource.data.get('workflowStatus', '')) == resource.data.get('workflowStatus', '') ||
               (resource.data.get('workflowStatus', '') == 'Request' && request.resource.data.get('workflowStatus', '') in ['Manager Approval', 'Rejected']) ||
-              (resource.data.get('workflowStatus', '') == 'Manager Approval' && request.resource.data.get('workflowStatus', '') in ['Completed', 'Rejected'])
+              (resource.data.get('workflowStatus', '') == 'Manager Approval' && isHROrAdmin() && request.resource.data.get('workflowStatus', '') in ['Completed', 'Rejected'])
             )
           ) || (
             (resource.data.employeeId == request.auth.uid || getUserData().get('employeeId', '') == resource.data.employeeId) &&

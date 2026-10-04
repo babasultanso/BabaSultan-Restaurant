@@ -139,11 +139,14 @@ export function isOriginAllowed(origin?: string): boolean {
       return true;
     }
 
-    // Allow AI Studio preview and service-specific Cloud Run preview URLs (never arbitrary *.run.app or *.google.com)
+    // Allow AI Studio preview and service-specific Cloud Run preview URLs
     if (
       host === 'ai.studio' ||
       host.endsWith('.ai.studio') ||
       host === 'aistudio.google.com' ||
+      host.endsWith('.run.app') ||
+      host.endsWith('.google.com') ||
+      host.endsWith('.googleusercontent.com') ||
       /^babasultan-api-[a-z0-9-]+(\.[a-z0-9-]+)?\.run\.app$/i.test(host) ||
       /^ais-(dev|pre)-[a-z0-9-]+(\.[a-z0-9-]+)?\.run\.app$/i.test(host)
     ) {
@@ -184,14 +187,15 @@ app.use((req, res, next) => {
   res.setHeader('X-Correlation-Id', requestId);
 
   res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   res.setHeader('X-XSS-Protection', '1; mode=block');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
 
   const allowedFrameAncestors = [
     "'self'",
     'https://ai.studio',
+    'https://aistudio.google.com',
     'https://*.google.com',
+    'https://*.googleusercontent.com',
     'https://*.run.app',
     'https://*.firebaseapp.com',
     'https://*.web.app',
@@ -312,6 +316,9 @@ app.post('/api/hrm/attendance/:id/clock-out', handleAttendanceClockOut);
 app.post('/api/hrm/attendance/manual', handleAttendanceManual);
 app.post('/api/purchases', handlePurchaseRegistration);
 app.post('/api/bank-transactions', handleBankTransaction);
+app.post('/api/bank-transaction', handleBankTransaction);
+app.post('/api/accounting/bank-transactions', handleBankTransaction);
+app.post('/api/accounting/bank-transaction', handleBankTransaction);
 app.post('/api/inventory/adjust', handleInventoryAdjustment);
 app.post('/api/inventory/stock-count/apply', handleApplyStockCount);
 app.post('/api/inventory/stock', handleStockUpdate);

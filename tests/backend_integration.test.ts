@@ -3944,7 +3944,7 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       const res = await request(app).get('/api/health');
       expect(res.status).toBe(200);
       expect(res.headers['x-content-type-options']).toBe('nosniff');
-      expect(res.headers['x-frame-options']).toBe('SAMEORIGIN');
+      expect(res.headers['content-security-policy']).toContain('frame-ancestors');
       expect(res.headers['x-xss-protection']).toBe('1; mode=block');
       expect(res.headers['referrer-policy']).toBe('strict-origin-when-cross-origin');
 
