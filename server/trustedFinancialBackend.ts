@@ -4521,7 +4521,28 @@ export async function handleBankTransaction(req: express.Request, res: express.R
       }
 
       if (!primaryAccRef || !primaryAccData) throw Object.assign(new Error('bankAccountId is required and must reference a valid branch-owned bank account.'), { statusCode: 400 });
-      const __cashRegisterState = (isDeposit || isWithdrawal) ? await prepareCashRegisterStateInTransaction(transaction, db, targetBranchId) : undefined;
+      const isPrimaryCash = Boolean(
+        primaryAccData && (
+          primaryAccRef?.id === 'acc_cash' ||
+          String(primaryAccData.type || '').toLowerCase() === 'cash' ||
+          String(primaryAccData.subType || primaryAccData.accountType || '').toLowerCase() === 'cash' ||
+          String(primaryAccData.code || '').startsWith('1010')
+        )
+      );
+      const isDestCash = Boolean(
+        destAccData && (
+          destAccRef?.id === 'acc_cash' ||
+          String(destAccData.type || '').toLowerCase() === 'cash' ||
+          String(destAccData.subType || destAccData.accountType || '').toLowerCase() === 'cash' ||
+          String(destAccData.code || '').startsWith('1010')
+        )
+      );
+
+      const requiresSourceCashRegister = isDeposit || (isTransfer && isPrimaryCash && !isDestCash);
+      const requiresDestCashRegister = isWithdrawal || (isTransfer && isDestCash && !isPrimaryCash);
+      const __cashRegisterState = (requiresSourceCashRegister || requiresDestCashRegister)
+        ? await prepareCashRegisterStateInTransaction(transaction, db, targetBranchId)
+        : undefined;
       const __bankAccountIds = [
         primaryAccRef?.id, destAccRef?.id, 'acc_bank_fees', 'acc_cash'
       ].filter(Boolean) as string[];
@@ -4716,8 +4737,19 @@ export async function handleBankTransaction(req: express.Request, res: express.R
         }));
       }
 
-      if (isDeposit) await applyCashRegisterMovementInTransaction(transaction, db, targetBranchId, -amount, 'bank deposit', __cashRegisterState);
-      else if (isWithdrawal) await applyCashRegisterMovementInTransaction(transaction, db, targetBranchId, amount, 'bank withdrawal', __cashRegisterState);
+      if (isDeposit) {
+        await applyCashRegisterMovementInTransaction(transaction, db, targetBranchId, -amount, 'bank deposit', __cashRegisterState);
+      } else if (isWithdrawal) {
+        await applyCashRegisterMovementInTransaction(transaction, db, targetBranchId, amount, 'bank withdrawal', __cashRegisterState);
+      } else if (isTransfer) {
+        if (isPrimaryCash && !isDestCash) {
+          // Cash to Bank transfer: decreases cash register
+          await applyCashRegisterMovementInTransaction(transaction, db, targetBranchId, -amount, 'cash to bank transfer', __cashRegisterState);
+        } else if (isDestCash && !isPrimaryCash) {
+          // Bank to Cash transfer: increases cash register
+          await applyCashRegisterMovementInTransaction(transaction, db, targetBranchId, amount, 'bank to cash transfer', __cashRegisterState);
+        }
+      }
       applyAccountBalanceDeltasInTransaction(transaction, __bankAccountState, lines, timestamp);
       transaction.set(idemRef, cleanUndefined({ status: 'success', id: newTxRef.id, createdAt: timestamp }));
       return { status: 'success', id: newTxRef.id };
@@ -8589,7 +8621,8 @@ export async function handleRecordSupplierPayment(req: express.Request, res: exp
             if (pStatus === 'paid' || pStatus === 'cancelled') return false;
             const pTotal = Number(p.data.totalAmount ?? p.data.amount ?? 0);
             const pPaid = Number(p.data.paidAmount || 0);
-            if (pTotal - pPaid <= 0.001) return false;
+            const pCredit = Number(p.data.creditNoteAmount || p.data.returnedAmount || 0);
+            if (pTotal - pPaid - pCredit <= 0.001) return false;
             if (targetSupId && (p.data.supplierId === targetSupId || p.data.vendorId === targetSupId)) return true;
             if (!targetSupId && targetSupName && (String(p.data.vendorName || p.data.supplierName || '').trim().toLowerCase() === targetSupName)) return true;
             return false;
@@ -8601,11 +8634,12 @@ export async function handleRecordSupplierPayment(req: express.Request, res: exp
           if (remainingToAllocate <= 0.001) break;
           const pTotal = Number(p.data.totalAmount ?? p.data.amount ?? 0);
           const pPaid = Number(p.data.paidAmount || 0);
-          const pRem = Math.max(0, pTotal - pPaid);
+          const pCredit = Number(p.data.creditNoteAmount || p.data.returnedAmount || 0);
+          const pRem = Math.max(0, pTotal - pPaid - pCredit);
           const alloc = Math.min(pRem, remainingToAllocate);
           if (alloc > 0) {
             const nextPaid = Math.round((pPaid + alloc) * 100) / 100;
-            const nextRem = Math.max(0, Math.round((pTotal - nextPaid) * 100) / 100);
+            const nextRem = Math.max(0, Math.round((pTotal - nextPaid - pCredit) * 100) / 100);
             const nextStatus = nextRem <= 0.001 ? 'Paid' : 'Partial';
             const payRecord = {
               id: newRef.id,
@@ -15219,6 +15253,20 @@ export async function handleSaveAccountingPeriod(req: express.Request, res: expr
 
       if (existingSnap.exists) {
         const existingData = existingSnap.data() || {};
+        const existingBranchId = String(existingData.branchId || 'all').trim();
+        if (existingBranchId === 'all') {
+          if (!isHq) {
+            throw Object.assign(new Error('Only HQ Owner/Admin can modify global ("all") accounting periods.'), { statusCode: 403 });
+          }
+        } else {
+          const existingBranchCheck = checkBranchAuthorization(user, existingBranchId);
+          if (!existingBranchCheck.authorized) {
+            throw Object.assign(new Error(existingBranchCheck.error || 'Unauthorized cross-branch accounting period modification.'), { statusCode: 403 });
+          }
+        }
+        if (targetBranchId !== existingBranchId) {
+          throw Object.assign(new Error(`Cannot transfer accounting period across branches. Original branch is "${existingBranchId}".`), { statusCode: 400 });
+        }
         if (String(existingData.status || '').toLowerCase() === 'locked' && !isHq) {
           throw Object.assign(new Error('Locked accounting periods can only be modified by HQ Owner or Admin.'), { statusCode: 403 });
         }
@@ -15464,6 +15512,11 @@ export async function handleCreatePurchaseReturn(req: express.Request, res: expr
 
       let poRef: any = null;
       let poSnap: any = null;
+      let poItemUnitCost: number | null = null;
+      let poReceivedQty: number | null = null;
+      let poAlreadyReturnedQty: number | null = null;
+      let poItemFound = false;
+
       if (poId) {
         poRef = db.collection('purchase_orders').doc(poId);
         poSnap = await transaction.get(poRef);
@@ -15473,6 +15526,34 @@ export async function handleCreatePurchaseReturn(req: express.Request, res: expr
           if (poBranch && !areBranchesMatching(poBranch, targetBranchId)) {
             throw Object.assign(new Error(`Purchase order "${poId}" does not belong to branch "${targetBranchId}".`), { statusCode: 403 });
           }
+          if (supplierId && poData.supplierId && String(poData.supplierId).trim() !== supplierId) {
+            throw Object.assign(new Error(`Purchase order "${poId}" belongs to supplier "${poData.supplierId}", which does not match return supplier "${supplierId}".`), { statusCode: 400 });
+          }
+          const poItems = Array.isArray(poData.items) ? poData.items : [];
+          for (const it of poItems) {
+            if (String(it.itemId || it.id || '').trim() === itemId) {
+              poItemFound = true;
+              poReceivedQty = Number(it.receivedQuantity ?? it.receivedQty ?? 0);
+              poAlreadyReturnedQty = Number(it.returnedQuantity ?? it.returnedQty ?? 0);
+              const cost = Number(it.unitCost ?? it.costPerUnit ?? it.costPrice ?? it.purchaseCost);
+              if (Number.isFinite(cost) && cost >= 0) {
+                poItemUnitCost = cost;
+              }
+              break;
+            }
+          }
+          if (!poItemFound) {
+            throw Object.assign(new Error(`Item "${itemId}" does not exist in Purchase Order "${poId}".`), { statusCode: 400 });
+          }
+          const returnableFromPO = Math.max(0, (poReceivedQty || 0) - (poAlreadyReturnedQty || 0));
+          if (returnQty > returnableFromPO + 0.0001) {
+            throw Object.assign(
+              new Error(`Return quantity (${returnQty}) exceeds remaining returnable quantity (${returnableFromPO}) from Purchase Order "${poId}" (Received: ${poReceivedQty || 0}, Already Returned: ${poAlreadyReturnedQty || 0}).`),
+              { statusCode: 400 }
+            );
+          }
+        } else {
+          throw Object.assign(new Error(`Purchase order "${poId}" not found.`), { statusCode: 404 });
         }
       }
 
@@ -15492,8 +15573,10 @@ export async function handleCreatePurchaseReturn(req: express.Request, res: expr
       const defaultUnitCost = isIngredient
         ? Number(ingData?.costPerUsageUnit ?? ingData?.costPerUnit ?? ingData?.costPrice ?? ingData?.purchaseCost ?? 0)
         : Number(invData?.costPrice ?? invData?.purchaseCost ?? 0);
-      const unitCost = body.unitCost !== undefined && Number(body.unitCost) >= 0
-        ? Number(body.unitCost)
+      // Strictly derive unitCost from authoritative system records (PO item cost or inventory valuation)
+      // Never allow untrusted client-supplied unitCost to dictate financial and AP valuation
+      const unitCost = (poItemUnitCost !== null && Number.isFinite(poItemUnitCost))
+        ? poItemUnitCost
         : defaultUnitCost;
       const returnTotalCost = Math.round(returnQty * Math.max(0, unitCost) * 100) / 100;
 
@@ -15579,6 +15662,30 @@ export async function handleCreatePurchaseReturn(req: express.Request, res: expr
         createdAt: now
       });
       transaction.set(returnRef, returnDoc);
+
+      if (poRef && poSnap && poSnap.exists) {
+        const currentPoData = poSnap.data() || {};
+        const items = Array.isArray(currentPoData.items) ? currentPoData.items : [];
+        const updatedPoItems = items.map((it: any) => {
+          if (String(it.itemId || it.id || '').trim() === itemId) {
+            const prevRet = Number(it.returnedQuantity ?? it.returnedQty ?? 0);
+            return {
+              ...it,
+              returnedQuantity: Math.round((prevRet + returnQty) * 10000) / 10000,
+              returnedQty: Math.round((prevRet + returnQty) * 10000) / 10000
+            };
+          }
+          return it;
+        });
+        transaction.update(poRef, cleanUndefined({
+          items: updatedPoItems,
+          updatedAt: now
+        }));
+        transaction.set(db.collection('purchases').doc(poId), cleanUndefined({
+          items: updatedPoItems,
+          updatedAt: now
+        }), { merge: true });
+      }
 
       if (supRef && supSnap && supSnap.exists && returnTotalCost > 0) {
         const sData = supSnap.data() || {};

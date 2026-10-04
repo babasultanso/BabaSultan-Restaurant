@@ -2411,7 +2411,15 @@ export const AccountingManagementView: React.FC = () => {
                   className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white"
                 >
                   <option value="">{t.legacyUi.selectSourceAccount}</option>
-                  {accounts.filter(a => a.type === 'Asset').map(a => (
+                  {accounts
+                    .filter(a => {
+                      const code = String(a.code || '');
+                      const sub = String(a.accountType || '').toLowerCase();
+                      const isBank = code === '1020' || code.startsWith('1020-') || sub === 'bank';
+                      const isCash = code === '1010' || code.startsWith('1010-') || sub === 'cash';
+                      return (isBank || isCash) && a.status !== 'Inactive';
+                    })
+                    .map(a => (
                     <option key={a.id} value={a.id}>
                       {a.code} - {a.name} (${a.balance.toFixed(2)})
                     </option>
@@ -2428,7 +2436,15 @@ export const AccountingManagementView: React.FC = () => {
                   className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white"
                 >
                   <option value="">{t.legacyUi.selectDestinationAccount}</option>
-                  {accounts.filter(a => a.type === 'Asset' && a.id !== transferFrom).map(a => (
+                  {accounts
+                    .filter(a => {
+                      const code = String(a.code || '');
+                      const sub = String(a.accountType || '').toLowerCase();
+                      const isBank = code === '1020' || code.startsWith('1020-') || sub === 'bank';
+                      const isCash = code === '1010' || code.startsWith('1010-') || sub === 'cash';
+                      return (isBank || isCash) && a.status !== 'Inactive' && a.id !== transferFrom;
+                    })
+                    .map(a => (
                     <option key={a.id} value={a.id}>
                       {a.code} - {a.name} (${a.balance.toFixed(2)})
                     </option>

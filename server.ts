@@ -96,10 +96,8 @@ dotenv.config();
 export const app = express();
 // Render/Cloud Run sit behind a trusted reverse proxy; use the proxy-aware client IP for rate limiting.
 app.set('trust proxy', 1);
-// Port resolution: adopt platform-provided PORT (e.g. Cloud Run 8080 or Render) in production, with fallback to 3000 in local development
-const PORT = process.env.NODE_ENV === 'production' && process.env.PORT
-  ? Number(process.env.PORT)
-  : 3000;
+// Port resolution: adopt platform-provided PORT (e.g. Cloud Run 8080 or Render), with fallback to 3000
+const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
 
 // P3-01: Production Security Headers & Strict CORS Allowlist Middleware
 export function isOriginAllowed(origin?: string): boolean {

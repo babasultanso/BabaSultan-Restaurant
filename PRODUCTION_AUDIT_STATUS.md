@@ -34,7 +34,9 @@ npx vitest run tests/audit_remediation_p0.test.ts tests/production_gate_remediat
 - **ERP Gap Closure Suite (`tests/erp_gap_closure.test.ts`)**: 5 / 5 PASS
 - **Reports & AI Suite (`tests/reports_and_ai.test.ts`)**: 14 / 14 PASS
 - **Translation Hardening (`tests/translation_ui_hardening.test.ts`)**: 4 / 4 PASS
-- **Full Test Suite (`npm run test:unit`)**: 31 passed test files (393 passed tests, 2 emulator suites skipped when local Java runtime is absent)
+- **Full Test Suite (`npm run test:unit`)**: 32 passed test files (406 passed tests, 1 skipped test file `tests/real_firestore_concurrency.test.ts` with 6 skipped live emulator tests, 2 rules emulator test files excluded from unit suite).
+- **Translation Integrity (`npm run verify:i18n`)**: 1246 unique keys verified across Arabic, English, and Somali.
+- **Lockfile & Build Verification (`package-lock.json`)**: Generated and verified with `npm ci --dry-run` and `npm run verify:build-config`.
 
 ---
 

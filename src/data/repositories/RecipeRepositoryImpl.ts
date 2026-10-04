@@ -454,9 +454,9 @@ export class RecipeRepositoryImpl implements IRecipeRepository {
           if (newStock < 0) {
             throw new Error(`Insufficient stock for ${ingData.name}.`);
           }
-          const token = await (await import('../../lib/firebase')).getAuthToken();
+          const token = await getAuthToken();
           const idempotencyKey = `recipe-deduct:${orderNumber}:${orderItem.productId}:${ingData.id}`;
-          const response = await fetch((await import('../../lib/firebase')).getApiUrl('/api/inventory/adjust'), {
+          const response = await fetch(getApiUrl('/api/inventory/adjust'), {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -569,7 +569,6 @@ export class RecipeRepositoryImpl implements IRecipeRepository {
   }
 
   async createStockCount(data: Omit<StockCount, 'id' | 'createdAt' | 'updatedAt'>): Promise<StockCount> {
-    const { getAuthToken, getApiUrl } = await import('../../lib/firebase');
     const token = await getAuthToken();
     const idempotencyKey = `stock-count-create:${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const response = await fetch(getApiUrl('/api/inventory/stock-count'), {
@@ -598,7 +597,6 @@ export class RecipeRepositoryImpl implements IRecipeRepository {
   }
 
   async applyStockCountAdjustment(stockCountId: string, user: string): Promise<void> {
-    const { getAuthToken, getApiUrl } = await import('../../lib/firebase');
     const token = await getAuthToken();
     const idempotencyKey = `stock-count-apply:${stockCountId}`;
     const response = await fetch(getApiUrl('/api/inventory/stock-count/apply'), {
