@@ -261,6 +261,8 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
       .send({
         branchId: 'main_branch_01',
         description: 'Manual adjustment entry',
+        allowControlAccountOverride: true,
+        overrideReason: 'Authorized manager manual cash adjustment entry',
         lines: [
           { accountId: 'acc_1', accountCode: '1010', accountName: 'Cash', debit: 100, credit: 0 },
           { accountId: 'acc_2', accountCode: '4010', accountName: 'Sales', debit: 0, credit: 100 }

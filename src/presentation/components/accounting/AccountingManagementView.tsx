@@ -33,6 +33,9 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import { getMogadishuDateString } from '../../../lib/dateUtils';
 import { AccountingController } from '../../../controllers/AccountingController';
+import { Supplier } from '../../../types';
+import { db, COLLECTIONS } from '../../../lib/firebase';
+import { collection, query, where, getDocs } from 'firebase/firestore';
 import {
   Account,
   AccountType,
@@ -163,10 +166,12 @@ export const AccountingManagementView: React.FC = () => {
   const [arDueDate, setArDueDate] = useState<string>(getMogadishuDateString());
 
   // 9. New Payable (Supplier Bill) Form
+  const [apSupplierId, setApSupplierId] = useState<string>('');
   const [apSupplierName, setApSupplierName] = useState<string>('');
   const [apBillNum, setApBillNum] = useState<string>('');
   const [apTotalAmount, setApTotalAmount] = useState<number>(0);
   const [apDueDate, setApDueDate] = useState<string>(getMogadishuDateString());
+  const [suppliersList, setSuppliersList] = useState<Supplier[]>([]);
 
   // 10. New Bank Account & Bank Transaction Forms
   const [newBankName, setNewBankName] = useState<string>('');
@@ -240,6 +245,18 @@ export const AccountingManagementView: React.FC = () => {
       setTaxes(txs);
       setFinancials(fin);
       setAccountingPeriods(prds);
+      try {
+        const supQ = effectiveBranchId && effectiveBranchId !== 'all'
+          ? query(collection(db, COLLECTIONS.SUPPLIERS), where('branchId', '==', effectiveBranchId))
+          : collection(db, COLLECTIONS.SUPPLIERS);
+        const supSnap = await getDocs(supQ);
+        const sups = supSnap.docs
+          .map(d => ({ id: d.id, ...d.data() } as Supplier))
+          .filter(s => !(s as any).isDeleted && !(s as any).isArchived && (s as any).status !== 'deleted');
+        setSuppliersList(sups);
+      } catch (sErr) {
+        console.warn('Could not fetch suppliers in accounting view:', sErr);
+      }
       if (bnk.length > 0 && !bankTxAccountId) {
         setBankTxAccountId(bnk[0].id);
       }
@@ -477,6 +494,7 @@ export const AccountingManagementView: React.FC = () => {
       const activeBranchId = userRecord?.branchId && userRecord.branchId !== 'all' ? userRecord.branchId : undefined;
       await controller.addPayable({
         billNumber: apBillNum || `BILL-${Date.now().toString().slice(-6)}`,
+        supplierId: apSupplierId || undefined,
         supplierName: apSupplierName,
         issueDate: getMogadishuDateString(),
         dueDate: apDueDate || getMogadishuDateString(),
@@ -484,6 +502,7 @@ export const AccountingManagementView: React.FC = () => {
         branchId: activeBranchId
       });
       setIsPayableModalOpen(false);
+      setApSupplierId('');
       setApSupplierName('');
       setApBillNum('');
       setApTotalAmount(0);
@@ -2648,15 +2667,57 @@ export const AccountingManagementView: React.FC = () => {
             </div>
             <form onSubmit={handleCreatePayable} className="space-y-3 text-xs">
               <div>
-                <label className="block text-slate-400 font-medium mb-1">{t.legacyUi.supplierName}</label>
-                <input
-                  type="text"
-                  required
-                  value={apSupplierName}
-                  onChange={e => setApSupplierName(e.target.value)}
-                  placeholder={translateRawUi('Baraka Wholesale Foods')}
-                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white"
-                />
+                <label className="block text-slate-400 font-medium mb-1">{t.legacyUi.supplierName} ({translateRawUi('Canonical Supplier')})</label>
+                {suppliersList.length > 0 ? (
+                  <div className="space-y-2">
+                    <select
+                      value={apSupplierId}
+                      onChange={e => {
+                        const sId = e.target.value;
+                        setApSupplierId(sId);
+                        const found = suppliersList.find(s => s.id === sId);
+                        if (found) {
+                          setApSupplierName(found.name || found.companyName || '');
+                        } else if (!sId) {
+                          setApSupplierName('');
+                        }
+                      }}
+                      className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white"
+                    >
+                      <option value="">-- {translateRawUi('Select from Registered Suppliers')} --</option>
+                      {suppliersList.map(s => (
+                        <option key={s.id} value={s.id}>
+                          {s.name || s.companyName} (Outstanding: ${Number(s.outstandingBalance ?? s.pendingAmount ?? 0).toFixed(2)})
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      type="text"
+                      required
+                      value={apSupplierName}
+                      onChange={e => {
+                        setApSupplierName(e.target.value);
+                        if (apSupplierId) {
+                          const found = suppliersList.find(s => s.id === apSupplierId);
+                          if (found && (found.name !== e.target.value && found.companyName !== e.target.value)) {
+                            setApSupplierId('');
+                          }
+                        }
+                      }}
+                      placeholder={translateRawUi('Or enter supplier/vendor name')}
+                      className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white"
+                    />
+                  </div>
+                ) : (
+                  <input
+                    type="text"
+                    required
+                    value={apSupplierName}
+                    onChange={e => setApSupplierName(e.target.value)}
+                    placeholder={translateRawUi('Baraka Wholesale Foods')}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white"
+                  />
+                )}
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>

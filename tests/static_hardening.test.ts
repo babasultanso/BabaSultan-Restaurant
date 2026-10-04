@@ -29,9 +29,10 @@ describe('Static hardening guards', () => {
     expect(source).toContain('const explicitProductionId');
   });
 
-  it('Cloud Build passes the Firebase project explicitly to Cloud Run', () => {
+  it('Cloud Build passes the Firebase project explicitly to Cloud Run without conflating with GCP project ID', () => {
     const source = readFileSync(new URL('../cloudbuild.yaml', import.meta.url), 'utf8');
-    expect(source).toContain('FIREBASE_PROJECT_ID=$PROJECT_ID');
+    expect(source).toContain('FIREBASE_PROJECT_ID=${_FIREBASE_PROJECT_ID}');
+    expect(source).not.toContain('FIREBASE_PROJECT_ID=$PROJECT_ID');
   });
 
   it('does not silently use a bundled Firestore database ID in production', () => {

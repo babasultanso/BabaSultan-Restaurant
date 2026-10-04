@@ -202,15 +202,28 @@ service cloud.firestore {
       allow read: if isActiveUser() && (isHQOrOwner() || isUserBranch(resource.data.get('branchId', '')));
       allow create: if isManagementOrAccountant() &&
         (request.resource.data.get('branchId', '') == '' ? isHQOrAdmin() : isUserBranch(request.resource.data.get('branchId', ''))) &&
-        (!request.resource.data.keys().hasAny(['pendingAmount', 'overdueAmount', 'outstandingBalance']) ||
-         (request.resource.data.get('pendingAmount', 0) == 0 &&
-          request.resource.data.get('overdueAmount', 0) == 0 &&
-          request.resource.data.get('outstandingBalance', 0) == 0));
+        request.resource.data.keys().hasOnly([
+          'id', 'branchId', 'name', 'companyName', 'contactName', 'contactPerson',
+          'email', 'phone', 'address', 'taxNumber', 'taxId', 'category', 'itemsSupplied',
+          'productsSupplied', 'paymentTerms', 'leadTimeDays', 'notes', 'website',
+          'bankDetails', 'isActive', 'status', 'createdAt', 'updatedAt',
+          'pendingAmount', 'overdueAmount', 'outstandingBalance', 'paidAmount'
+        ]) &&
+        request.resource.data.get('pendingAmount', 0) == 0 &&
+        request.resource.data.get('overdueAmount', 0) == 0 &&
+        request.resource.data.get('outstandingBalance', 0) == 0 &&
+        request.resource.data.get('paidAmount', 0) == 0;
       allow update: if isManagementOrAccountant() &&
         (resource.data.get('branchId', '') == '' ? isHQOrAdmin() : isUserBranch(resource.data.get('branchId', ''))) &&
         (request.resource.data.get('branchId', '') == resource.data.get('branchId', '') ||
          (resource.data.get('branchId', '') == '' && request.resource.data.get('branchId', '') == '')) &&
-        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['pendingAmount', 'overdueAmount', 'outstandingBalance', 'branchId']);
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'name', 'companyName', 'contactName', 'contactPerson', 'email', 'phone',
+          'address', 'taxNumber', 'taxId', 'category', 'itemsSupplied', 'productsSupplied',
+          'paymentTerms', 'leadTimeDays', 'notes', 'website', 'bankDetails', 'isActive',
+          'status', 'updatedAt'
+        ]) &&
+        request.resource.data.get('status', 'active') in ['active', 'inactive', 'archived', 'deleted'];
       allow delete: if false;
     }
 
@@ -299,43 +312,35 @@ service cloud.firestore {
 
       allow create: if isPOSStaff()
         && canAccessCustomerBranch(request.resource.data.get('branchId', ''))
-        && (
-          !request.resource.data.keys().hasAny([
-            'totalSpending', 'totalSpent', 'totalOrders', 'averageOrderValue',
-            'cancelledOrders', 'refundHistoryCount', 'membershipLevel', 'loyaltyPoints',
-            'favoriteProducts', 'lastOrderDate'
-          ])
-          || (
-            request.resource.data.get('totalSpending', 0) == 0 &&
-            request.resource.data.get('totalSpent', 0) == 0 &&
-            request.resource.data.get('totalOrders', 0) == 0 &&
-            request.resource.data.get('averageOrderValue', 0) == 0 &&
-            request.resource.data.get('cancelledOrders', 0) == 0 &&
-            request.resource.data.get('refundHistoryCount', 0) == 0 &&
-            request.resource.data.get('membershipLevel', 'Bronze') in ['Bronze', 'bronze'] &&
-            request.resource.data.get('loyaltyPoints', 0) == 0 &&
-            request.resource.data.get('favoriteProducts', []).size() == 0 &&
-            request.resource.data.get('lastOrderDate', '') == ''
-          )
-        );
+        && request.resource.data.keys().hasOnly([
+          'id', 'branchId', 'name', 'phone', 'email', 'address', 'notes',
+          'customerType', 'tags', 'allergies', 'dietaryPreferences',
+          'marketingConsent', 'createdAt', 'updatedAt', 'dateOfBirth', 'gender',
+          'preferredLanguage', 'userId', 'authUid',
+          'totalSpending', 'totalSpent', 'totalOrders', 'averageOrderValue',
+          'cancelledOrders', 'refundHistoryCount', 'membershipLevel', 'loyaltyPoints',
+          'favoriteProducts', 'lastOrderDate', 'walletBalance'
+        ])
+        && request.resource.data.get('totalSpending', 0) == 0
+        && request.resource.data.get('totalSpent', 0) == 0
+        && request.resource.data.get('totalOrders', 0) == 0
+        && request.resource.data.get('averageOrderValue', 0) == 0
+        && request.resource.data.get('cancelledOrders', 0) == 0
+        && request.resource.data.get('refundHistoryCount', 0) == 0
+        && request.resource.data.get('membershipLevel', 'Bronze') in ['Bronze', 'bronze']
+        && request.resource.data.get('loyaltyPoints', 0) == 0
+        && request.resource.data.get('walletBalance', 0) == 0
+        && request.resource.data.get('favoriteProducts', []).size() == 0
+        && request.resource.data.get('lastOrderDate', '') == '';
 
       allow update: if (
-        isManagement() &&
+        (isManagement() || isPOSStaff()) &&
         canAccessCustomerBranch(resource.data.get('branchId', '')) &&
         request.resource.data.get('branchId', '') == resource.data.get('branchId', '') &&
-        !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-          'totalSpending', 'totalSpent', 'totalOrders', 'averageOrderValue',
-          'cancelledOrders', 'refundHistoryCount', 'membershipLevel', 'loyaltyPoints',
-          'favoriteProducts', 'lastOrderDate'
-        ])
-      ) || (
-        isPOSStaff() &&
-        canAccessCustomerBranch(resource.data.get('branchId', '')) &&
-        request.resource.data.get('branchId', '') == resource.data.get('branchId', '') &&
-        !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-          'totalSpending', 'totalSpent', 'totalOrders', 'averageOrderValue',
-          'cancelledOrders', 'refundHistoryCount', 'membershipLevel', 'loyaltyPoints',
-          'favoriteProducts', 'lastOrderDate'
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'name', 'phone', 'email', 'address', 'notes', 'customerType', 'tags',
+          'allergies', 'dietaryPreferences', 'marketingConsent', 'updatedAt',
+          'dateOfBirth', 'gender', 'preferredLanguage'
         ])
       );
 
@@ -399,9 +404,9 @@ service cloud.firestore {
         isUserBranch(resource.data.get('branchId', '')) &&
         isUserBranch(request.resource.data.get('branchId', '')) &&
         request.resource.data.get('branchId', '') == resource.data.get('branchId', '') &&
-        !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-          'availability', 'activeDeliveryId', 'rating', 'totalDeliveries',
-          'completedDeliveries', 'failedDeliveries', 'currentLocation'
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'name', 'phone', 'email', 'vehicleType', 'vehicleModel', 'licensePlate',
+          'notes', 'address', 'updatedAt', 'emergencyContact', 'isActive'
         ]);
       allow delete: if isManagement() && isUserBranch(resource.data.get('branchId', ''));
     }
@@ -459,9 +464,9 @@ service cloud.firestore {
         isUserBranch(resource.data.get('branchId', '')) &&
         isUserBranch(request.resource.data.get('branchId', '')) &&
         request.resource.data.get('branchId', '') == resource.data.get('branchId', '') &&
-        !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-          'availability', 'activeDeliveryId', 'rating', 'totalDeliveries',
-          'completedDeliveries', 'failedDeliveries', 'currentLocation'
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'name', 'phone', 'email', 'vehicleType', 'vehicleModel', 'licensePlate',
+          'notes', 'address', 'updatedAt', 'emergencyContact', 'isActive'
         ]);
     }
 

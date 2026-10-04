@@ -506,6 +506,9 @@ export interface Supplier {
   itemsSupplied: string;
   pendingAmount: number;
   overdueAmount: number;
+  outstandingBalance?: number;
+  branchId?: string;
+  status?: string;
 }
 
 export interface InventoryMovement {

@@ -59,24 +59,6 @@ export { getApiUrl };
 // falling back to defaultFirebaseConfig from firebase-applet-config.json.
 const env = (import.meta as any).env || {};
 
-if (env.PROD) {
-  const requiredKeys = [
-    'VITE_FIREBASE_PROJECT_ID',
-    'VITE_FIREBASE_API_KEY',
-    'VITE_FIREBASE_AUTH_DOMAIN',
-    'VITE_FIREBASE_STORAGE_BUCKET',
-    'VITE_FIREBASE_MESSAGING_SENDER_ID',
-    'VITE_FIREBASE_APP_ID'
-  ];
-  const missingKeys = requiredKeys.filter((k) => !env[k]);
-  if (!env.VITE_FIREBASE_PROJECT_ID) {
-    throw new Error('VITE_FIREBASE_PROJECT_ID is required for production builds.');
-  }
-  if (missingKeys.length > 0) {
-    throw new Error(`Missing required Firebase production configuration: ${missingKeys.join(', ')}`);
-  }
-}
-
 const resolvedFirebaseConfig = {
   apiKey: env.VITE_FIREBASE_API_KEY || defaultFirebaseConfig.apiKey,
   authDomain: env.VITE_FIREBASE_AUTH_DOMAIN || defaultFirebaseConfig.authDomain,
@@ -86,6 +68,24 @@ const resolvedFirebaseConfig = {
   appId: env.VITE_FIREBASE_APP_ID || defaultFirebaseConfig.appId,
   measurementId: env.VITE_FIREBASE_MEASUREMENT_ID || defaultFirebaseConfig.measurementId
 };
+
+if (env.PROD) {
+  const requiredKeys: (keyof typeof resolvedFirebaseConfig)[] = [
+    'projectId',
+    'apiKey',
+    'authDomain',
+    'storageBucket',
+    'messagingSenderId',
+    'appId'
+  ];
+  const missingKeys = requiredKeys.filter((k) => !resolvedFirebaseConfig[k]);
+  if (!resolvedFirebaseConfig.projectId) {
+    throw new Error('VITE_FIREBASE_PROJECT_ID is required for production builds.');
+  }
+  if (missingKeys.length > 0) {
+    throw new Error(`Missing required Firebase production configuration: ${missingKeys.join(', ')}`);
+  }
+}
 
 const app = initializeApp(resolvedFirebaseConfig);
 

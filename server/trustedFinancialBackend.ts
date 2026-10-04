@@ -1329,6 +1329,22 @@ export async function handlePosCheckout(req: express.Request, res: express.Respo
           processedBy: user.name,
           createdAt: timestamp
         }));
+
+        if (posSettlement.bankAccountId && posSettlement.bankRef && posSettlement.bankData) {
+          applyBankSubledgerImpactInTransaction(transaction, db, {
+            bankRef: posSettlement.bankRef,
+            bankData: posSettlement.bankData,
+            amount: Number(fullOrder.totalAmount) || 0,
+            direction: 'inflow',
+            type: 'deposit',
+            date: dateStr,
+            reference: orderNumber || fullOrder.id,
+            description: `POS Order ${orderNumber || fullOrder.id} settlement via ${finalPayMethod}`,
+            source: 'POS',
+            branchId: targetBranchId,
+            createdBy: user.name
+          }, timestamp);
+        }
       } else {
         // Create Receivable record for Unpaid/Credit Sales
         const recRef = db.collection('receivables').doc();
@@ -3200,7 +3216,7 @@ async function resolveSettlementAccountInTransaction(
   branchId: string,
   paymentMethod: string,
   requestedBankAccountId?: any
-): Promise<{ id: string; code: string; name: string; bankAccountId?: string }> {
+): Promise<{ id: string; code: string; name: string; bankAccountId?: string; bankRef?: any; bankData?: any }> {
   const method = normalizePaymentMethod(paymentMethod, paymentMethod);
   const canonicalSystem: Record<string, { id: string; code: string; name: string }> = {
     cash: { id: 'acc_cash', code: '1010', name: 'Cash on Hand (Register)' },
@@ -3250,8 +3266,69 @@ async function resolveSettlementAccountInTransaction(
     id: glRef.id,
     code: String(glData.code || bankData.accountNumber || '1020'),
     name: String(glData.name || bankData.accountName || bankData.bankName || 'Bank Account'),
-    bankAccountId: bankDoc.id
+    bankAccountId: bankDoc.id,
+    bankRef: bankDoc.ref,
+    bankData: bankData
   };
+}
+
+export interface BankSubledgerImpactParams {
+  bankRef: any;
+  bankData: any;
+  amount: number;
+  direction: 'inflow' | 'outflow';
+  type: 'deposit' | 'withdrawal' | 'transfer' | 'fee' | 'payment';
+  date: string;
+  reference?: string;
+  description: string;
+  source: string;
+  branchId: string;
+  createdBy: string;
+}
+
+export function applyBankSubledgerImpactInTransaction(
+  transaction: any,
+  db: any,
+  params: BankSubledgerImpactParams,
+  now: string
+): { newBalance: number; txRef: any } {
+  const currentBal = Number(params.bankData.currentBalance ?? params.bankData.balance ?? 0);
+  const newBal = params.direction === 'inflow'
+    ? Math.round((currentBal + params.amount) * 100) / 100
+    : Math.round((currentBal - params.amount) * 100) / 100;
+
+  if (params.direction === 'outflow' && newBal < -0.001 && params.bankData.allowOverdraft !== true) {
+    throw Object.assign(
+      new Error(`Insufficient funds: Bank account "${params.bankData.accountName || params.bankRef.id}" has balance $${currentBal.toFixed(2)}, which cannot cover outflow of $${params.amount.toFixed(2)}. Overdraft is prohibited.`),
+      { statusCode: 400 }
+    );
+  }
+
+  transaction.update(params.bankRef, {
+    currentBalance: newBal,
+    balance: newBal,
+    updatedAt: now
+  });
+
+  const txRef = db.collection('bank_transactions').doc();
+  const txPayload = cleanUndefined({
+    id: txRef.id,
+    bankAccountId: params.bankRef.id,
+    accountName: params.bankData.accountName || params.bankData.bankName || 'Bank Account',
+    amount: params.amount,
+    type: params.type,
+    date: params.date,
+    reference: params.reference || '',
+    description: params.description,
+    source: params.source,
+    branchId: params.branchId,
+    balanceAfter: newBal,
+    createdBy: params.createdBy,
+    createdAt: now
+  });
+  transaction.set(txRef, txPayload);
+
+  return { newBalance: newBal, txRef };
 }
 
 function assertFiniteNonNegativeAmount(value: any, field: string): number {
@@ -3286,15 +3363,16 @@ async function assertAccountingDateOpenInTransaction(transaction: any, db: any, 
   const closedSnap = await transaction.get(
     db.collection('accounting_periods')
       .where('status', 'in', ['Closed', 'closed', 'LOCKED', 'locked'])
-      .where('startDate', '<=', normalized)
-      .where('endDate', '>=', normalized)
-      .limit(10)
   );
   for (const doc of closedSnap.docs) {
     const data = doc.data() || {};
-    const periodBranch = normalizeCanonicalBranchId(data.branchId || '');
-    if (!periodBranch || periodBranch === 'all' || areBranchesMatching(periodBranch, branchId)) {
-      throw Object.assign(new Error(`Accounting period containing ${normalized} is closed; posting is rejected.`), { statusCode: 400 });
+    const sDate = String(data.startDate || '').slice(0, 10);
+    const eDate = String(data.endDate || '').slice(0, 10);
+    if (sDate && eDate && normalized >= sDate && normalized <= eDate) {
+      const periodBranch = normalizeCanonicalBranchId(data.branchId || '');
+      if (!periodBranch || periodBranch === 'all' || areBranchesMatching(periodBranch, branchId)) {
+        throw Object.assign(new Error(`Accounting period containing ${normalized} is closed; posting is rejected.`), { statusCode: 400 });
+      }
     }
   }
 }
@@ -3480,6 +3558,22 @@ export async function handleExpenseCreation(req: express.Request, res: express.R
           branchId: targetBranchId,
           createdAt: timestamp
         }));
+      }
+
+      if (settlement.bankRef && settlement.bankData) {
+        applyBankSubledgerImpactInTransaction(transaction, db, {
+          bankRef: settlement.bankRef,
+          bankData: settlement.bankData,
+          amount,
+          direction: 'outflow',
+          type: 'payment',
+          date: dateStr,
+          reference: newExpenseRef.id,
+          description: `Expense: ${expenseData.description || expenseData.category}`,
+          source: 'Expense',
+          branchId: targetBranchId,
+          createdBy: user.name
+        }, timestamp);
       }
 
       applyAccountBalanceDeltasInTransaction(transaction, __accountState, lines, timestamp);
@@ -3797,6 +3891,21 @@ export async function handleSalaryDisbursement(req: express.Request, res: expres
 
       if (payMethod === 'cash') {
         await applyCashRegisterMovementInTransaction(transaction, db, effectiveBranchId, -authoritativeNetPaid, 'cash salary disbursement', __cashRegisterState);
+      }
+      if (settlement.bankRef && settlement.bankData) {
+        applyBankSubledgerImpactInTransaction(transaction, db, {
+          bankRef: settlement.bankRef,
+          bankData: settlement.bankData,
+          amount: authoritativeNetPaid,
+          direction: 'outflow',
+          type: 'payment',
+          date: dateStr,
+          reference: newSalaryRef.id,
+          description: `Salary Disbursement to ${authoritativeEmployeeName}`,
+          source: 'Payroll',
+          branchId: effectiveBranchId,
+          createdBy: user.name
+        }, timestamp);
       }
 
       const totalDebit = lines.reduce((s, l) => s + (l.debit || 0), 0);
@@ -4204,6 +4313,21 @@ export async function handlePurchaseRegistration(req: express.Request, res: expr
         }
       }
       if (normalizedPurchaseStatus === 'completed' && settlement.id === 'acc_cash') applyCashRegisterMovementInTransaction(transaction, db, targetBranchId, -totalCost, 'purchase cash payment', __purchaseCash);
+      if (normalizedPurchaseStatus === 'completed' && settlement.bankRef && settlement.bankData) {
+        applyBankSubledgerImpactInTransaction(transaction, db, {
+          bankRef: settlement.bankRef,
+          bankData: settlement.bankData,
+          amount: totalCost,
+          direction: 'outflow',
+          type: 'payment',
+          date: dateStr,
+          reference: newPurchaseRef.id,
+          description: `Payment for Purchase of ${purchaseData.itemName} from ${authoritativeSupplierName}`,
+          source: 'Purchases',
+          branchId: targetBranchId,
+          createdBy: user.name
+        }, timestamp);
+      }
       const out = { status: 'success', id: newPurchaseRef.id };
       transaction.set(idemRef, cleanUndefined({ ...out, createdAt: timestamp }));
       return out;
@@ -4302,9 +4426,9 @@ export async function handleBankTransaction(req: express.Request, res: express.R
             throw new Error(`Unauthorized cross-branch bank transaction! Account belongs to branch "${primaryAccData.branchId}". ${accBranchCheck.error}`);
           }
         }
-        const currentBal = Number(primaryAccData.balance || 0);
+        const currentBal = Number(primaryAccData.__bankData?.currentBalance ?? primaryAccData.__bankData?.balance ?? primaryAccData.balance ?? 0);
         // Deposit increases balance; withdrawal, fee, and transfer decrease source balance
-        primaryNewBal = isDeposit ? currentBal + amount : currentBal - amount;
+        primaryNewBal = isDeposit ? Math.round((currentBal + amount) * 100) / 100 : Math.round((currentBal - amount) * 100) / 100;
       }
 
       // Handle Destination Account for Transfers
@@ -4343,8 +4467,8 @@ export async function handleBankTransaction(req: express.Request, res: express.R
             throw new Error('Cross-branch bank transfers require HQ Admin or Owner authorization.');
           }
         }
-        const destBal = Number(destAccData.balance || 0);
-        destNewBal = destBal + amount;
+        const destBal = Number(destAccData.__bankData?.currentBalance ?? destAccData.__bankData?.balance ?? destAccData.balance ?? 0);
+        destNewBal = Math.round((destBal + amount) * 100) / 100;
       }
 
       if (isTransfer && destAccRef && primaryAccRef && destAccRef.id === primaryAccRef.id) {
@@ -4364,6 +4488,7 @@ export async function handleBankTransaction(req: express.Request, res: express.R
         ...bankTransactionData,
         id: newTxRef.id,
         amount,
+        balanceAfter: primaryNewBal,
         branchId: targetBranchId,
         createdBy: user.name,
         createdAt: timestamp
@@ -4377,14 +4502,32 @@ export async function handleBankTransaction(req: express.Request, res: express.R
         }
         // GL account balance is updated exactly once by the central journal balance helper below.
         if (primaryAccData?.__bankRef) {
-          transaction.update(primaryAccData.__bankRef, { currentBalance: primaryNewBal, updatedAt: timestamp });
+          transaction.update(primaryAccData.__bankRef, { currentBalance: primaryNewBal, balance: primaryNewBal, updatedAt: timestamp });
         }
       }
 
       if (destAccRef) {
         // GL destination account balance is updated exactly once by the central journal balance helper below.
         if (destAccData?.__bankRef) {
-          transaction.update(destAccData.__bankRef, { currentBalance: destNewBal, updatedAt: timestamp });
+          transaction.update(destAccData.__bankRef, { currentBalance: destNewBal, balance: destNewBal, updatedAt: timestamp });
+          if (isTransfer) {
+            const destTxRef = db.collection('bank_transactions').doc();
+            transaction.set(destTxRef, cleanUndefined({
+              id: destTxRef.id,
+              bankAccountId: destAccData.__bankRef.id,
+              accountName: destAccData.name || destAccData.__bankData?.accountName || 'Destination Bank Account',
+              amount,
+              type: 'transfer',
+              date: bankTransactionData.date || getMogadishuDateString(timestamp),
+              reference: newTxRef.id,
+              description: `Transfer received from ${primaryAccData?.name || primaryAccData?.__bankData?.accountName || 'Source Bank Account'}: ${bankTransactionData.description || 'Inter-Account Transfer'}`,
+              source: 'Bank Transfer',
+              branchId: destAccData.branchId || targetBranchId,
+              balanceAfter: destNewBal,
+              createdBy: user.name,
+              createdAt: timestamp
+            }));
+          }
         }
       }
 
@@ -6347,6 +6490,27 @@ export async function handleUpdateAccount(req: express.Request, res: express.Res
   }
 }
 
+export const CONTROL_ACCOUNT_IDS = new Set([
+  'acc_cash',
+  'acc_bank',
+  'acc_ar',
+  'acc_ap',
+  'acc_inventory',
+  'acc_wallet_liability',
+  'acc_driver_payable'
+]);
+
+export function isControlAccount(account: { id?: string; code?: string; type?: string; isControlAccount?: boolean }): boolean {
+  if (!account) return false;
+  const id = String(account.id || '').trim().toLowerCase();
+  if (CONTROL_ACCOUNT_IDS.has(id)) return true;
+  const code = String(account.code || '').trim();
+  if (['1010', '1020', '1200', '1300', '2010', '2020', '2030'].includes(code)) return true;
+  if (code.startsWith('1020-')) return true; // Branch sub-bank GL accounts
+  if (account.isControlAccount === true) return true;
+  return false;
+}
+
 export async function handleCreateJournalEntry(req: express.Request, res: express.Response) {
   const user = await authenticateTrustedUser(req, res);
   if (!user) return;
@@ -6407,6 +6571,8 @@ export async function handleCreateJournalEntry(req: express.Request, res: expres
       // Phase 1 (All Reads)
       const uniqueAccountIds: string[] = Array.from(new Set(lines.map((l: any) => l.accountId ? String(l.accountId).trim() : '').filter(Boolean))) as string[];
       const accMap = new Map<string, { ref: any; data: any; balance: number }>();
+      let hasControlAccount = false;
+      let controlAccountDetails: any = null;
       for (const accId of uniqueAccountIds) {
         const accRef = db.collection('accounts').doc(accId);
         const accSnap = await transaction.get(accRef);
@@ -6416,7 +6582,28 @@ export async function handleCreateJournalEntry(req: express.Request, res: expres
         if (accBranch && accBranch !== 'all' && !areBranchesMatching(accBranch, branchId) && !isHQRoleOrClaim(user)) {
           throw new Error(`Journal account '${accId}' belongs to another branch and cannot be posted from branch '${branchId}'.`);
         }
+        if (isControlAccount({ id: accId, code: accData.code, type: accData.type, isControlAccount: accData.isControlAccount })) {
+          hasControlAccount = true;
+          controlAccountDetails = { id: accId, name: accData.name, code: accData.code };
+        }
         accMap.set(accId, { ref: accRef, data: accData, balance: Number(accData.balance || 0) });
+      }
+
+      const isAuthorizedForControlOverride = isHQRoleOrClaim(user) || ['Owner', 'owner', 'Admin', 'admin', 'Accountant', 'accountant'].includes(user.role);
+      const isOverrideRequested = entryData.allowControlAccountOverride === true || entryData.overridePolicyAccepted === true;
+      const overrideReason = typeof entryData.overrideReason === 'string' ? entryData.overrideReason.trim() : '';
+
+      if (hasControlAccount) {
+        if (!isAuthorizedForControlOverride || !isOverrideRequested || overrideReason.length < 10) {
+          throw Object.assign(
+            new Error(
+              `Direct manual journal posting to control account '${controlAccountDetails?.name || controlAccountDetails?.id}' (${controlAccountDetails?.code || controlAccountDetails?.id}) is prohibited. ` +
+              `Control accounts must be updated via respective subledger workflows (POS, AP, AR, Inventory, Bank). ` +
+              `Manual override requires authorized financial credentials (Owner, Admin, Accountant), allowControlAccountOverride: true, and a documented overrideReason of at least 10 characters.`
+            ),
+            { statusCode: 400 }
+          );
+        }
       }
 
       // Phase 2 (All Writes)
@@ -6432,6 +6619,9 @@ export async function handleCreateJournalEntry(req: express.Request, res: expres
         totalDebit,
         totalCredit,
         branchId,
+        controlAccountOverride: hasControlAccount ? true : undefined,
+        overrideReason: hasControlAccount ? overrideReason : undefined,
+        overriddenBy: hasControlAccount ? user.name : undefined,
         createdBy: user.name,
         createdAt: now
       });
@@ -6494,13 +6684,13 @@ export async function handleCreateJournalEntry(req: express.Request, res: expres
 
       transaction.update(jeRef, { idempotencyKey: journalIdempotencyKey });
       transaction.set(journalIdemRef, cleanUndefined({ status:'success', journalEntryId: jeRef.id, entryNumber, createdAt: now }));
-      return { ...newEntryPayload, idempotencyKey: journalIdempotencyKey };
+      return { ...newEntryPayload, status: 'success', journalStatus: newEntryPayload.status, idempotencyKey: journalIdempotencyKey };
     });
 
     return res.json(result);
   } catch (err: any) {
     console.error('Create Journal Entry Error:', err?.message || err);
-    return res.status(500).json({ error: err?.message || 'Create Journal Entry Failed' });
+    return res.status(err?.statusCode || 500).json({ error: err?.message || 'Create Journal Entry Failed' });
   }
 }
 
@@ -6548,6 +6738,21 @@ export async function handleCreateRevenue(req: express.Request, res: express.Res
         transaction.set(ledgerRef, cleanUndefined({ id:ledgerRef.id, accountId:line.accountId, accountCode:line.accountCode, accountName:line.accountName, journalEntryId:jeRef.id, entryNumber, date:dateStr, reference:revenueRef.id, description:line.memo, debit:line.debit, credit:line.credit, branchId:targetBranchId, createdAt:now }));
       }
       if (payMethod === 'cash') await applyCashRegisterMovementInTransaction(transaction, db, targetBranchId, amount, 'manual revenue cash receipt', __cashRegisterState);
+      if (settlement.bankRef && settlement.bankData) {
+        applyBankSubledgerImpactInTransaction(transaction, db, {
+          bankRef: settlement.bankRef,
+          bankData: settlement.bankData,
+          amount,
+          direction: 'inflow',
+          type: 'deposit',
+          date: dateStr,
+          reference: revenueRef.id,
+          description: `Manual revenue receipt: ${revenueRef.id}`,
+          source: 'Revenue',
+          branchId: targetBranchId,
+          createdBy: user.name
+        }, now);
+      }
       applyAccountBalanceDeltasInTransaction(transaction, __accountState, lines, now);
       const result = { status:'success', id:revenueRef.id, revenueNumber:`REV-${revenueRef.id.slice(0,8).toUpperCase()}`, amount, branchId:targetBranchId, journalEntryId:jeRef.id };
       transaction.set(idemRef, cleanUndefined({ ...result, createdAt:now }));
@@ -6732,6 +6937,22 @@ export async function handleRecordARPayment(req: express.Request, res: express.R
         }));
       }
 
+      if (settlement.bankAccountId && settlement.bankRef && settlement.bankData) {
+        applyBankSubledgerImpactInTransaction(transaction, db, {
+          bankRef: settlement.bankRef,
+          bankData: settlement.bankData,
+          amount: paymentAmount,
+          direction: 'inflow',
+          type: 'deposit',
+          date: dateStr,
+          reference: item.invoiceNumber || id,
+          description: `AR Collection for Receivable #${item.invoiceNumber || id} via ${normalizedPayMethod}`,
+          source: 'AR',
+          branchId: targetBranchId,
+          createdBy: user.name
+        }, timestamp);
+      }
+
       // Post Double-Entry Journal Entry
       const payMethod = normalizedPayMethod;
       const paymentAccountCode = settlement.code;
@@ -6848,15 +7069,87 @@ export async function handleCreatePayable(req: express.Request, res: express.Res
       const idemSnap=await transaction.get(idemRef); if(idemSnap.exists)return idemSnap.data();
       const now=new Date().toISOString(); const dateStr=String(req.body.date||getMogadishuDateString(now)).slice(0,10);
       await assertAccountingDateOpenInTransaction(transaction,db,dateStr,targetBranchId);
+
+      // Phase 1 (All Reads)
+      // Supplier Resolution & Validation
+      const rawSupplierId = String(req.body.supplierId || req.body.vendorId || '').trim();
+      let supRef: any = null;
+      let supSnap: any = null;
+      let canonicalSupplierId: string | undefined = undefined;
+      let canonicalSupplierName: string = String(req.body.vendorName || req.body.supplierName || 'Vendor').trim();
+
+      if (rawSupplierId) {
+        supRef = db.collection('suppliers').doc(rawSupplierId);
+        supSnap = await transaction.get(supRef);
+        if (!supSnap.exists) {
+          throw Object.assign(new Error(`Supplier with ID "${rawSupplierId}" not found.`), { statusCode: 404 });
+        }
+        const sData = supSnap.data() || {};
+        if (sData.branchId && sData.branchId !== 'all') {
+          const supBranchCheck = checkBranchAuthorization(user, sData.branchId);
+          if (!supBranchCheck.authorized) {
+            throw Object.assign(new Error(`Unauthorized cross-branch supplier payable! Supplier belongs to branch "${sData.branchId}". ${supBranchCheck.error}`), { statusCode: 403 });
+          }
+          if (targetBranchId && targetBranchId !== 'all' && sData.branchId !== targetBranchId) {
+            throw Object.assign(new Error(`Supplier branch "${sData.branchId}" does not match target branch "${targetBranchId}".`), { statusCode: 400 });
+          }
+        }
+        canonicalSupplierId = supRef.id;
+        canonicalSupplierName = String(sData.name || sData.companyName || canonicalSupplierName).trim();
+      }
+
       const ref=db.collection('payables').doc(), jeRef=db.collection('journal_entries').doc();
       const __accountState=await prepareAccountBalanceState(transaction,db,['acc_expense','acc_ap']);
       const billNumber=String(req.body.billNumber||`BILL-${Date.now().toString().slice(-6)}`).trim();
-      const payload=cleanUndefined({id:ref.id,vendorName:String(req.body.vendorName||req.body.supplierName||'Vendor').trim(),vendorId:req.body.vendorId?String(req.body.vendorId).trim():undefined,billNumber,totalAmount,paidAmount:0,remainingBalance:totalAmount,status:'Unpaid',dueDate:req.body.dueDate?String(req.body.dueDate).trim():undefined,notes:req.body.notes?String(req.body.notes).trim():undefined,payments:[],branchId:targetBranchId,createdBy:user.name,createdAt:now,date:dateStr,idempotencyKey,journalEntryId:jeRef.id});
-      const lines=[{accountId:'acc_expense',accountCode:'6100',accountName:'Operating Expense',debit:totalAmount,credit:0,memo:`AP Invoice ${billNumber}`},{accountId:'acc_ap',accountCode:'2010',accountName:'Accounts Payable',debit:0,credit:totalAmount,memo:`AP Invoice ${billNumber}`}];
+      const payload=cleanUndefined({
+        id: ref.id,
+        supplierId: canonicalSupplierId,
+        vendorId: canonicalSupplierId,
+        supplierName: canonicalSupplierName,
+        vendorName: canonicalSupplierName,
+        billNumber,
+        totalAmount,
+        paidAmount: 0,
+        remainingBalance: totalAmount,
+        status: 'Unpaid',
+        dueDate: req.body.dueDate ? String(req.body.dueDate).trim() : undefined,
+        notes: req.body.notes ? String(req.body.notes).trim() : undefined,
+        payments: [],
+        branchId: targetBranchId,
+        createdBy: user.name,
+        createdAt: now,
+        date: dateStr,
+        idempotencyKey,
+        journalEntryId: jeRef.id
+      });
+      const lines=[
+        {accountId:'acc_expense',accountCode:'6100',accountName:'Operating Expense',debit:totalAmount,credit:0,memo:`AP Invoice ${billNumber}`},
+        {accountId:'acc_ap',accountCode:'2010',accountName:'Accounts Payable',debit:0,credit:totalAmount,memo:`AP Invoice ${billNumber}`}
+      ];
       const entryNumber=`JE-AP-${ref.id.slice(0,8).toUpperCase()}`;
-      transaction.set(ref,payload); transaction.set(jeRef,cleanUndefined({id:jeRef.id,entryNumber,date:dateStr,reference:billNumber,description:`Payable Invoice ${billNumber}`,source:'Payables',status:'Posted',totalDebit:totalAmount,totalCredit:totalAmount,lines,branchId:targetBranchId,createdBy:user.name,createdAt:now,idempotencyKey}));
-      for(const line of lines){const jl=db.collection('journal_lines').doc(),led=db.collection('ledger').doc();transaction.set(jl,cleanUndefined({id:jl.id,journalEntryId:jeRef.id,entryNumber,date:dateStr,branchId:targetBranchId,...line,createdAt:now}));transaction.set(led,cleanUndefined({id:led.id,accountId:line.accountId,accountCode:line.accountCode,accountName:line.accountName,journalEntryId:jeRef.id,entryNumber,date:dateStr,reference:billNumber,description:line.memo,debit:line.debit,credit:line.credit,branchId:targetBranchId,createdAt:now}));}
-      applyAccountBalanceDeltasInTransaction(transaction,__accountState,lines,now); const out={status:'success',id:ref.id,billNumber,totalAmount,branchId:targetBranchId,journalEntryId:jeRef.id}; transaction.set(idemRef,cleanUndefined({...out,createdAt:now})); return out;
+
+      // Phase 2 (All Writes)
+      transaction.set(ref,payload);
+      if (supRef && supSnap && supSnap.exists) {
+        const sData = supSnap.data() || {};
+        const curOut = Number(sData.outstandingBalance || 0);
+        const curPend = Number(sData.pendingAmount || 0);
+        transaction.update(supRef, {
+          outstandingBalance: Math.round((curOut + totalAmount) * 100) / 100,
+          pendingAmount: Math.round((curPend + totalAmount) * 100) / 100,
+          updatedAt: now
+        });
+      }
+      transaction.set(jeRef,cleanUndefined({id:jeRef.id,entryNumber,date:dateStr,reference:billNumber,description:`Payable Invoice ${billNumber}`,source:'Payables',status:'Posted',totalDebit:totalAmount,totalCredit:totalAmount,lines,branchId:targetBranchId,createdBy:user.name,createdAt:now,idempotencyKey}));
+      for(const line of lines){
+        const jl=db.collection('journal_lines').doc(),led=db.collection('ledger').doc();
+        transaction.set(jl,cleanUndefined({id:jl.id,journalEntryId:jeRef.id,entryNumber,date:dateStr,branchId:targetBranchId,...line,createdAt:now}));
+        transaction.set(led,cleanUndefined({id:led.id,accountId:line.accountId,accountCode:line.accountCode,accountName:line.accountName,journalEntryId:jeRef.id,entryNumber,date:dateStr,reference:billNumber,description:line.memo,debit:line.debit,credit:line.credit,branchId:targetBranchId,createdAt:now}));
+      }
+      applyAccountBalanceDeltasInTransaction(transaction,__accountState,lines,now);
+      const out={status:'success',id:ref.id,billNumber,totalAmount,branchId:targetBranchId,supplierId:canonicalSupplierId,supplierName:canonicalSupplierName,journalEntryId:jeRef.id};
+      transaction.set(idemRef,cleanUndefined({...out,createdAt:now}));
+      return out;
     }); return res.json(result);
   }catch(err:any){return res.status(err?.statusCode||500).json({error:err?.message||'Create Payable Failed'});}
 }
@@ -6955,6 +7248,22 @@ export async function handleRecordAPPayment(req: express.Request, res: express.R
           pendingAmount: Math.max(0, Math.round((curPend - paymentAmount) * 100) / 100),
           updatedAt: timestamp
         });
+      }
+
+      if (settlement.bankAccountId && settlement.bankRef && settlement.bankData) {
+        applyBankSubledgerImpactInTransaction(transaction, db, {
+          bankRef: settlement.bankRef,
+          bankData: settlement.bankData,
+          amount: paymentAmount,
+          direction: 'outflow',
+          type: 'payment',
+          date: dateStr,
+          reference: item.billNumber || id,
+          description: `AP Settlement to ${item.vendorName || item.supplierName || 'Vendor'} via ${normalizedPayMethod}`,
+          source: 'AP',
+          branchId: targetBranchId,
+          createdBy: user.name
+        }, timestamp);
       }
 
       // Post Double-Entry Journal Entry
@@ -8127,21 +8436,26 @@ export async function handleRecordSupplierPayment(req: express.Request, res: exp
       let supRef: any = null;
       let supSnap: any = null;
       let newBalance: number = 0;
-      if (paymentData.supplierId) {
-        supRef = db.collection('suppliers').doc(paymentData.supplierId);
-        supSnap = await transaction.get(supRef);
-        if (supSnap.exists) {
-          const sup = supSnap.data() as any;
-          if (!sup.branchId) throw new Error('Supplier has no canonical branchId; payment rejected until migrated.');
-          const supBranchCheck = checkBranchAuthorization(user, sup.branchId);
-          if (!supBranchCheck.authorized) {
-            throw new Error(`Unauthorized cross-branch supplier payment! Supplier belongs to branch "${sup.branchId}". ${supBranchCheck.error}`);
-          }
-          const currentBal = Number(sup.outstandingBalance) || 0;
-          if (paymentAmount > currentBal + 0.001) throw Object.assign(new Error(`Supplier payment (${paymentAmount.toFixed(2)}) exceeds outstanding balance (${currentBal.toFixed(2)}). Record a supplier advance separately.`), { statusCode: 400 });
-          newBalance = currentBal - paymentAmount;
-        }
+      if (!paymentData.supplierId || !String(paymentData.supplierId).trim()) {
+        throw Object.assign(new Error('supplierId is required for supplier payment.'), { statusCode: 400 });
       }
+      const targetSupId = String(paymentData.supplierId).trim();
+      supRef = db.collection('suppliers').doc(targetSupId);
+      supSnap = await transaction.get(supRef);
+      if (!supSnap.exists) {
+        throw Object.assign(new Error(`Supplier with ID "${targetSupId}" not found.`), { statusCode: 404 });
+      }
+      const sup = supSnap.data() as any;
+      if (!sup.branchId) throw Object.assign(new Error('Supplier has no canonical branchId; payment rejected until migrated.'), { statusCode: 409 });
+      const supBranchCheck = checkBranchAuthorization(user, sup.branchId);
+      if (!supBranchCheck.authorized) {
+        throw Object.assign(new Error(`Unauthorized cross-branch supplier payment! Supplier belongs to branch "${sup.branchId}". ${supBranchCheck.error}`), { statusCode: 403 });
+      }
+      const currentBal = Number(sup.outstandingBalance) || 0;
+      if (paymentAmount > currentBal + 0.001) {
+        throw Object.assign(new Error(`Supplier payment (${paymentAmount.toFixed(2)}) exceeds outstanding balance (${currentBal.toFixed(2)}). Record a supplier advance separately.`), { statusCode: 400 });
+      }
+      newBalance = currentBal - paymentAmount;
 
       const settlement = await resolveSettlementAccountInTransaction(transaction, db, targetBranchId, normalizedPayMethod, paymentData.bankAccountId);
       await assertAccountingDateOpenInTransaction(transaction, db, dateStr, targetBranchId);
@@ -8179,6 +8493,22 @@ export async function handleRecordSupplierPayment(req: express.Request, res: exp
           pendingAmount: Math.max(0, Math.round((curPend - paymentAmount) * 100) / 100),
           updatedAt: now
         });
+      }
+
+      if (settlement.bankAccountId && settlement.bankRef && settlement.bankData) {
+        applyBankSubledgerImpactInTransaction(transaction, db, {
+          bankRef: settlement.bankRef,
+          bankData: settlement.bankData,
+          amount: paymentAmount,
+          direction: 'outflow',
+          type: 'payment',
+          date: dateStr,
+          reference: paymentData.reference ? String(paymentData.reference).trim() : newRef.id,
+          description: `Supplier payment to ${paymentData.supplierName || 'Supplier'} via ${normalizedPayMethod}`,
+          source: 'Supplier',
+          branchId: targetBranchId,
+          createdBy: user.name
+        }, now);
       }
 
       if (openPayablesSnap && !openPayablesSnap.empty) {
@@ -10623,11 +10953,19 @@ export async function getFinancialSummaryData(
     return snap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
   }
 
-  const [orders, refunds, expenses, accounts, receivables, payables, products, ingredients, rawJournalLines, journalEntries, inventoryMovements] = await Promise.all([
+  // Canonical accounts have branchId='all' or empty; fetch all and filter to include canonical + branch-specific accounts
+  const accountsSnap = await db.collection('accounts').get();
+  const allAccounts = accountsSnap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+  const accounts = allAccounts.filter((a: any) => {
+    const aBranch = normalizeCanonicalBranchId(a.branchId || '');
+    if (!userBranchId || userBranchId === 'all') return true;
+    return !aBranch || aBranch === 'all' || aBranch === userBranchId;
+  });
+
+  const [orders, refunds, expenses, receivables, payables, products, ingredients, rawJournalLines, journalEntries, inventoryMovements] = await Promise.all([
     fetchBranchDocs('orders'),
     fetchBranchDocs('refunds'),
     fetchBranchDocs('expenses'),
-    fetchBranchDocs('accounts'),
     fetchBranchDocs('receivables'),
     fetchBranchDocs('payables'),
     fetchBranchDocs('products'),
@@ -10747,21 +11085,82 @@ export async function getFinancialSummaryData(
   const glAsOfBalance = (accountId: string) => {
     const account = accounts.find((a: any) => a.id === accountId);
     if (!account) return 0;
+    const nature = normalizeAccountNature(account.type, account);
+
+    // If account belongs specifically to this branch (not 'all'), and no historical cutoff (or rolling back from current)
+    const isBranchSpecific = userBranchId && userBranchId !== 'all' && normalizeCanonicalBranchId(account.branchId || '') === userBranchId;
+    if (isBranchSpecific && !periodOptions?.dateTo) {
+      return Math.round(Number(account.balance || 0) * 100) / 100;
+    }
+
+    // If branch-scoped and account is shared ('all'), compute the balance purely from branch-scoped journal lines
+    if (userBranchId && userBranchId !== 'all') {
+      let branchBal = 0;
+      for (const line of journalLines) {
+        const matchesAccount = (line.accountId && String(line.accountId) === String(accountId)) ||
+                               (!line.accountId && line.accountCode && account.code && String(line.accountCode) === String(account.code));
+        if (!matchesAccount) continue;
+        if (endDate) {
+          const d = new Date(line.date || line.createdAt || '');
+          if (Number.isFinite(d.getTime()) && d > endDate) continue;
+        }
+        const debit = Number(line.debit || 0);
+        const credit = Number(line.credit || 0);
+        branchBal += (nature === 'debit' ? (debit - credit) : (credit - debit));
+      }
+      return Math.round(branchBal * 100) / 100;
+    }
+
     let balance = Number(account.balance || 0);
-    if (!endDate) return balance;
+    if (!endDate) return Math.round(balance * 100) / 100;
     for (const line of journalLines) {
-      if (String(line.accountId) !== String(accountId)) continue;
+      const matchesAccount = (line.accountId && String(line.accountId) === String(accountId)) ||
+                             (!line.accountId && line.accountCode && account.code && String(line.accountCode) === String(account.code));
+      if (!matchesAccount) continue;
       const d = new Date(line.date || line.createdAt || '');
       if (!Number.isFinite(d.getTime()) || d > endDate) balance -= deltaForAccount(account, line);
     }
-    return Number.isFinite(balance) ? balance : 0;
+    return Number.isFinite(balance) ? Math.round(balance * 100) / 100 : 0;
   };
+
+  // Point-in-time GL Control calculations from journal lines
+  let glAR = 0;
+  let glAP = 0;
+  let glCash = 0;
+  let glBank = 0;
+
+  const asOfJournalLines = journalLines.filter((jl: any) => isDocAsOfDateTo(jl));
+  asOfJournalLines.forEach((jl: any) => {
+    const code = String(jl.accountCode || jl.accountId || '');
+    const debit = Number(jl.debit || 0);
+    const credit = Number(jl.credit || 0);
+
+    if (code === '1200' || code === 'acc_ar' || code.startsWith('12')) {
+      glAR += (debit - credit);
+    } else if (code === '2010' || code === 'acc_ap' || code.startsWith('201')) {
+      glAP += (credit - debit);
+    } else if (code === '1010' || code === 'acc_cash' || (code.startsWith('101') && !code.startsWith('102'))) {
+      glCash += (debit - credit);
+    } else if (code === '1020' || code === 'acc_bank' || code.startsWith('102')) {
+      glBank += (debit - credit);
+    }
+  });
 
   const cashAccounts = accounts.filter((a: any) => a.type === 'cash' || a.accountType === 'Cash' || (a.code && String(a.code).startsWith('101')));
   const bankAccounts = accounts.filter((a: any) => a.type === 'bank' || a.accountType === 'Bank' || (a.code && String(a.code).startsWith('102')));
 
-  const cash = cashAccounts.reduce((sum: number, a: any) => sum + glAsOfBalance(String(a.id)), 0);
-  const bank = bankAccounts.reduce((sum: number, a: any) => sum + glAsOfBalance(String(a.id)), 0);
+  const branchCashAccounts = (userBranchId && userBranchId !== 'all')
+    ? cashAccounts.filter((a: any) => normalizeCanonicalBranchId(a.branchId || '') === userBranchId)
+    : [];
+  const effectiveCashAccounts = branchCashAccounts.length > 0 ? branchCashAccounts : cashAccounts;
+
+  const branchBankAccounts = (userBranchId && userBranchId !== 'all')
+    ? bankAccounts.filter((a: any) => normalizeCanonicalBranchId(a.branchId || '') === userBranchId)
+    : [];
+  const effectiveBankAccounts = branchBankAccounts.length > 0 ? branchBankAccounts : bankAccounts;
+
+  const cash = effectiveCashAccounts.reduce((sum: number, a: any) => sum + glAsOfBalance(String(a.id)), 0);
+  const bank = effectiveBankAccounts.reduce((sum: number, a: any) => sum + glAsOfBalance(String(a.id)), 0);
 
   // AR/AP point-in-time balances come from their authoritative control accounts when present.
   const arAccount = accounts.find((a: any) => a.id === 'acc_ar' || String(a.code) === '1200' || String(a.code) === '1100');
@@ -10826,29 +11225,6 @@ export async function getFinancialSummaryData(
   const ingredientVal = ingredients.reduce((sum: number, i: any) => sum + historicalStock(i, 'ingredient') * historicalCost(i, 'ingredient'), 0);
   const inventory = productVal + ingredientVal;
 
-  // P1-6 & P1-7: GL Control Reconciliation
-  let glAR = 0;
-  let glAP = 0;
-  let glCash = 0;
-  let glBank = 0;
-
-  const asOfJournalLines = journalLines.filter((jl: any) => isDocAsOfDateTo(jl));
-  asOfJournalLines.forEach((jl: any) => {
-    const code = String(jl.accountCode || jl.accountId || '');
-    const debit = Number(jl.debit || 0);
-    const credit = Number(jl.credit || 0);
-
-    if (code === '1200' || code === 'acc_ar' || code.startsWith('12')) {
-      glAR += (debit - credit);
-    } else if (code === '2010' || code === 'acc_ap' || code.startsWith('201')) {
-      glAP += (credit - debit);
-    } else if (code === '1010' || code === 'acc_cash' || (code.startsWith('101') && !code.startsWith('102'))) {
-      glCash += (debit - credit);
-    } else if (code === '1020' || code === 'acc_bank' || code.startsWith('102')) {
-      glBank += (debit - credit);
-    }
-  });
-
   const arDiff = Math.abs(AR - glAR);
   const apDiff = Math.abs(AP - glAP);
   const cashDiff = Math.abs(cash - glCash);
@@ -10894,6 +11270,7 @@ export async function getFinancialSummaryData(
     branchId: userBranchId || 'all',
     period: periodOptions?.period || 'all_time',
     sales: Math.round(grossSales * 100) / 100,
+    grossSales: Math.round(grossSales * 100) / 100,
     refunds: Math.round(totalRefunds * 100) / 100,
     netSales: roundedNetSales,
     cogs: roundedCogs,

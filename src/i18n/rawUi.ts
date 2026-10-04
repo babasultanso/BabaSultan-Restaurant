@@ -1243,6 +1243,9 @@ const M: Record<string, Record<SupportedLanguage,string>> = {
   'e.g. Window table, birthday dinner, high chair':{en:'e.g. Window table, birthday dinner, high chair',ar:'مثال: طاولة بجانب النافذة، عشاء عيد ميلاد، كرسي أطفال',so:'tusaale: Miiska daaqadda, casho dhalasho, kursi carruur'},
   'Booking...':{en:'Booking...',ar:'جاري الحجز...',so:'Ballaminaya...'},
   'Confirm Reservation':{en:'Confirm Reservation',ar:'تأكيد الحجز',so:'Xaqiiji Ballanta'},
+  'Canonical Supplier':{en:'Canonical Supplier',ar:'المورّد المعتمد',so:'Alaab-qeybiyaha Rasmiga ah'},
+  'Select from Registered Suppliers':{en:'Select from Registered Suppliers',ar:'اختر من المورّدين المسجلين',so:'Ka dooro Alaab-qeybiyeyaasha Diiwaangashan'},
+  'Or enter supplier/vendor name':{en:'Or enter supplier/vendor name',ar:'أو أدخل اسم المورّد/البائع',so:'Ama geli magaca alaab-qeybiyaha'},
 };
 export function translateRawUi(text:string):string {
   const lang=((typeof localStorage !== 'undefined' ? localStorage.getItem('app_language') : null)||'ar') as SupportedLanguage;
