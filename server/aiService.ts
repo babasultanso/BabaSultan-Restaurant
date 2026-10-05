@@ -3,7 +3,7 @@ import { GoogleGenAI } from '@google/genai';
 import { getFinancialSummaryData } from './trustedFinancialBackend.js';
 import { authenticateTrustedUser } from './auth.js';
 
-const SERVER_GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
+const SERVER_GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 
 // In-memory sliding window rate limiter (max 20 requests per minute per user/IP)
 interface RateLimitRecord {

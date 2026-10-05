@@ -352,7 +352,11 @@ describe.skipIf(!process.env.FIRESTORE_EMULATOR_HOST)('FIRESTORE SECURITY RULES 
     await assertSucceeds(updateDoc(doc(managerDb, 'leave_requests', 'leave_rules_001'), { workflowStatus: 'Manager Approval' }));
     await assertFails(updateDoc(doc(managerDb, 'leave_requests', 'leave_rules_001'), { daysCount: 99 }));
     await assertFails(updateDoc(doc(managerDb, 'leave_requests', 'leave_rules_001'), { workflowStatus: 'Request' }));
-    await assertSucceeds(updateDoc(doc(managerDb, 'leave_requests', 'leave_rules_001'), { workflowStatus: 'Completed' }));
+    // Manager cannot do final completion (requires isHROrAdmin)
+    await assertFails(updateDoc(doc(managerDb, 'leave_requests', 'leave_rules_001'), { workflowStatus: 'Completed' }));
+    // HR Admin or HQ Owner completes final leave approval
+    const ownerDb = testEnv.authenticatedContext('owner_hq').firestore();
+    await assertSucceeds(updateDoc(doc(ownerDb, 'leave_requests', 'leave_rules_001'), { workflowStatus: 'Completed' }));
   });
 
   it('13a. Blocks client writes to supplier financial balances', async () => {

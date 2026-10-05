@@ -4758,7 +4758,8 @@ export async function handleBankTransaction(req: express.Request, res: express.R
     return res.json(result);
   } catch (err: any) {
     console.error('Bank Transaction Error:', err?.message || err);
-    return res.status(/not found|Insufficient|Invalid|cannot be posted|linked GL/i.test(String(err?.message || '')) ? 400 : 500).json({ error: err?.message || 'Bank Transaction Failed' });
+    const status = Number(err?.statusCode || err?.status || (/not found|Insufficient|Invalid|cannot be posted|linked GL|prohibited|not a valid/i.test(String(err?.message || '')) ? 400 : 500));
+    return res.status(status).json({ error: err?.message || 'Bank Transaction Failed' });
   }
 }
 
@@ -8020,6 +8021,32 @@ export async function handleCreateRecipe(req: express.Request, res: express.Resp
   } catch(e:any) { return res.status(e?.statusCode||500).json({error:e?.message||'Recipe creation failed.'}); }
 }
 
+function sanitizeRecipePayload(raw: any) {
+  const allowed: Record<string, any> = {};
+  if (raw.recipeName !== undefined) allowed.recipeName = String(raw.recipeName).trim();
+  if (raw.productName !== undefined) allowed.productName = String(raw.productName).trim();
+  if (raw.productId !== undefined) allowed.productId = String(raw.productId).trim();
+  if (raw.productCategory !== undefined) allowed.productCategory = String(raw.productCategory).trim();
+  if (Array.isArray(raw.items)) allowed.items = raw.items;
+  if (raw.yieldQuantity !== undefined && Number.isFinite(Number(raw.yieldQuantity)) && Number(raw.yieldQuantity) > 0) {
+    allowed.yieldQuantity = Number(raw.yieldQuantity);
+  }
+  if (raw.totalCost !== undefined && Number.isFinite(Number(raw.totalCost))) allowed.totalCost = Number(raw.totalCost);
+  if (raw.costPerPortion !== undefined && Number.isFinite(Number(raw.costPerPortion))) allowed.costPerPortion = Number(raw.costPerPortion);
+  if (raw.sellingPrice !== undefined && Number.isFinite(Number(raw.sellingPrice))) allowed.sellingPrice = Number(raw.sellingPrice);
+  if (raw.foodCostPercentage !== undefined && Number.isFinite(Number(raw.foodCostPercentage))) allowed.foodCostPercentage = Number(raw.foodCostPercentage);
+  if (raw.grossProfit !== undefined && Number.isFinite(Number(raw.grossProfit))) allowed.grossProfit = Number(raw.grossProfit);
+  if (raw.grossProfitMargin !== undefined && Number.isFinite(Number(raw.grossProfitMargin))) allowed.grossProfitMargin = Number(raw.grossProfitMargin);
+  if (raw.estimatedOverhead !== undefined && Number.isFinite(Number(raw.estimatedOverhead))) allowed.estimatedOverhead = Number(raw.estimatedOverhead);
+  if (raw.estimatedProfit !== undefined && Number.isFinite(Number(raw.estimatedProfit))) allowed.estimatedProfit = Number(raw.estimatedProfit);
+  if (raw.estimatedNetProfit !== undefined && Number.isFinite(Number(raw.estimatedNetProfit))) allowed.estimatedNetProfit = Number(raw.estimatedNetProfit);
+  if (raw.overheadRateEstimated !== undefined && Number.isFinite(Number(raw.overheadRateEstimated))) allowed.overheadRateEstimated = Number(raw.overheadRateEstimated);
+  if (raw.netProfit !== undefined && Number.isFinite(Number(raw.netProfit))) allowed.netProfit = Number(raw.netProfit);
+  if (raw.notes !== undefined) allowed.notes = String(raw.notes).trim();
+  if (raw.isActive !== undefined) allowed.isActive = Boolean(raw.isActive);
+  return allowed;
+}
+
 export async function handleUpdateRecipe(req: express.Request, res: express.Response) {
   const user = await authenticateTrustedUser(req, res); if (!user) return;
   const role = checkRoleAuthorization(user, ['Owner','owner','Admin','admin','Manager','manager']);
@@ -8027,7 +8054,56 @@ export async function handleUpdateRecipe(req: express.Request, res: express.Resp
   const recipeId = String(req.params.id || '').trim(); if (!recipeId) return res.status(400).json({error:'Recipe ID is required.'});
   let key:string; try{key=getRequiredIdempotencyKey(req);}catch(e:any){return res.status(e?.statusCode||400).json({error:e?.message||'Idempotency-Key is required.'});}
   const data=req.body?.recipeData||req.body||{}; const db=getAdminDb(); const idemRef=db.collection('mutation_idempotency').doc(createHash('sha256').update(`recipe-update:${user.uid}:${recipeId}:${key}`).digest('hex'));
-  try{const result=await db.runTransaction(async(tx:any)=>{const idem=await tx.get(idemRef);if(idem.exists)return idem.data(); const ref=db.collection('recipes').doc(recipeId);const snap=await tx.get(ref);if(!snap.exists)throw Object.assign(new Error('Recipe not found.'),{statusCode:404});const existing=snap.data()||{};const branch=checkBranchAuthorization(user, existing.branchId);if(!branch.authorized||!branch.targetBranchId||branch.targetBranchId==='all')throw Object.assign(new Error(branch.error||'Unauthorized recipe branch.'),{statusCode:403});const items=Array.isArray(data.items)?data.items:(Array.isArray(existing.items)?existing.items:[]);await validateRecipeItemsInTransaction(tx,db,items,branch.targetBranchId);const productId=data.productId||existing.productId;let productRef:any=null;if(productId){productRef=db.collection('products').doc(String(productId));const ps=await tx.get(productRef);if(!ps.exists)throw Object.assign(new Error('Recipe product not found.'),{statusCode:404});const pb=normalizeCanonicalBranchId(ps.data()?.branchId||'');if(!pb||!areBranchesMatching(pb,branch.targetBranchId))throw Object.assign(new Error('Recipe product belongs to a different branch.'),{statusCode:403});}const now=new Date().toISOString();const version=Number(existing.version||1)+1;const updates=cleanUndefined({...data,branchId:branch.targetBranchId,version,updatedAt:now});tx.update(ref,updates);if(productRef)tx.update(productRef,{activeRecipeId:recipeId,recipe:items,updatedAt:now});const hist=db.collection('recipe_versions').doc();tx.set(hist,cleanUndefined({id:hist.id,recipeId,productId,productName:data.productName||existing.productName,version,items,totalCost:data.totalCost??existing.totalCost,foodCostPercentage:data.foodCostPercentage??existing.foodCostPercentage,sellingPrice:data.sellingPrice??existing.sellingPrice,changedBy:user.name||'System',changeReason:String(data.changeReason||`Updated to version ${version}`),branchId:branch.targetBranchId,createdAt:now}));const out={status:'success',id:recipeId,version};tx.set(idemRef,cleanUndefined({...out,createdAt:now}));return out;});return res.json(result);}catch(e:any){return res.status(e?.statusCode||500).json({error:e?.message||'Recipe update failed.'});}
+  try{const result=await db.runTransaction(async(tx:any)=>{
+    const idem=await tx.get(idemRef);if(idem.exists)return idem.data(); 
+    const ref=db.collection('recipes').doc(recipeId);
+    const snap=await tx.get(ref);
+    if(!snap.exists)throw Object.assign(new Error('Recipe not found.'),{statusCode:404});
+    const existing=snap.data()||{};
+    const branch=checkBranchAuthorization(user, existing.branchId);
+    if(!branch.authorized||!branch.targetBranchId||branch.targetBranchId==='all')throw Object.assign(new Error(branch.error||'Unauthorized recipe branch.'),{statusCode:403});
+    const items=Array.isArray(data.items)?data.items:(Array.isArray(existing.items)?existing.items:[]);
+    await validateRecipeItemsInTransaction(tx,db,items,branch.targetBranchId);
+    const productId=data.productId||existing.productId;
+    let productRef:any=null;
+    if(productId){
+      productRef=db.collection('products').doc(String(productId));
+      const ps=await tx.get(productRef);
+      if(!ps.exists)throw Object.assign(new Error('Recipe product not found.'),{statusCode:404});
+      const pb=normalizeCanonicalBranchId(ps.data()?.branchId||'');
+      if(!pb||!areBranchesMatching(pb,branch.targetBranchId))throw Object.assign(new Error('Recipe product belongs to a different branch.'),{statusCode:403});
+    }
+    const now=new Date().toISOString();
+    const version=Number(existing.version||1)+1;
+    const sanitized=sanitizeRecipePayload(data);
+    const updates=cleanUndefined({
+      ...sanitized,
+      branchId:branch.targetBranchId,
+      version,
+      updatedAt:now
+    });
+    tx.update(ref,updates);
+    if(productRef)tx.update(productRef,{activeRecipeId:recipeId,recipe:items,updatedAt:now});
+    const hist=db.collection('recipe_versions').doc();
+    tx.set(hist,cleanUndefined({
+      id:hist.id,
+      recipeId,
+      productId,
+      productName:data.productName||existing.productName,
+      version,
+      items,
+      totalCost:data.totalCost??existing.totalCost,
+      foodCostPercentage:data.foodCostPercentage??existing.foodCostPercentage,
+      sellingPrice:data.sellingPrice??existing.sellingPrice,
+      changedBy:user.name||'System',
+      changeReason:String(data.changeReason||`Updated to version ${version}`),
+      branchId:branch.targetBranchId,
+      createdAt:now
+    }));
+    const out={status:'success',id:recipeId,version};
+    tx.set(idemRef,cleanUndefined({...out,createdAt:now}));
+    return out;
+  });return res.json(result);}catch(e:any){return res.status(e?.statusCode||500).json({error:e?.message||'Recipe update failed.'});}
 }
 
 export async function handleDeleteRecipe(req: express.Request, res: express.Response) {
@@ -13752,19 +13828,86 @@ export async function handleBranchTransferRejection(req: express.Request, res: e
   } catch(e:any){return res.status(e?.statusCode||500).json({error:e?.message||'Branch transfer rejection failed.'});}
 }
 
+function sanitizeProductOptionPayload(raw: any) {
+  const allowed: Record<string, any> = {};
+  if (raw.nameEn !== undefined) allowed.nameEn = String(raw.nameEn).trim();
+  if (raw.name !== undefined) allowed.name = String(raw.name).trim();
+  if (raw.nameAr !== undefined) allowed.nameAr = String(raw.nameAr).trim();
+  if (raw.nameSo !== undefined) allowed.nameSo = String(raw.nameSo).trim();
+  if (raw.productId !== undefined) allowed.productId = String(raw.productId).trim();
+  if (raw.description !== undefined) allowed.description = String(raw.description).trim();
+  if (raw.type !== undefined) {
+    const t = String(raw.type).toLowerCase().trim();
+    if (['size', 'variant', 'addon', 'custom'].includes(t)) allowed.type = t;
+  }
+  if (raw.selectionType !== undefined) {
+    const s = String(raw.selectionType).toLowerCase().trim();
+    if (['single', 'multiple'].includes(s)) allowed.selectionType = s;
+  }
+  if (raw.isRequired !== undefined) allowed.isRequired = Boolean(raw.isRequired);
+  if (raw.isActive !== undefined) allowed.isActive = Boolean(raw.isActive);
+  if (raw.displayOrder !== undefined) allowed.displayOrder = Number(raw.displayOrder) || 0;
+  if (Array.isArray(raw.choices)) {
+    allowed.choices = raw.choices.map((c: any) => ({
+      id: String(c.id || randomUUID()),
+      nameEn: String(c.nameEn || c.name || '').trim(),
+      nameAr: c.nameAr ? String(c.nameAr).trim() : undefined,
+      nameSo: c.nameSo ? String(c.nameSo).trim() : undefined,
+      name: String(c.name || c.nameEn || '').trim(),
+      priceDelta: Number.isFinite(Number(c.priceDelta)) ? Number(c.priceDelta) : 0,
+      isDefault: Boolean(c.isDefault),
+      ingredientDeltas: Array.isArray(c.ingredientDeltas) ? c.ingredientDeltas : undefined
+    }));
+  }
+  return allowed;
+}
+
 export async function handleProductOptionCreate(req: express.Request, res: express.Response) {
   const user = await authenticateTrustedUser(req, res); if (!user) return;
   const role = checkRoleAuthorization(user,['Owner','owner','Admin','admin','Manager','manager']); if(!role.authorized) return res.status(403).json({error:role.error});
   const data=req.body?.optionData||req.body||{}; const branchCheck=checkBranchAuthorization(user,data.branchId||user.branchId); if(!branchCheck.authorized||!branchCheck.targetBranchId||branchCheck.targetBranchId==='all') return res.status(403).json({error:branchCheck.error||'A concrete branchId is required.'});
   let key:string; try{key=getRequiredIdempotencyKey(req,data.idempotencyKey);}catch(e:any){return res.status(e?.statusCode||400).json({error:e?.message||'Idempotency-Key is required.'});}
   const db=getAdminDb(); const idemRef=db.collection('mutation_idempotency').doc(createHash('sha256').update(`product-option-create:${user.uid}:${key}`).digest('hex'));
-  try{const result=await db.runTransaction(async tx=>{const idem=await tx.get(idemRef);if(idem.exists)return idem.data();const ref=db.collection('product_options').doc();const now=new Date().toISOString();const outData=cleanUndefined({...data,id:ref.id,branchId:branchCheck.targetBranchId,createdBy:user.name,createdAt:now,updatedAt:now});tx.create(ref,outData);const out={status:'success',id:ref.id,option:outData,idempotencyKey:key};tx.set(idemRef,cleanUndefined({...out,createdAt:now}));return out;});return res.json(result);}catch(e:any){return res.status(e?.statusCode||500).json({error:e?.message||'Product option creation failed.'});}
+  try{const result=await db.runTransaction(async tx=>{
+    const idem=await tx.get(idemRef);if(idem.exists)return idem.data();
+    const ref=db.collection('product_options').doc();
+    const now=new Date().toISOString();
+    const sanitized = sanitizeProductOptionPayload(data);
+    const outData=cleanUndefined({
+      ...sanitized,
+      id:ref.id,
+      branchId:branchCheck.targetBranchId,
+      createdBy:user.name,
+      createdAt:now,
+      updatedAt:now
+    });
+    tx.create(ref,outData);
+    const out={status:'success',id:ref.id,option:outData,idempotencyKey:key};
+    tx.set(idemRef,cleanUndefined({...out,createdAt:now}));
+    return out;
+  });return res.json(result);}catch(e:any){return res.status(e?.statusCode||500).json({error:e?.message||'Product option creation failed.'});}
 }
 
 export async function handleProductOptionUpdate(req: express.Request, res: express.Response) {
   const user=await authenticateTrustedUser(req,res);if(!user)return;const role=checkRoleAuthorization(user,['Owner','owner','Admin','admin','Manager','manager']);if(!role.authorized)return res.status(403).json({error:role.error});
   const id=String(req.params.id||'').trim();if(!id)return res.status(400).json({error:'Product option ID is required.'});let key:string;try{key=getRequiredIdempotencyKey(req,req.body?.idempotencyKey);}catch(e:any){return res.status(e?.statusCode||400).json({error:e?.message||'Idempotency-Key is required.'});}const db=getAdminDb();const idemRef=db.collection('mutation_idempotency').doc(createHash('sha256').update(`product-option-update:${user.uid}:${id}:${key}`).digest('hex'));
-  try{const result=await db.runTransaction(async tx=>{const idem=await tx.get(idemRef);if(idem.exists)return idem.data();const ref=db.collection('product_options').doc(id);const snap=await tx.get(ref);if(!snap.exists)throw Object.assign(new Error('Product option not found.'),{statusCode:404});const data=snap.data()||{};const auth=checkBranchAuthorization(user,data.branchId||'');if(!auth.authorized)throw Object.assign(new Error(auth.error),{statusCode:403});const update={...req.body};delete update.id;delete update.branchId;delete update.idempotencyKey;update.updatedAt=new Date().toISOString();tx.update(ref,cleanUndefined(update));const out={status:'success',id,idempotencyKey:key};tx.set(idemRef,cleanUndefined({...out,createdAt:update.updatedAt}));return out;});return res.json(result);}catch(e:any){return res.status(e?.statusCode||500).json({error:e?.message||'Product option update failed.'});}
+  try{const result=await db.runTransaction(async tx=>{
+    const idem=await tx.get(idemRef);if(idem.exists)return idem.data();
+    const ref=db.collection('product_options').doc(id);
+    const snap=await tx.get(ref);if(!snap.exists)throw Object.assign(new Error('Product option not found.'),{statusCode:404});
+    const data=snap.data()||{};
+    const auth=checkBranchAuthorization(user,data.branchId||'');if(!auth.authorized)throw Object.assign(new Error(auth.error),{statusCode:403});
+    const sanitized = sanitizeProductOptionPayload(req.body || {});
+    const now = new Date().toISOString();
+    const update = cleanUndefined({
+      ...sanitized,
+      updatedAt: now
+    });
+    tx.update(ref,update);
+    const out={status:'success',id,idempotencyKey:key};
+    tx.set(idemRef,cleanUndefined({...out,createdAt:now}));
+    return out;
+  });return res.json(result);}catch(e:any){return res.status(e?.statusCode||500).json({error:e?.message||'Product option update failed.'});}
 }
 
 export async function handleProductOptionDelete(req: express.Request, res: express.Response) {
@@ -15166,7 +15309,11 @@ export async function handleGetAccountingPeriods(req: express.Request, res: expr
 
   const db = getAdminDb();
   try {
-    const snap = await db.collection('accounting_periods').get();
+    let periodsQ: any = db.collection('accounting_periods');
+    if (effectiveBranch !== 'all') {
+      periodsQ = periodsQ.where('branchId', 'in', [effectiveBranch, 'all']);
+    }
+    const snap = await periodsQ.get();
     const periods = snap.docs
       .map((d: any) => ({ id: d.id, ...(d.data() || {}) }))
       .filter((p: any) => {
@@ -15493,23 +15640,6 @@ export async function handleCreatePurchaseReturn(req: express.Request, res: expr
         throw Object.assign(new Error(`Unauthorized cross-branch purchase return: item "${itemId}" does not belong to branch "${targetBranchId}".`), { statusCode: 403 });
       }
 
-      let supRef: any = null;
-      let supSnap: any = null;
-      let supplierName = String(body.supplierName || invData?.supplier || ingData?.supplierName || 'Supplier').trim();
-      if (supplierId) {
-        supRef = db.collection('suppliers').doc(supplierId);
-        supSnap = await transaction.get(supRef);
-        if (!supSnap.exists) {
-          throw Object.assign(new Error(`Supplier "${supplierId}" not found.`), { statusCode: 404 });
-        }
-        const supData = supSnap.data() || {};
-        const supBranch = normalizeCanonicalBranchId(supData.branchId || '');
-        if (!supBranch || !areBranchesMatching(supBranch, targetBranchId)) {
-          throw Object.assign(new Error(`Unauthorized cross-branch purchase return: supplier "${supplierId}" belongs to branch "${supData.branchId}".`), { statusCode: 403 });
-        }
-        supplierName = String(supData.companyName || supData.name || supplierName);
-      }
-
       let poRef: any = null;
       let poSnap: any = null;
       let poItemUnitCost: number | null = null;
@@ -15525,9 +15655,6 @@ export async function handleCreatePurchaseReturn(req: express.Request, res: expr
           const poBranch = normalizeCanonicalBranchId(poData.branchId || '');
           if (poBranch && !areBranchesMatching(poBranch, targetBranchId)) {
             throw Object.assign(new Error(`Purchase order "${poId}" does not belong to branch "${targetBranchId}".`), { statusCode: 403 });
-          }
-          if (supplierId && poData.supplierId && String(poData.supplierId).trim() !== supplierId) {
-            throw Object.assign(new Error(`Purchase order "${poId}" belongs to supplier "${poData.supplierId}", which does not match return supplier "${supplierId}".`), { statusCode: 400 });
           }
           const poItems = Array.isArray(poData.items) ? poData.items : [];
           for (const it of poItems) {
@@ -15556,6 +15683,30 @@ export async function handleCreatePurchaseReturn(req: express.Request, res: expr
           throw Object.assign(new Error(`Purchase order "${poId}" not found.`), { statusCode: 404 });
         }
       }
+
+      const effectiveSupplierId = supplierId || (poSnap?.exists ? String(poSnap.data()?.supplierId || '').trim() : '');
+      if (!effectiveSupplierId) {
+        throw Object.assign(new Error('supplierId is required for purchase return to establish supplier linkage and post Accounts Payable credit.'), { statusCode: 400 });
+      }
+
+      if (poSnap?.exists) {
+        const poData = poSnap.data() || {};
+        if (poData.supplierId && String(poData.supplierId).trim() !== effectiveSupplierId) {
+          throw Object.assign(new Error(`Purchase order "${poId}" belongs to supplier "${poData.supplierId}", which does not match return supplier "${effectiveSupplierId}".`), { statusCode: 400 });
+        }
+      }
+
+      const supRef = db.collection('suppliers').doc(effectiveSupplierId);
+      const supSnap = await transaction.get(supRef);
+      if (!supSnap.exists) {
+        throw Object.assign(new Error(`Supplier "${effectiveSupplierId}" not found. Cannot process purchase return without valid supplier linkage.`), { statusCode: 404 });
+      }
+      const supData = supSnap.data() || {};
+      const supBranch = normalizeCanonicalBranchId(supData.branchId || '');
+      if (!supBranch || !areBranchesMatching(supBranch, targetBranchId)) {
+        throw Object.assign(new Error(`Unauthorized cross-branch purchase return: supplier "${effectiveSupplierId}" belongs to branch "${supData.branchId}".`), { statusCode: 403 });
+      }
+      const supplierName = String(supData.companyName || supData.name || body.supplierName || invData?.supplier || ingData?.supplierName || 'Supplier').trim();
 
       const isIngredient = Boolean(ingData);
       const currentQty = isIngredient
@@ -15632,7 +15783,7 @@ export async function handleCreatePurchaseReturn(req: express.Request, res: expr
         newQuantity: newQty,
         referenceId: returnRef.id,
         poId: poId || undefined,
-        supplierId: supplierId || undefined,
+        supplierId: effectiveSupplierId,
         supplierName,
         branchId: targetBranchId,
         reason: `Purchase Return (${returnNumber}): ${reason}`,
@@ -15644,7 +15795,7 @@ export async function handleCreatePurchaseReturn(req: express.Request, res: expr
         id: returnRef.id,
         returnNumber,
         poId: poId || undefined,
-        supplierId: supplierId || undefined,
+        supplierId: effectiveSupplierId,
         supplierName,
         itemId,
         itemName,
@@ -16216,8 +16367,8 @@ export async function handleGetAuditLogs(req: express.Request, res: express.Resp
       activityQ = activityQ.where('branchId', '==', effectiveBranch);
     }
     const [auditSnap, activitySnap] = await Promise.all([
-      auditQ.limit(limitCount).get(),
-      activityQ.limit(limitCount).get()
+      auditQ.orderBy('timestamp', 'desc').limit(limitCount).get(),
+      activityQ.orderBy('timestamp', 'desc').limit(limitCount).get()
     ]);
 
     const normalizeEntry = (id: string, raw: any, source: 'audit_logs' | 'activity_logs') => ({
