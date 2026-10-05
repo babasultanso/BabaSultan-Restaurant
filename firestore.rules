@@ -415,7 +415,7 @@ service cloud.firestore {
         isUserBranch(request.resource.data.get('branchId', '')) &&
         request.resource.data.get('branchId', '') == resource.data.get('branchId', '') &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'name', 'phone', 'email', 'vehicleType', 'vehicleModel', 'licensePlate',
+          'name', 'fullName', 'phone', 'phoneNumber', 'email', 'vehicleType', 'vehicleModel', 'vehicle', 'vehicleNumber', 'licensePlate', 'licenseNumber',
           'notes', 'address', 'updatedAt', 'emergencyContact', 'isActive'
         ]);
       allow delete: if isManagement() && isUserBranch(resource.data.get('branchId', ''));
@@ -475,7 +475,7 @@ service cloud.firestore {
         isUserBranch(request.resource.data.get('branchId', '')) &&
         request.resource.data.get('branchId', '') == resource.data.get('branchId', '') &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'name', 'phone', 'email', 'vehicleType', 'vehicleModel', 'licensePlate',
+          'name', 'fullName', 'phone', 'phoneNumber', 'email', 'vehicleType', 'vehicleModel', 'vehicle', 'vehicleNumber', 'licensePlate', 'licenseNumber',
           'notes', 'address', 'updatedAt', 'emergencyContact', 'isActive'
         ]);
     }

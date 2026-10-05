@@ -1,25 +1,26 @@
 import { describe, it, beforeAll, afterAll, beforeEach, expect } from 'vitest';
 import { initializeTestEnvironment, RulesTestEnvironment } from '@firebase/rules-unit-testing';
-import * as fs from 'fs';
-import * as path from 'path';
 import { doc, getDoc, setDoc, updateDoc, runTransaction } from 'firebase/firestore';
 
 let testEnv: RulesTestEnvironment;
 
 describe.skipIf(!process.env.FIRESTORE_EMULATOR_HOST)('REAL FIRESTORE EMULATOR CONCURRENCY SUITE', () => {
+  // Concurrency tests verify Firestore's real ACID transaction serialization, lock management,
+  // and atomic multi-client contention. All tests execute via withSecurityRulesDisabled().
+  // Omitting the 53KB production firestore.rules here prevents the emulator from spending
+  // 6-12s parsing and compiling the security AST in beforeAll(), resolving Windows hook timeouts.
   beforeAll(async () => {
-    const rulesPath = path.resolve(process.cwd(), 'firestore.rules');
-    const rules = fs.readFileSync(rulesPath, 'utf8');
+    const host = (process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8081').split(':')[0];
+    const port = Number((process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8081').split(':')[1]);
 
     testEnv = await initializeTestEnvironment({
       projectId: 'babasultan-real-concurrency',
       firestore: {
-        rules,
-        host: (process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8081').split(':')[0],
-        port: Number((process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8081').split(':')[1])
+        host,
+        port
       }
     });
-  });
+  }, 30000);
 
   afterAll(async () => {
     if (testEnv) {

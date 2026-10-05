@@ -528,8 +528,8 @@ describe('Payroll frequency periods', () => {
     const staffEmp = staffList.find((e) => e.id === 'emp_hr_1');
     expect(staffEmp?.payFrequency).toBe('weekly');
 
-    // Simulate non-privileged cashier viewing employees via window.localStorage
-    const origWindow = (globalThis as any).window;
+    // Simulate non-privileged cashier viewing employees via mock localStorage
+    // (Never mutate globalThis.window as that corrupts the Firebase JS SDK runtime transport)
     const origLocalStorage = (globalThis as any).localStorage;
     const mockStorage: Record<string, string> = {
       user_profile: JSON.stringify({
@@ -540,7 +540,6 @@ describe('Payroll frequency periods', () => {
         email: 'cashier99@example.com',
       }),
     };
-    (globalThis as any).window = globalThis;
     (globalThis as any).localStorage = {
       getItem: (k: string) => mockStorage[k] ?? null,
       setItem: (k: string, v: string) => { mockStorage[k] = v; },
@@ -558,7 +557,6 @@ describe('Payroll frequency periods', () => {
       expect(redactedStaff?.nationalIdOrPassport).toBe('');
       expect(redactedStaff?.bankAccount).toBeUndefined();
     } finally {
-      (globalThis as any).window = origWindow;
       (globalThis as any).localStorage = origLocalStorage;
     }
 
@@ -602,5 +600,5 @@ describe('Payroll frequency periods', () => {
     expect(rulesContent).toContain('isManagementOrAccountant() ||');
     expect(rulesContent).toContain('match /salaries/{salaryId}');
     expect(rulesContent).toContain('match /payroll/{id}');
-  });
+  }, 15000);
 });

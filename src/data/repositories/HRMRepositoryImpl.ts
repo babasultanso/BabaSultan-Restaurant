@@ -35,7 +35,7 @@ function normalizePayFrequency(value: unknown): PayFrequency {
 }
 
 function canReadSensitiveEmployeeFields(employee?: { id?: string; userId?: string; email?: string }): boolean {
-  if (typeof window === 'undefined') return true;
+  if (typeof localStorage === 'undefined') return true;
   try {
     const stored = localStorage.getItem('user_profile');
     if (!stored) return true;

@@ -18,7 +18,7 @@ export class StaffRepositoryImpl implements IStaffRepository {
       let viewerUid = '';
       let viewerEmpId = '';
       let viewerEmail = '';
-      if (typeof window !== 'undefined') {
+      if (typeof localStorage !== 'undefined') {
         try {
           const stored = localStorage.getItem('user_profile');
           if (stored) {
