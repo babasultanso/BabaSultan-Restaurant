@@ -164,6 +164,7 @@ describe('ERP GAP CLOSURE VERIFICATION SUITE', () => {
       .send({
         stockCountData: {
           branchId: 'branch_a',
+          status: 'completed',
           notes: 'End of month kitchen audit',
           items: [
             {

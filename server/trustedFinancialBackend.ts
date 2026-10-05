@@ -5088,6 +5088,14 @@ export async function handleApplyStockCount(req: express.Request, res: express.R
         return { status: 'already_adjusted', stockCountId, idempotencyKey };
       }
 
+      const countStatus = String(scData.status || '').toLowerCase().trim();
+      if (countStatus === 'draft') {
+        throw Object.assign(
+          new Error(`Cannot apply stock count "${stockCountId}" with status "draft". Stock counts must be completed or approved before inventory adjustments can be applied.`),
+          { statusCode: 400 }
+        );
+      }
+
       const timestamp = new Date().toISOString();
       const items = Array.isArray(scData.items) ? scData.items : [];
       
@@ -5098,11 +5106,16 @@ export async function handleApplyStockCount(req: express.Request, res: express.R
       const ingReads: Array<{ item: any; ref: any; snap: any; invRef: any; invSnap: any }> = [];
       for (const item of itemsToAdjust) {
         const ingId = String(item.ingredientId || item.itemId || item.id || '').trim();
-        if (!ingId) continue;
+        if (!ingId) {
+          throw Object.assign(new Error(`Stock count adjustment item is missing a valid ingredientId or itemId.`), { statusCode: 400 });
+        }
         const ingRef = db.collection('ingredients').doc(ingId);
         const ingSnap = await transaction.get(ingRef);
         const invRef = db.collection('inventory').doc(ingId);
         const invSnap = await transaction.get(invRef);
+        if (!ingSnap.exists && !invSnap.exists) {
+          throw Object.assign(new Error(`Stock count item "${item.ingredientName || item.itemName || ingId}" (${ingId}) not found in inventory or ingredients. Stock count cannot be applied.`), { statusCode: 404 });
+        }
         ingReads.push({ item, ref: ingRef, snap: ingSnap, invRef, invSnap });
       }
       const __scAccountState = ingReads.length > 0
@@ -5114,7 +5127,6 @@ export async function handleApplyStockCount(req: express.Request, res: express.R
       let totalIncreaseCost = 0;
       let adjustedItemsCount = 0;
       for (const { item, ref, snap, invRef, invSnap } of ingReads) {
-        if (!snap.exists && !invSnap.exists) continue;
         const isIngredient = snap.exists;
         const baseData = isIngredient ? (snap.data() || {}) : (invSnap.data() || {});
         const prevStock = isIngredient
@@ -5132,9 +5144,12 @@ export async function handleApplyStockCount(req: express.Request, res: express.R
         const diff = newStock - prevStock;
         if (Math.abs(diff) < 0.000001) continue;
         adjustedItemsCount += 1;
-        const unitCost = isIngredient
-          ? Number(baseData.costPerUsageUnit ?? baseData.costPerUnit ?? baseData.costPrice ?? baseData.cost ?? item.costPerUnit ?? 0)
-          : Number(baseData.costPrice ?? baseData.purchaseCost ?? baseData.cost ?? item.costPerUnit ?? 0);
+        const serverCost = isIngredient
+          ? Number(baseData.costPerUsageUnit ?? baseData.costPerUnit ?? baseData.costPrice ?? baseData.cost)
+          : Number(baseData.costPrice ?? baseData.purchaseCost ?? baseData.cost);
+        const unitCost = Number.isFinite(serverCost) && serverCost >= 0
+          ? serverCost
+          : Math.max(0, Number(item.costPerUnit || 0));
         const deltaCost = Math.abs(diff) * Math.max(0, unitCost);
         if (diff < 0) totalDecreaseCost += deltaCost;
         else if (diff > 0) totalIncreaseCost += deltaCost;
@@ -8273,8 +8288,22 @@ export async function handleReceiveGoods(req: express.Request, res: express.Resp
         ? await prepareAccountBalanceState(transaction, db, ['acc_inventory', 'acc_ap'])
         : null;
       const poSupplierId = po.supplierId ? String(po.supplierId).trim() : '';
-      const receiveSupRef = (sessionReceivedCost > 0 && poSupplierId) ? db.collection('suppliers').doc(poSupplierId) : null;
-      const receiveSupSnap = receiveSupRef ? await transaction.get(receiveSupRef) : null;
+      let receiveSupRef: any = null;
+      let receiveSupSnap: any = null;
+      if (sessionReceivedCost > 0) {
+        if (!poSupplierId) {
+          throw Object.assign(new Error(`Purchase Order #${po.poNumber || poId} has no linked supplierId. Goods receiving creating an Accounts Payable obligation requires a valid supplier.`), { statusCode: 400 });
+        }
+        receiveSupRef = db.collection('suppliers').doc(poSupplierId);
+        receiveSupSnap = await transaction.get(receiveSupRef);
+        if (!receiveSupSnap.exists) {
+          throw Object.assign(new Error(`Supplier "${poSupplierId}" for Purchase Order #${po.poNumber || poId} not found in system. Goods receiving rejected to prevent unbacked financial commitment.`), { statusCode: 404 });
+        }
+        const sData = receiveSupSnap.data() || {};
+        if (sData.status === 'inactive' || sData.isActive === false) {
+          throw Object.assign(new Error(`Supplier "${sData.name || poSupplierId}" is inactive. Goods receiving rejected.`), { statusCode: 400 });
+        }
+      }
 
       // Phase 2 (All Writes)
       transaction.update(poRef, cleanUndefined({
@@ -9227,6 +9256,11 @@ export async function handleCreatePurchaseOrder(req: express.Request, res: expre
     return res.status(400).json({ error: 'Purchase Order data is required.' });
   }
 
+  const rawSupplierId = String(poData.supplierId || poData.vendorId || '').trim();
+  if (!rawSupplierId) {
+    return res.status(400).json({ error: 'supplierId is required for purchase orders.' });
+  }
+
   const items = Array.isArray(poData.items) ? poData.items : [];
   if (items.length === 0) {
     return res.status(400).json({ error: 'Purchase Order must include at least one item.' });
@@ -9274,6 +9308,39 @@ export async function handleCreatePurchaseOrder(req: express.Request, res: expre
     const result = await db.runTransaction(async (transaction) => {
       const idemSnap = await transaction.get(idemRef);
       if (idemSnap.exists) return idemSnap.data();
+
+      // Validate supplier exists, is active, and matches branch
+      const supRef = db.collection('suppliers').doc(rawSupplierId);
+      const supSnap = await transaction.get(supRef);
+      if (!supSnap.exists) {
+        throw Object.assign(new Error(`Supplier "${rawSupplierId}" not found. Purchase order creation rejected.`), { statusCode: 404 });
+      }
+      const supData = supSnap.data() as any;
+      if (supData.status === 'inactive' || supData.isActive === false) {
+        throw Object.assign(new Error(`Supplier "${supData.name || rawSupplierId}" is inactive. Purchase orders cannot be issued to inactive suppliers.`), { statusCode: 400 });
+      }
+      const supBranch = normalizeCanonicalBranchId(supData.branchId || '');
+      if (supBranch && supBranch !== 'all' && targetBranchId !== 'all' && !areBranchesMatching(supBranch, targetBranchId)) {
+        throw Object.assign(new Error(`Unauthorized cross-branch supplier! Supplier "${rawSupplierId}" belongs to branch "${supBranch}", not target branch "${targetBranchId}".`), { statusCode: 403 });
+      }
+      const supplierName = String(supData.name || supData.companyName || poData.supplierName || 'Supplier').trim();
+
+      // Verify each item exists and matches target branch
+      for (const itm of items) {
+        const itmId = String(itm?.itemId || itm?.id || '').trim();
+        const invRef = db.collection('inventory').doc(itmId);
+        const invSnap = await transaction.get(invRef);
+        const ingRef = db.collection('ingredients').doc(itmId);
+        const ingSnap = await transaction.get(ingRef);
+        if (!invSnap.exists && !ingSnap.exists) {
+          throw Object.assign(new Error(`Item "${itm?.itemName || itmId}" (${itmId}) not found in inventory or ingredients.`), { statusCode: 404 });
+        }
+        const itemBranch = normalizeCanonicalBranchId((invSnap.exists ? (invSnap.data() as any)?.branchId : (ingSnap.data() as any)?.branchId) || '');
+        if (itemBranch && itemBranch !== 'all' && targetBranchId !== 'all' && !areBranchesMatching(itemBranch, targetBranchId)) {
+          throw Object.assign(new Error(`Unauthorized cross-branch item! Item "${itmId}" belongs to branch "${itemBranch}", not target branch "${targetBranchId}".`), { statusCode: 403 });
+        }
+      }
+
       const timestamp = new Date().toISOString();
       const newRef = db.collection('purchase_orders').doc();
       const datePart = getMogadishuDateString(timestamp).replace(/-/g, '');
@@ -9283,14 +9350,19 @@ export async function handleCreatePurchaseOrder(req: express.Request, res: expre
         : `PO-${datePart}-${uniqueSuffix}`;
       const initialStatus = poData.status === 'draft' ? 'draft' : 'pending_approval';
       const fullPo = {
-        ...poData,
         id: newRef.id,
         poNumber,
+        supplierId: rawSupplierId,
+        supplierName,
+        vendorId: rawSupplierId,
         items,
         totalAmount: computedTotalCost,
         totalCost: computedTotalCost,
         status: initialStatus,
         approvalStatus: initialStatus === 'draft' ? 'draft' : 'pending',
+        expectedDeliveryDate: poData.expectedDeliveryDate ? String(poData.expectedDeliveryDate).trim() : undefined,
+        dueDate: poData.dueDate ? String(poData.dueDate).trim() : undefined,
+        notes: poData.notes ? String(poData.notes).trim() : undefined,
         idempotencyKey,
         branchId: targetBranchId,
         createdBy: user.name,
@@ -9306,7 +9378,7 @@ export async function handleCreatePurchaseOrder(req: express.Request, res: expre
         id: newRef.id,
         poNumber,
         supplierId: fullPo.supplierId || '',
-        supplierName: fullPo.supplierName || fullPo.companyName || 'Supplier',
+        supplierName: fullPo.supplierName || 'Supplier',
         itemName: firstItem.itemName || firstItem.name || 'Purchase Order Items',
         items,
         quantity: totalQuantity,

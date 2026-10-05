@@ -186,6 +186,13 @@ describe('TRUSTED BACKEND API ENDPOINTS INTEGRATION TESTS', () => {
 
   it('4. POST /api/purchases/receive - processes goods receipt and updates inventory asset', async () => {
     const db = getAdminDb();
+    await db.collection('suppliers').doc('sup_test_1').set({
+      id: 'sup_test_1',
+      name: 'Fresh Produce Vendor',
+      outstandingBalance: 200,
+      branchId: 'main_branch_01'
+    });
+
     await db.collection('purchase_orders').doc('po_test_1').set({
       id: 'po_test_1',
       supplierId: 'sup_test_1',
