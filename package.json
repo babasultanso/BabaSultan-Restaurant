@@ -11,6 +11,7 @@
     "test": "vitest run",
     "test:unit": "vitest run --exclude 'tests/*emulator.test.ts'",
     "test:rules": "firebase emulators:exec --only firestore,storage --project babasultan-restaurant \"vitest run tests/firestore_rules_emulator.test.ts tests/storage_rules_emulator.test.ts --hookTimeout 30000 --no-file-parallelism\"",
+    "test:concurrency": "firebase emulators:exec --only firestore --project babasultan-restaurant \"vitest run tests/real_firestore_concurrency.test.ts --hookTimeout 30000\"",
     "lint": "tsc --noEmit",
     "ci:check": "npm run lint && npm run test:unit && npm run build",
     "verify:build-config": "node scripts/verify-build-config.mjs",

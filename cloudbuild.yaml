@@ -56,6 +56,8 @@ steps:
       - 'babasultan-api-sa@$PROJECT_ID.iam.gserviceaccount.com'
       - '--set-env-vars'
       - 'NODE_ENV=production,FRONTEND_URL=https://baba-sultan-restaurant.vercel.app,FIREBASE_PROJECT_ID=${_FIREBASE_PROJECT_ID}'
+      - '--set-secrets'
+      - 'GEMINI_API_KEY=GEMINI_API_KEY:latest'
 
 substitutions:
   _REGION: 'europe-west2'

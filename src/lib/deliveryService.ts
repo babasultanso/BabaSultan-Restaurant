@@ -33,15 +33,31 @@ export async function createDriver(driverData: Omit<DeliveryDriver, 'id' | 'crea
   const canonicalBranch = getCanonicalBranchId((driverData as any).branchId || (driverData as any).branch);
   const canonicalBranchName = (driverData as any).branchName || getBranchDisplayName(canonicalBranch);
 
+  const {
+    availability: _availability,
+    activeDeliveryId: _activeDeliveryId,
+    rating: _rating,
+    totalDeliveries: _totalDeliveries,
+    completedDeliveries: _completedDeliveries,
+    failedDeliveries: _failedDeliveries,
+    activeDeliveries: _activeDeliveries,
+    currentLocation: _currentLocation,
+    ...safeProfileData
+  } = driverData as any;
+
   const newDriver: DeliveryDriver = {
-    ...driverData,
+    ...safeProfileData,
     branchId: canonicalBranch,
     branchName: canonicalBranchName,
     id: newRef.id,
-    rating: driverData.rating ?? 0,
-    totalDeliveries: driverData.totalDeliveries ?? 0,
-    completedDeliveries: driverData.completedDeliveries ?? 0,
-    failedDeliveries: driverData.failedDeliveries ?? 0,
+    availability: 'available',
+    rating: 5.0,
+    totalDeliveries: 0,
+    completedDeliveries: 0,
+    failedDeliveries: 0,
+    activeDeliveries: 0,
+    activeDeliveryId: undefined,
+    currentLocation: undefined,
     createdAt: new Date().toISOString()
   };
   await setDoc(newRef, newDriver, { merge: true });

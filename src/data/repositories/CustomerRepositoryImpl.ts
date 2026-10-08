@@ -27,6 +27,27 @@ import {
 } from '../../domain/entities/customer';
 import { CustomerService } from '../../domain/services/customerService';
 
+export function canReadSensitiveCustomerFields(customer?: { id?: string; userId?: string }): boolean {
+  if (typeof localStorage === 'undefined') return true;
+  try {
+    const stored = localStorage.getItem('user_profile');
+    if (!stored) return true;
+    const u = JSON.parse(stored);
+    if (!u || typeof u !== 'object') return true;
+    const role = String(u.role || '').trim().toLowerCase();
+    if (['owner', 'admin', 'manager', 'accountant'].includes(role) || u.isOwner === true || u.isAdmin === true) {
+      return true;
+    }
+    const uid = String(u.id || u.uid || '').trim();
+    if (customer && uid && (customer.id === uid || customer.userId === uid)) {
+      return true;
+    }
+    return false;
+  } catch {
+    return true;
+  }
+}
+
 export class CustomerRepositoryImpl implements ICustomerRepository {
   // ==========================================
   // CUSTOMER CRUD
@@ -46,6 +67,10 @@ export class CustomerRepositoryImpl implements ICustomerRepository {
         })
         .map(docSnap => {
         const data = docSnap.data();
+        const canViewSensitive = canReadSensitiveCustomerFields({
+          id: docSnap.id,
+          userId: data.userId || data.authUid
+        });
         return {
           id: docSnap.id,
           fullName: data.fullName || data.name || 'Unnamed Customer',
@@ -53,21 +78,21 @@ export class CustomerRepositoryImpl implements ICustomerRepository {
           phone: data.phone || '',
           email: data.email || '',
           gender: data.gender || 'unspecified',
-          dateOfBirth: data.dateOfBirth || '',
+          dateOfBirth: canViewSensitive ? (data.dateOfBirth || '') : '',
           profilePhoto: data.profilePhoto || '',
           preferredLanguage: data.preferredLanguage || 'so',
           address: data.address || '',
           city: data.city || '',
-          notes: data.notes || '',
+          notes: canViewSensitive ? (data.notes || '') : '',
           registrationDate: data.registrationDate || data.createdAt || new Date().toISOString(),
           createdAt: data.createdAt || new Date().toISOString(),
           lastOrderDate: data.lastOrderDate || '',
           status: data.status || 'active',
           membershipLevel: data.membershipLevel || 'Bronze',
           totalOrders: data.totalOrders || 0,
-          totalSpending: data.totalSpending || data.totalSpent || 0,
-          totalSpent: data.totalSpent || data.totalSpending || 0,
-          averageOrderValue: data.averageOrderValue || 0,
+          totalSpending: canViewSensitive ? (data.totalSpending || data.totalSpent || 0) : 0,
+          totalSpent: canViewSensitive ? (data.totalSpent || data.totalSpending || 0) : 0,
+          averageOrderValue: canViewSensitive ? (data.averageOrderValue || 0) : 0,
           favoriteProducts: data.favoriteProducts || [],
           cancelledOrders: data.cancelledOrders || 0,
           refundHistoryCount: data.refundHistoryCount || 0,

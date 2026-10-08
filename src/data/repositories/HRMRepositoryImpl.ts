@@ -50,8 +50,8 @@ function canReadSensitiveEmployeeFields(employee?: { id?: string; userId?: strin
     const email = String(u.email || '').trim().toLowerCase();
     if (employee) {
       if (uid && (employee.id === uid || employee.userId === uid)) return true;
-      if (empId && employee.id === empId) return true;
-      if (email && String(employee.email || '').trim().toLowerCase() === email) return true;
+      if (uid && empId && employee.id === empId && (employee.userId === uid || !employee.userId)) return true;
+      if (uid && email && String(employee.email || '').trim().toLowerCase() === email && (employee.userId === uid || !employee.userId)) return true;
     }
     return false;
   } catch {

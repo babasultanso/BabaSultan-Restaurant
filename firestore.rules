@@ -135,7 +135,10 @@ service cloud.firestore {
          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['permissions', 'branchId', 'branch', 'isHQ'])
         ) ||
         // 3. Manager or Self-User can update profile info, BUT CANNOT touch security-critical fields
-        (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'permissions', 'status', 'isAdmin', 'isOwner', 'isHQ', 'branchId', 'branch']) &&
+        (!request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'role', 'permissions', 'status', 'isAdmin', 'isOwner', 'isHQ', 'branchId', 'branch',
+          'employeeId', 'userId', 'uid', 'authUid'
+        ]) &&
          (request.auth.uid == userId || (isManagement() && isUserBranch(resource.data.get('branchId', '')) && isUserBranch(request.resource.data.get('branchId', '')))))
       );
       allow delete: if isOwnerRole() || (isAdminRole() && isUserBranch(resource.data.get('branchId', '')) && !(resource.data.get('role', '') in ['Owner', 'owner']) && resource.data.get('isOwner', false) == false);
@@ -157,16 +160,19 @@ service cloud.firestore {
         getUserData().get('employeeId', '') == employeeId
       );
       allow create: if isManagementOrAccountant() && isUserBranch(request.resource.data.get('branchId', '')) && (
-        isHQOrAdmin() || !request.resource.data.keys().hasAny([
-          'salary', 'baseSalary', 'salaryAmount', 'payFrequency', 'bonuses', 'allowances',
-          'deductions', 'advances', 'bankAccount', 'role', 'permissions', 'isPrivileged',
-          'isHQ', 'totalSales', 'ordersCount'
-        ])
+        isHQOrAdmin() || (
+          !request.resource.data.keys().hasAny([
+            'salary', 'baseSalary', 'salaryAmount', 'payFrequency', 'bonuses', 'allowances',
+            'deductions', 'advances', 'bankAccount', 'role', 'permissions', 'isPrivileged',
+            'isHQ', 'totalSales', 'ordersCount', 'userId', 'uid', 'authUid'
+          ])
+        )
       );
       allow update: if isManagementOrAccountant() && isUserBranch(resource.data.get('branchId', '')) && isUserBranch(request.resource.data.get('branchId', '')) && (
         isHQOrAdmin() || !request.resource.data.diff(resource.data).affectedKeys().hasAny([
           'salary', 'baseSalary', 'salaryAmount', 'payFrequency', 'bonuses', 'allowances',
-          'deductions', 'advances', 'bankAccount', 'role', 'branchId', 'employeeId',
+          'deductions', 'advances', 'bankAccount', 'role', 'branchId',
+          'userId', 'employeeId', 'uid', 'authUid',
           'permissions', 'isPrivileged', 'isHQ', 'totalSales', 'ordersCount'
         ])
       );
@@ -281,8 +287,23 @@ service cloud.firestore {
 
     match /hold_orders/{holdId} {
       allow read: if isActiveUser() && isUserBranch(resource.data.get('branchId', ''));
-      allow create: if isPOSStaff() && isUserBranch(request.resource.data.get('branchId', ''));
-      allow update: if isPOSStaff() && isUserBranch(resource.data.get('branchId', '')) && isUserBranch(request.resource.data.get('branchId', '')) && request.resource.data.get('branchId', '') == resource.data.get('branchId', '');
+      allow create: if isPOSStaff() &&
+        isUserBranch(request.resource.data.get('branchId', '')) &&
+        request.resource.data.get('branchId', '') != '' &&
+        request.resource.data.keys().hasOnly([
+          'id', 'branchId', 'branch', 'tableNumber', 'tableName', 'customerName', 'customerPhone',
+          'items', 'subtotal', 'note', 'notes', 'createdAt', 'updatedAt', 'heldAt', 'heldBy',
+          'waiterId', 'userId', 'status'
+        ]) &&
+        !request.resource.data.keys().hasAny(['paidAmount', 'paymentId', 'isCompleted', 'isSettled']);
+      allow update: if isPOSStaff() &&
+        isUserBranch(resource.data.get('branchId', '')) &&
+        isUserBranch(request.resource.data.get('branchId', '')) &&
+        request.resource.data.get('branchId', '') == resource.data.get('branchId', '') &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'tableNumber', 'tableName', 'customerName', 'customerPhone', 'items', 'subtotal',
+          'note', 'notes', 'updatedAt', 'status', 'heldAt', 'heldBy', 'waiterId'
+        ]);
       allow delete: if isPOSStaff() && isUserBranch(resource.data.get('branchId', ''));
     }
 
@@ -322,6 +343,8 @@ service cloud.firestore {
 
       allow create: if isPOSStaff()
         && canAccessCustomerBranch(request.resource.data.get('branchId', ''))
+        && (!('userId' in request.resource.data) || request.resource.data.userId == '' || request.resource.data.userId == request.auth.uid || isManagement())
+        && (!('authUid' in request.resource.data) || request.resource.data.authUid == '' || request.resource.data.authUid == request.auth.uid || isManagement())
         && request.resource.data.keys().hasOnly([
           'id', 'branchId', 'name', 'phone', 'email', 'address', 'notes',
           'customerType', 'tags', 'allergies', 'dietaryPreferences',
@@ -409,7 +432,20 @@ service cloud.firestore {
     // Operations Manager Collections
     match /delivery_drivers/{driverId} {
       allow read: if isActiveUser() && (isUserBranch(resource.data.get('branchId', '')) || resource.data.get('userId', '') == request.auth.uid || resource.data.get('driverId', '') == request.auth.uid);
-      allow create: if isManagement() && isUserBranch(request.resource.data.get('branchId', ''));
+      allow create: if isManagement() &&
+        isUserBranch(request.resource.data.get('branchId', '')) &&
+        request.resource.data.keys().hasOnly([
+          'id', 'driverId', 'userId', 'branchId', 'branchName', 'branch',
+          'name', 'fullName', 'phone', 'phoneNumber', 'email',
+          'vehicleType', 'vehicleModel', 'vehicle', 'vehicleNumber', 'licensePlate', 'licenseNumber',
+          'notes', 'address', 'createdAt', 'updatedAt', 'emergencyContact', 'isActive', 'status',
+          'rating', 'totalDeliveries', 'completedDeliveries', 'failedDeliveries', 'activeDeliveries', 'availability'
+        ]) &&
+        request.resource.data.get('totalDeliveries', 0) == 0 &&
+        request.resource.data.get('completedDeliveries', 0) == 0 &&
+        request.resource.data.get('failedDeliveries', 0) == 0 &&
+        request.resource.data.get('activeDeliveries', 0) == 0 &&
+        (!('activeDeliveryId' in request.resource.data) || request.resource.data.activeDeliveryId == null);
       allow update: if isManagement() &&
         isUserBranch(resource.data.get('branchId', '')) &&
         isUserBranch(request.resource.data.get('branchId', '')) &&
@@ -452,21 +488,60 @@ service cloud.firestore {
 
     match /dining_tables/{tableId} {
       allow read: if isActiveUser() && isUserBranch(resource.data.get('branchId', ''));
-      allow create: if isPOSStaff() && isUserBranch(request.resource.data.get('branchId', ''));
-      allow update: if isPOSStaff() && isUserBranch(resource.data.get('branchId', '')) && isUserBranch(request.resource.data.get('branchId', '')) && request.resource.data.get('branchId', '') == resource.data.get('branchId', '');
+      allow create: if isPOSStaff() &&
+        isUserBranch(request.resource.data.get('branchId', '')) &&
+        request.resource.data.get('branchId', '') != '' &&
+        request.resource.data.keys().hasOnly([
+          'id', 'branchId', 'name', 'tableNumber', 'capacity', 'status', 'section',
+          'shape', 'x', 'y', 'width', 'height', 'createdAt', 'updatedAt', 'isOccupied'
+        ]);
+      allow update: if isPOSStaff() &&
+        isUserBranch(resource.data.get('branchId', '')) &&
+        isUserBranch(request.resource.data.get('branchId', '')) &&
+        request.resource.data.get('branchId', '') == resource.data.get('branchId', '') &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'name', 'tableNumber', 'capacity', 'status', 'currentOrderId', 'activeBookingSlot',
+          'bookedBy', 'section', 'shape', 'x', 'y', 'width', 'height', 'updatedAt', 'isOccupied'
+        ]);
       allow delete: if isManagement() && isUserBranch(resource.data.get('branchId', ''));
     }
 
     match /tables/{tableId} {
       allow read: if isActiveUser() && isUserBranch(resource.data.get('branchId', ''));
-      allow create: if isPOSStaff() && isUserBranch(request.resource.data.get('branchId', ''));
-      allow update: if isPOSStaff() && isUserBranch(resource.data.get('branchId', '')) && isUserBranch(request.resource.data.get('branchId', '')) && request.resource.data.get('branchId', '') == resource.data.get('branchId', '');
+      allow create: if isPOSStaff() &&
+        isUserBranch(request.resource.data.get('branchId', '')) &&
+        request.resource.data.get('branchId', '') != '' &&
+        request.resource.data.keys().hasOnly([
+          'id', 'branchId', 'name', 'tableNumber', 'capacity', 'status', 'section',
+          'shape', 'x', 'y', 'width', 'height', 'createdAt', 'updatedAt', 'isOccupied'
+        ]);
+      allow update: if isPOSStaff() &&
+        isUserBranch(resource.data.get('branchId', '')) &&
+        isUserBranch(request.resource.data.get('branchId', '')) &&
+        request.resource.data.get('branchId', '') == resource.data.get('branchId', '') &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'name', 'tableNumber', 'capacity', 'status', 'currentOrderId', 'activeBookingSlot',
+          'bookedBy', 'section', 'shape', 'x', 'y', 'width', 'height', 'updatedAt', 'isOccupied'
+        ]);
       allow delete: if isManagement() && isUserBranch(resource.data.get('branchId', ''));
     }
 
     match /drivers/{driverId} {
       allow read: if isActiveUser() && (isUserBranch(resource.data.get('branchId', '')) || resource.data.get('userId', '') == request.auth.uid || resource.data.get('driverId', '') == request.auth.uid);
-      allow create: if isManagement() && isUserBranch(request.resource.data.get('branchId', ''));
+      allow create: if isManagement() &&
+        isUserBranch(request.resource.data.get('branchId', '')) &&
+        request.resource.data.keys().hasOnly([
+          'id', 'driverId', 'userId', 'branchId', 'branchName', 'branch',
+          'name', 'fullName', 'phone', 'phoneNumber', 'email',
+          'vehicleType', 'vehicleModel', 'vehicle', 'vehicleNumber', 'licensePlate', 'licenseNumber',
+          'notes', 'address', 'createdAt', 'updatedAt', 'emergencyContact', 'isActive', 'status',
+          'rating', 'totalDeliveries', 'completedDeliveries', 'failedDeliveries', 'activeDeliveries', 'availability'
+        ]) &&
+        request.resource.data.get('totalDeliveries', 0) == 0 &&
+        request.resource.data.get('completedDeliveries', 0) == 0 &&
+        request.resource.data.get('failedDeliveries', 0) == 0 &&
+        request.resource.data.get('activeDeliveries', 0) == 0 &&
+        (!('activeDeliveryId' in request.resource.data) || request.resource.data.activeDeliveryId == null);
       allow delete: if isManagement() && isUserBranch(resource.data.get('branchId', ''));
       // Driver operational state is server-authoritative. POS users may read it,
       // but may not forge availability, location, counters, rating, or assignment state.
@@ -518,15 +593,20 @@ service cloud.firestore {
 
     match /notification_tokens/{tokenId} {
       allow read: if isActiveUser() && (
-        resource.data.userId == request.auth.uid ||
+        resource.data.get('userId', '') == request.auth.uid ||
         (isManagement() && (isHQOrOwner() || isUserBranch(resource.data.get('branchId', ''))))
       );
-      allow create: if isActiveUser() && request.resource.data.userId == request.auth.uid;
-      allow update: if isActiveUser() && resource.data.userId == request.auth.uid &&
+      allow create: if isActiveUser() &&
+        request.resource.data.userId == request.auth.uid &&
+        (request.resource.data.get('branchId', '') == '' || isUserBranch(request.resource.data.get('branchId', ''))) &&
+        request.resource.data.keys().hasOnly(['id', 'userId', 'token', 'fcmToken', 'platform', 'branchId', 'createdAt', 'updatedAt', 'lastUsed']);
+      allow update: if isActiveUser() &&
+        resource.data.get('userId', '') == request.auth.uid &&
         request.resource.data.userId == resource.data.userId &&
-        request.resource.data.get('branchId', '') == resource.data.get('branchId', '');
+        request.resource.data.get('branchId', '') == resource.data.get('branchId', '') &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['token', 'fcmToken', 'platform', 'updatedAt', 'lastUsed']);
       allow delete: if isActiveUser() && (
-        resource.data.userId == request.auth.uid ||
+        resource.data.get('userId', '') == request.auth.uid ||
         (isManagement() && (isHQOrOwner() || isUserBranch(resource.data.get('branchId', ''))))
       );
     }
@@ -537,7 +617,7 @@ service cloud.firestore {
     }
 
     match /branch_settings/{settingId} {
-      allow read: if isActiveUser() && isUserBranch(resource.data.get('branchId', ''));
+      allow read: if (isManagement() || isOwnerRole()) && isUserBranch(resource.data.get('branchId', ''));
       // Matches ROLE_PERMISSIONS: only Owner/Admin can manage branch settings.
       allow create: if isAdminRole() && isUserBranch(request.resource.data.get('branchId', ''));
       allow update: if isAdminRole() && isUserBranch(resource.data.get('branchId', '')) && isUserBranch(request.resource.data.get('branchId', '')) && request.resource.data.get('branchId', '') == resource.data.get('branchId', '');
@@ -615,7 +695,15 @@ service cloud.firestore {
         resource.data.get('recipientId', '') == request.auth.uid ||
         (isManagement() && isUserBranch(resource.data.get('branchId', '')))
       );
-      allow create: if (isPOSStaff() || isManagement()) && isUserBranch(request.resource.data.get('branchId', ''));
+      allow create: if (isPOSStaff() || isManagement()) &&
+        isUserBranch(request.resource.data.get('branchId', '')) &&
+        request.resource.data.keys().hasOnly([
+          'id', 'customerId', 'recipientId', 'branchId', 'title', 'message', 'type',
+          'read', 'isRead', 'createdAt', 'updatedAt', 'data'
+        ]) &&
+        request.resource.data.get('isRead', false) == false &&
+        request.resource.data.get('read', false) == false &&
+        !request.resource.data.keys().hasAny(['isSystem', 'isPrivileged', 'systemBroadcast', 'verifiedByAdmin']);
       allow update: if (
         isManagement() &&
         isUserBranch(resource.data.get('branchId', '')) &&
@@ -624,7 +712,7 @@ service cloud.firestore {
       ) || (
         isActiveUser() &&
         (resource.data.get('customerId', '') == request.auth.uid || resource.data.get('recipientId', '') == request.auth.uid) &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read', 'isRead', 'readAt', 'status'])
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read', 'isRead', 'readAt'])
       );
       allow delete: if isManagement() && isUserBranch(resource.data.get('branchId', ''));
     }
@@ -748,8 +836,21 @@ service cloud.firestore {
     }
     match /shifts/{id} {
       allow read: if isActiveUser() && isUserBranch(resource.data.get('branchId', ''));
-      allow create: if isManagement() && isUserBranch(request.resource.data.get('branchId', ''));
-      allow update: if isManagement() && isUserBranch(resource.data.get('branchId', '')) && isUserBranch(request.resource.data.get('branchId', '')) && request.resource.data.get('branchId', '') == resource.data.get('branchId', '');
+      allow create: if isManagement() &&
+        isUserBranch(request.resource.data.get('branchId', '')) &&
+        request.resource.data.get('branchId', '') != '' &&
+        request.resource.data.keys().hasOnly([
+          'id', 'branchId', 'branch', 'employeeId', 'employeeName', 'startTime', 'endTime',
+          'date', 'status', 'type', 'notes', 'createdAt', 'updatedAt', 'color', 'role'
+        ]);
+      allow update: if isManagement() &&
+        isUserBranch(resource.data.get('branchId', '')) &&
+        isUserBranch(request.resource.data.get('branchId', '')) &&
+        request.resource.data.get('branchId', '') == resource.data.get('branchId', '') &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'employeeId', 'employeeName', 'startTime', 'endTime', 'date', 'status', 'type',
+          'notes', 'updatedAt', 'color', 'role'
+        ]);
       allow delete: if isManagement() && isUserBranch(resource.data.get('branchId', ''));
     }
     match /payroll/{id} {

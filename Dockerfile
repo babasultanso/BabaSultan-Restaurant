@@ -24,7 +24,7 @@ ENV VITE_FIREBASE_API_KEY=$VITE_FIREBASE_API_KEY \
     VITE_API_BASE_URL=$VITE_API_BASE_URL \
     VITE_DEFAULT_LANGUAGE=$VITE_DEFAULT_LANGUAGE \
     VITE_ENABLE_RTL=$VITE_ENABLE_RTL
-RUN npm run build && npm prune --omit=dev --no-audit --no-fund && npm cache clean --force
+RUN npm run build && npm prune --omit=dev --no-audit --no-fund && npm cache clean --force && chown -R node:node /app
 ENV NODE_ENV=production
 ENV PORT=8080
 USER node

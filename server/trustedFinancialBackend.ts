@@ -11209,10 +11209,26 @@ export async function getFinancialSummaryData(
     return snap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
   }
 
-  async function fetchBranchDocs(colName: string) {
+  async function fetchBranchDocs(colName: string, dateField?: string) {
     let q: any = db.collection(colName);
     if (userBranchId && userBranchId !== 'all') {
       q = q.where('branchId', '==', userBranchId);
+    }
+    // Optimize query with date boundaries when specified, falling back gracefully to avoid unbounded all-time scans
+    if (dateField && (startDate || endDate)) {
+      try {
+        let dateQ = q;
+        if (startDate) {
+          dateQ = dateQ.where(dateField, '>=', startDate.toISOString());
+        }
+        if (endDate) {
+          dateQ = dateQ.where(dateField, '<=', endDate.toISOString());
+        }
+        const snap = await dateQ.get();
+        return snap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+      } catch {
+        // Fallback to base branch query if index or field format differs
+      }
     }
     const snap = await q.get();
     return snap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
@@ -11228,9 +11244,9 @@ export async function getFinancialSummaryData(
   });
 
   const [orders, refunds, expenses, receivables, payables, products, ingredients, rawJournalLines, journalEntries, inventoryMovements] = await Promise.all([
-    fetchBranchDocs('orders'),
-    fetchBranchDocs('refunds'),
-    fetchBranchDocs('expenses'),
+    fetchBranchDocs('orders', 'createdAt'),
+    fetchBranchDocs('refunds', 'createdAt'),
+    fetchBranchDocs('expenses', 'createdAt'),
     fetchBranchDocs('receivables'),
     fetchBranchDocs('payables'),
     fetchBranchDocs('products'),
@@ -11988,63 +12004,75 @@ export async function handleDeliveryRating(req: express.Request, res: express.Re
   const db = getAdminDb();
   try {
     const deliveryRef = db.collection('deliveries').doc(deliveryId);
-    const deliveryDoc = await deliveryRef.get();
-    if (!deliveryDoc.exists) {
-      return res.status(404).json({ error: 'Delivery order not found.' });
-    }
 
-    const deliveryData = deliveryDoc.data() || {};
-    const branchCheck = checkBranchAuthorization(user, deliveryData.branchId);
-    if (!branchCheck.authorized) {
-      return res.status(403).json({ error: branchCheck.error });
-    }
+    const result = await runTransactionWithRetry(db, async (transaction) => {
+      const deliveryDoc = await transaction.get(deliveryRef);
+      if (!deliveryDoc.exists) {
+        throw Object.assign(new Error('Delivery order not found.'), { statusCode: 404 });
+      }
 
-    // Must be in delivered state
-    if (deliveryData.status !== 'delivered') {
-      return res.status(400).json({ error: 'Cannot rate an undelivered delivery.' });
-    }
+      const deliveryData = deliveryDoc.data() || {};
+      const branchCheck = checkBranchAuthorization(user, deliveryData.branchId);
+      if (!branchCheck.authorized) {
+        throw Object.assign(new Error(branchCheck.error), { statusCode: 403 });
+      }
 
-    // Authorization: customer associated with order/delivery OR staff/management of branch
-    const isStaffOrMgmt = ['Owner', 'owner', 'Admin', 'admin', 'Manager', 'manager', 'Cashier', 'cashier', 'Staff', 'staff'].includes(user.role);
-    let isAuthorized = isStaffOrMgmt;
+      // Must be in delivered state
+      if (deliveryData.status !== 'delivered') {
+        throw Object.assign(new Error('Cannot rate an undelivered delivery.'), { statusCode: 400 });
+      }
 
-    if (!isAuthorized) {
-      if (deliveryData.customerId && (deliveryData.customerId === user.uid || deliveryData.customerId === user.idToken)) {
-        isAuthorized = true;
-      } else if (deliveryData.customerPhone && user.phone && deliveryData.customerPhone === user.phone) {
-        isAuthorized = true;
-      } else if (user.role === 'Customer' || user.role === 'customer') {
-        if (deliveryData.orderId) {
-          const orderSnap = await db.collection('orders').doc(deliveryData.orderId).get();
-          if (orderSnap.exists) {
-            const ordData = orderSnap.data() || {};
-            if (ordData.customerId === user.uid || (ordData.customerPhone && ordData.customerPhone === user.phone)) {
-              isAuthorized = true;
+      // Authorization: customer associated with order/delivery OR staff/management of branch
+      const isStaffOrMgmt = ['Owner', 'owner', 'Admin', 'admin', 'Manager', 'manager', 'Cashier', 'cashier', 'Staff', 'staff'].includes(user.role);
+      let isAuthorized = isStaffOrMgmt;
+
+      if (!isAuthorized) {
+        if (deliveryData.customerId && (deliveryData.customerId === user.uid || deliveryData.customerId === user.idToken)) {
+          isAuthorized = true;
+        } else if (deliveryData.customerPhone && user.phone && deliveryData.customerPhone === user.phone) {
+          isAuthorized = true;
+        } else if (user.role === 'Customer' || user.role === 'customer') {
+          if (deliveryData.orderId) {
+            const orderRef = db.collection('orders').doc(deliveryData.orderId);
+            const orderSnap = await transaction.get(orderRef);
+            if (orderSnap.exists) {
+              const ordData = orderSnap.data() || {};
+              if (ordData.customerId === user.uid || (ordData.customerPhone && ordData.customerPhone === user.phone)) {
+                isAuthorized = true;
+              }
             }
           }
         }
       }
-    }
 
-    if (!isAuthorized) {
-      return res.status(403).json({ error: 'Unauthorized: Only the customer who placed the order or authorized staff can rate this delivery.' });
-    }
+      if (!isAuthorized) {
+        throw Object.assign(
+          new Error('Unauthorized: Only the customer who placed the order or authorized staff can rate this delivery.'),
+          { statusCode: 403 }
+        );
+      }
 
-    // Duplicate rating prevention
-    if (deliveryData.customerRating !== undefined && deliveryData.customerRating !== null && !['Owner', 'owner', 'Admin', 'admin'].includes(user.role)) {
-      return res.status(409).json({ error: 'Delivery has already been rated.' });
-    }
+      // Duplicate rating prevention (atomic check inside transaction)
+      if (deliveryData.customerRating !== undefined && deliveryData.customerRating !== null && !['Owner', 'owner', 'Admin', 'admin'].includes(user.role)) {
+        throw Object.assign(new Error('Delivery has already been rated.'), { statusCode: 409 });
+      }
 
-    const timestamp = new Date().toISOString();
-    await deliveryRef.update({
-      customerRating: numRating,
-      customerFeedback: feedback ? String(feedback).trim() : '',
-      ratedAt: timestamp,
-      updatedAt: timestamp
+      const timestamp = new Date().toISOString();
+      transaction.update(deliveryRef, {
+        customerRating: numRating,
+        customerFeedback: feedback ? String(feedback).trim() : '',
+        ratedAt: timestamp,
+        updatedAt: timestamp
+      });
+
+      return { status: 'success' };
     });
 
-    return res.json({ status: 'success' });
+    return res.json(result);
   } catch (err: any) {
+    if (err?.statusCode) {
+      return res.status(err.statusCode).json({ error: err.message });
+    }
     console.error('Delivery Rating Error:', err?.message || err);
     return res.status(500).json({ error: err?.message || 'Delivery Rating Failed' });
   }
@@ -14234,7 +14262,11 @@ export async function handleBranchTransferApproval(req: express.Request, res: ex
 export async function handleGetBranchSettings(req: express.Request, res: express.Response) {
   const user = await authenticateTrustedUser(req, res);
   if (!user) return;
-  const roleCheck = checkRoleAuthorization(user, ['Owner', 'owner', 'Admin', 'admin']);
+  const roleCheck = checkRoleAuthorization(user, [
+    'Owner', 'owner', 'Admin', 'admin', 'Manager', 'manager',
+    'Accountant', 'accountant', 'Cashier', 'cashier', 'Staff', 'staff',
+    'Waiter', 'waiter', 'Kitchen', 'kitchen', 'Driver', 'driver'
+  ]);
   if (!roleCheck.authorized) return res.status(403).json({ error: roleCheck.error });
 
   const targetBranchId = normalizeCanonicalBranchId(String(req.query.branchId || user.branchId || '').trim());
@@ -14244,7 +14276,26 @@ export async function handleGetBranchSettings(req: express.Request, res: express
 
   try {
     const snap = await getAdminDb().collection('branch_settings').doc(targetBranchId).get();
-    return res.json(snap.exists ? { branchId: targetBranchId, ...(snap.data() || {}) } : { branchId: targetBranchId });
+    if (!snap.exists) return res.json({ branchId: targetBranchId });
+    const data = snap.data() || {};
+    const isFullMgmt = ['Owner', 'owner', 'Admin', 'admin'].includes(user.role);
+    if (isFullMgmt) {
+      return res.json({ branchId: targetBranchId, ...data });
+    }
+    // Operational Staff receive only permitted non-sensitive operational settings
+    return res.json({
+      branchId: targetBranchId,
+      restaurant: {
+        name: data.restaurant?.name || '',
+        phone: data.restaurant?.phone || '',
+        address: data.restaurant?.address || '',
+        currency: data.restaurant?.currency || 'USD'
+      },
+      tax: {
+        defaultTaxRate: data.tax?.defaultTaxRate ?? 0,
+        taxNumber: data.tax?.taxNumber || ''
+      }
+    });
   } catch (err: any) {
     return res.status(500).json({ error: err?.message || 'Failed to load branch settings.' });
   }

@@ -38,8 +38,8 @@ export class StaffRepositoryImpl implements IStaffRepository {
         const empRole = data.role || data.jobTitle || (data as any).position || 'Staff';
         const canViewSensitive = isPrivilegedViewer ||
           (viewerUid !== '' && (d.id === viewerUid || data.userId === viewerUid || data.uid === viewerUid)) ||
-          (viewerEmpId !== '' && d.id === viewerEmpId) ||
-          (viewerEmail !== '' && String(data.email || '').trim().toLowerCase() === viewerEmail);
+          (viewerUid !== '' && viewerEmpId !== '' && d.id === viewerEmpId && (data.userId === viewerUid || data.uid === viewerUid || !data.userId)) ||
+          (viewerUid !== '' && viewerEmail !== '' && String(data.email || '').trim().toLowerCase() === viewerEmail && (data.userId === viewerUid || data.uid === viewerUid || !data.userId));
         const normalizedFreq = ['daily', 'weekly', 'monthly'].includes(String(data.payFrequency || '').toLowerCase())
           ? String(data.payFrequency).toLowerCase()
           : 'monthly';

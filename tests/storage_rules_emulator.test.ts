@@ -30,7 +30,7 @@ describe.skipIf(!process.env.FIREBASE_STORAGE_EMULATOR_HOST)('FIREBASE STORAGE S
         port: Number((process.env.FIREBASE_STORAGE_EMULATOR_HOST || '127.0.0.1:9199').split(':')[1])
       }
     });
-  });
+  }, 30000);
 
   afterAll(async () => {
     if (testEnv) {
